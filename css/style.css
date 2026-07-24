@@ -55,8 +55,18 @@ body {
   font-size:52px; color:#ffd98a; letter-spacing:4px;
   text-shadow:0 4px 0 #6b3a1f, 0 8px 12px rgba(0,0,0,.6); margin:6px 0;
 }
-.title-sub { color:#c9b494; margin-bottom:30px; font-size:15px; }
+.title-sub { color:#c9b494; margin-bottom:16px; font-size:15px; }
 .title-note { color:#7a6a55; font-size:11px; margin-top:22px; }
+/* 章の選択メニュー */
+#titleChapters { margin-top:18px; }
+/* 近日公開の章＝押せない見た目（くすませる） */
+.big-btn.locked {
+  background:linear-gradient(#4a4038,#3a322b); border-color:#6b5b47; color:#b6a88f;
+  box-shadow:0 4px 0 #241d16; cursor:not-allowed;
+}
+.big-btn.locked:active { transform:none; box-shadow:0 4px 0 #241d16; }
+.big-btn .soon { display:block; font-size:12px; color:#e6b04a; margin-top:2px; letter-spacing:1px; }
+#titleStart .sm-btn { margin-top:14px; }
 
 /* ===== ストーリー ===== */
 #story { background:#0d0a08; justify-content:center; gap:14px; }

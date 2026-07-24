@@ -24,10 +24,18 @@
     <div class="title-inner">
       <div class="title-steam">♨</div>
       <h1>俺のサウナ</h1>
-      <p class="title-sub">― 夕凪湯 再建記 ―</p>
-      <button id="btnNewGame" class="big-btn">はじめから</button>
-      <button id="btnContinue" class="big-btn hidden">つづきから</button>
-      <p class="title-note">スマホ縦持ち推奨 / タップで操作</p>
+      <!-- 章の選択 -->
+      <div id="titleChapters">
+        <button id="btnChapter1" class="big-btn">夕凪湯 再建記</button>
+        <button id="btnChapter2" class="big-btn locked">独立開業編<span class="soon">（近日公開！）</span></button>
+      </div>
+      <!-- 第1章を選んだあとの「はじめから／つづきから」 -->
+      <div id="titleStart" class="hidden">
+        <p class="title-sub">― 夕凪湯 再建記 ―</p>
+        <button id="btnNewGame" class="big-btn">はじめから</button>
+        <button id="btnContinue" class="big-btn hidden">つづきから</button>
+        <button id="btnChapterBack" class="sm-btn">← 章を選ぶ</button>
+      </div>
     </div>
   </div>
 

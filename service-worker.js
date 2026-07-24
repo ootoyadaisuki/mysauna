@@ -1,5 +1,5 @@
 /* 俺のサウナ Service Worker（ネットワーク優先＝更新は常に最新、オフライン時のみキャッシュ） */
-const CACHE = 'orenosauna-v3';   // ← 版数を上げると、古いキャッシュを一掃して全ファイルを取り直す（新旧JS混在の黒画面対策）
+const CACHE = 'orenosauna-v4';   // ← 版数を上げると、古いキャッシュを一掃して全ファイルを取り直す（新旧JS混在の黒画面対策）
 const ASSETS = [
   './', './index.html', './css/style.css',
   './js/sfx.js', './js/data.js', './js/story.js', './js/game.js',

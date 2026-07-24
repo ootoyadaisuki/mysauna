@@ -2509,6 +2509,9 @@ function returnToTitle() {
     .forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   $('game-ui').classList.add('hidden');
   if (localStorage.getItem(SAVE_KEY)) $('btnContinue').classList.remove('hidden');
+  // タイトルに戻ったら、まず章の選択からやり直す
+  $('titleStart').classList.add('hidden');
+  $('titleChapters').classList.remove('hidden');
   $('title').classList.remove('hidden');
 }
 
@@ -5174,8 +5177,17 @@ function resetState() {
 
 function initUI() {
   Story.init();
-  // タイトル
+  // タイトル：章の選択 → 第1章を選ぶと「はじめから／つづきから」を出す
   if (localStorage.getItem(SAVE_KEY)) $('btnContinue').classList.remove('hidden');
+  $('btnChapter1').onclick = () => {
+    $('titleChapters').classList.add('hidden');
+    $('titleStart').classList.remove('hidden');
+  };
+  $('btnChapter2').onclick = () => toast('「独立開業編」は近日公開！　いまは第1章をどうぞ');
+  $('btnChapterBack').onclick = () => {
+    $('titleStart').classList.add('hidden');
+    $('titleChapters').classList.remove('hidden');
+  };
   $('btnNewGame').onclick = () => {
     $('title').classList.add('hidden');
     resetState();
