@@ -177,17 +177,27 @@
     </div>
   </div>
 
-  <!-- 融資（信用金庫＋ヤミ金） -->
+  <!-- 融資メニュー（作者指定の構成：銀行／ヤミ金の2セクション。各＝見出し＋説明＋[借りる][一括返済]） -->
   <div id="loanModal" class="overlay hidden">
     <div class="modal">
-      <h2>資金を借りる</h2>
-      <p id="loanInfo" class="modal-note"></p>
-      <div class="loan-actions">
-        <button id="btnBorrow" class="big-btn">300万円 借りる（受取は3日後）</button>
-        <button id="btnRepay" class="big-btn">残りを一括で返す</button>
+      <h2>融資メニュー</h2>
+      <p id="loanCash" class="modal-note"></p>
+      <div class="loan-sec">
+        <div class="loan-sec-title">🏦 銀行から借りる</div>
+        <p id="loanInfoBank" class="modal-note"></p>
+        <div class="loan-actions">
+          <button id="btnBorrow" class="big-btn">借りる</button>
+          <button id="btnRepay" class="big-btn">一括返済</button>
+        </div>
       </div>
-      <button id="btnYamiBorrow" class="big-btn danger">🩸 灰田金融から借りる…</button>
-      <button id="btnYamiRepay" class="big-btn">🩸 一括で返す</button>
+      <div class="loan-sec yami">
+        <div class="loan-sec-title">🩸 ヤミ金から借りる</div>
+        <p id="loanInfoYami" class="modal-note"></p>
+        <div class="loan-actions">
+          <button id="btnYamiBorrow" class="big-btn danger">借りる</button>
+          <button id="btnYamiRepay" class="big-btn">一括返済</button>
+        </div>
+      </div>
       <button id="btnLoanClose" class="big-btn">とじる</button>
     </div>
   </div>

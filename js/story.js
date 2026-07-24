@@ -332,6 +332,7 @@ const StoryArt = {
   bathTadokoro(ctx) { this.yunagiBath(ctx, 'tadokoro'); },
   bathKuroda(ctx)   { this.yunagiBath(ctx, 'kuroda'); },
   bathKito(ctx)     { this.yunagiBath(ctx, 'kito'); },
+  bathJoren(ctx)    { this.yunagiBath(ctx, 'joren'); },   // 白髪の常連との一幕（常連イベント用）
   yunagiBath(ctx, who) {
     const p = this.px.bind(this, ctx);
     const t = Date.now() / 1000;
@@ -406,6 +407,19 @@ const StoryArt = {
       p(rx - 6, base - 62, 7, 1.8, '#d2d2d2'); p(rx - 1, base - 62, 7, 1.8, '#d2d2d2');   // 太い白眉
       p(rx - 5, base - 59, 3, 2.5, '#2a2320'); p(rx + 2, base - 59, 3, 2.5, '#2a2320');   // 目
       p(rx - 5, base - 52, 10, 4, '#e6e6e6');                                            // 白い顎髭
+    } else if (who === 'joren') {
+      // 白髪の常連の爺さん＝桶を抱えた湯上がり姿。田所より小柄で穏やか（太眉なし・肩にタオル）
+      p(rx - 7, base - 24, 6, 24, '#4a4a52'); p(rx + 1, base - 24, 6, 24, '#4a4a52');    // 長ズボン
+      p(rx - 9, base - 43, 18, 22, '#8a7a5a');                                           // 上着（腰まで・くすんだ茶）
+      p(rx - 13, base - 41, 4, 18, '#8a7a5a'); p(rx + 9, base - 41, 4, 18, '#8a7a5a');    // 袖
+      p(rx - 12, base - 26, 3, 5, '#e6c3a6'); p(rx + 9, base - 26, 3, 5, '#e6c3a6');      // 手
+      p(rx - 8, base - 31, 16, 9, '#c9a86a'); p(rx - 8, base - 31, 16, 2, '#e0c080');     // 胸の前に抱えた桶
+      p(rx - 9, base - 45, 8, 4, '#f2ece0');                                              // 肩に掛けたタオル
+      p(rx - 8, base - 64, 16, 21, '#e6c3a6');                                            // 顔（少し小さめ）
+      p(rx - 8, base - 66, 16, 7, '#eee');                                                // 白髪
+      p(rx - 6, base - 57, 5, 1.5, '#d2d2d2'); p(rx + 1, base - 57, 5, 1.5, '#d2d2d2');   // 細い白眉
+      p(rx - 5, base - 54, 3, 2.5, '#2a2320'); p(rx + 2, base - 54, 3, 2.5, '#2a2320');   // 目
+      p(rx - 2, base - 47, 5, 1.6, '#8a5a4a');                                            // 穏やかな口元
     } else if (who === 'kuroda') {
       // 黒田＝痩身・冷静。黒髪七三・鋭い眉。仕立てのいいダークスーツ＋臙脂のネクタイ
       p(rx - 8, base - 26, 7, 26, '#20262f'); p(rx + 1, base - 26, 7, 26, '#20262f');    // 長いスラックス

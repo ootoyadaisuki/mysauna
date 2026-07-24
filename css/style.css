@@ -32,6 +32,12 @@ body {
 .big-btn:active { transform:translateY(3px); box-shadow:0 1px 0 #3d2517; }
 .big-btn.danger { background:linear-gradient(#8a3030,#6b2020); border-color:#c96a6a; box-shadow:0 4px 0 #3d1515; }
 .big-btn.danger:active { box-shadow:0 1px 0 #3d1515; }
+/* 押せないボタン＝グレー（融資の審査未達など。作者指定） */
+.big-btn:disabled {
+  background:linear-gradient(#4a4038,#3a322b); border-color:#6b5b47; color:#8f8371;
+  box-shadow:0 4px 0 #241d16; cursor:default;
+}
+.big-btn:disabled:active { transform:none; box-shadow:0 4px 0 #241d16; }
 .mika-note { color:#e6b04a; font-size:12px; }
 .sm-btn {
   font-family:inherit; font-size:14px; padding:8px 10px; color:#fff8ea;
@@ -156,21 +162,29 @@ body {
   padding:3px 4px; border-radius:3px; vertical-align:middle; letter-spacing:.5px;
 }
 .shop-item.is-new { border-color:#e8825a; }
-#shopList { display:flex; flex-direction:column; gap:6px; }
+#shopList { display:flex; flex-direction:column; gap:5px; }
+/* カタログは説明文を出さないコンパクト表示（作者指定）＝1行で名前・★・収容・価格だけ */
 .shop-item {
-  display:flex; align-items:center; gap:10px; padding:8px 10px;
+  display:flex; align-items:center; gap:8px; padding:5px 8px;
   background:#3a2f28; border:2px solid #6b5b44; border-radius:8px; cursor:pointer;
 }
 .shop-item:active { background:#4a3a2e; }
 .shop-item.locked { opacity:.45; }
-.shop-icon { width:34px; height:34px; image-rendering:pixelated; flex:none; }
-.shop-name { font-size:14px; }
+.shop-icon { width:30px; height:30px; image-rendering:pixelated; flex:none; }
+.shop-name { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .shop-desc { font-size:11px; color:#b8a888; }
+/* 未解放の設備に添える小さな錠前チップ */
+.lock-chip {
+  display:inline-block; font-size:10px; color:#e8c84a; background:#3a3020;
+  border:1px solid #6b5b44; border-radius:4px; padding:1px 5px; vertical-align:middle; white-space:nowrap;
+}
 .shop-price { margin-left:auto; font-size:13px; color:#ffd98a; white-space:nowrap; }
 
 /* 設備選択 */
 #selInfo { font-size:13px; line-height:1.7; background:#241d17; border-radius:6px; padding:8px 10px; margin-bottom:8px; }
-.sel-actions { display:flex; gap:6px; flex-wrap:wrap; }
+/* ボタン群は必ず一列（折り返して二段にしない・作者指定）。幅は均等割りで詰める */
+.sel-actions { display:flex; gap:6px; flex-wrap:nowrap; }
+.sel-actions .sm-btn { flex:1; min-width:0; padding:8px 2px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .cond-bar { display:inline-block; width:90px; height:9px; background:#1a140f; border:1px solid #6b5b44; vertical-align:middle; }
 .cond-bar i { display:block; height:100%; background:#7ac96a; }
 /* 壊れている設備の一行（修理は自動＝プレイヤーの操作はない） */
@@ -288,7 +302,12 @@ body {
   margin-top:8px; padding:8px 10px; border-radius:6px;
   background:rgba(140,30,30,.18); border:2px solid #a34a4a; color:#ffc9c0; font-size:12px; line-height:1.6;
 }
-#btnYamiBorrow, #btnYamiRepay { font-size:14px; }
+/* 融資メニューのセクション枠（銀行／ヤミ金）。ボタンは各セクション内で左右2列 */
+.loan-sec { margin:10px 0; padding:8px 10px 4px; border:2px solid #6b5b44; border-radius:8px; text-align:left; }
+.loan-sec .loan-sec-title { color:#ffd98a; font-size:15px; margin-bottom:4px; }
+.loan-sec .modal-note { margin-bottom:6px; font-size:12px; }
+.loan-sec.yami { border-color:#a34a4a; }
+.loan-sec .big-btn { font-size:13px; padding:11px 4px; white-space:nowrap; }
 
 /* データ画面 */
 #dataBody .rep-row { font-size:13px; }
