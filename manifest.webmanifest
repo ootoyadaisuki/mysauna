@@ -1,0 +1,14 @@
+{
+  "name": "俺のサウナ ―夕凪湯再建記―",
+  "short_name": "俺のサウナ",
+  "description": "倒れた親父の銭湯を継いで、自分好みのサウナ施設へ再建する経営シミュレーション。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a140f",
+  "theme_color": "#5a4436",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

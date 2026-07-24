@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>俺のサウナ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#5a4436">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="俺のサウナ">
+</head>
+<body>
+<div id="app">
+
+  <!-- タイトル画面 -->
+  <div id="title" class="overlay">
+    <div class="title-inner">
+      <div class="title-steam">♨</div>
+      <h1>俺のサウナ</h1>
+      <p class="title-sub">― 夕凪湯 再建記 ―</p>
+      <button id="btnNewGame" class="big-btn">はじめから</button>
+      <button id="btnContinue" class="big-btn hidden">つづきから</button>
+      <p class="title-note">スマホ縦持ち推奨 / タップで操作</p>
+    </div>
+  </div>
+
+  <!-- ストーリー画面 -->
+  <div id="story" class="overlay hidden">
+    <canvas id="storyArt" width="360" height="200"></canvas>
+    <div id="storyBox">
+      <div id="storySpeaker"></div>
+      <div id="storyText"></div>
+      <div id="storyNext">▼ タップで進む</div>
+    </div>
+  </div>
+
+  <!-- 屋号入力 -->
+  <div id="nameModal" class="overlay hidden">
+    <div class="modal">
+      <h2>銭湯の屋号を決めよう</h2>
+      <p class="modal-note">のれんに書く名前だ。親父の「夕凪湯」のままでもいい。</p>
+      <input id="nameInput" type="text" maxlength="10" value="夕凪湯">
+      <div class="name-suggests">
+        <button class="chip" data-name="夕凪湯">夕凪湯</button>
+        <button class="chip" data-name="サウナ夕凪">サウナ夕凪</button>
+        <button class="chip" data-name="俺のサウナ">俺のサウナ</button>
+      </div>
+      <button id="btnNameOk" class="big-btn">これでいく</button>
+    </div>
+  </div>
+
+  <!-- メインゲーム -->
+  <div id="game-ui" class="hidden">
+    <div id="topbar">
+      <span id="uiDay">1日目</span>
+      <span id="uiClock">準備中</span>
+      <span id="uiCash">¥5,000,000</span>
+      <span id="uiRep">評判 10</span>
+      <button id="btnMenu" title="メニュー">☰</button>
+    </div>
+    <div id="canvasWrap">
+      <canvas id="game"></canvas>
+      <div id="hint" class="hidden"></div>
+    </div>
+    <div id="panel">
+
+      <!-- 営業中パネル -->
+      <div id="bizPanel" class="hidden">
+        <div id="bizLog">開店！</div>
+        <div id="bizStats">客 0人 / 売上 ¥0</div>
+        <div class="biz-actions">
+          <button id="btnManageBiz" class="sm-btn">⚙ 運営</button>
+          <button id="btnDataBiz" class="sm-btn">📊 データ</button>
+          <button id="btnPause" class="sm-btn">⏸ 一時停止</button>
+          <button id="btnSpeed" class="sm-btn">▶ 速度1</button>
+        </div>
+      </div>
+
+      <!-- 準備中パネル -->
+      <div id="prepPanel" class="hidden">
+        <div class="prep-actions">
+          <button id="btnOpen" class="big-btn open-btn">🏮 営業開始</button>
+          <button id="btnManage" class="sm-btn">⚙ 運営</button>
+          <button id="btnData" class="sm-btn">📊 データ</button>
+          <button id="btnAd" class="sm-btn">📰 広告</button>
+          <button id="btnLoan" class="sm-btn">🏦 融資</button>
+        </div>
+      </div>
+
+      <!-- 設備カタログ（準備中・営業中どちらでも表示する） -->
+      <div id="shopPanel" class="hidden">
+        <div id="shopTabs"></div>
+        <div id="shopList"></div>
+      </div>
+
+      <!-- 設備選択パネル -->
+      <div id="selPanel" class="hidden">
+        <div id="selInfo"></div>
+        <div class="sel-actions">
+          <button id="btnFix" class="sm-btn">🔧 修理</button>
+          <button id="btnMove" class="sm-btn">↔ 移動</button>
+          <button id="btnSell" class="sm-btn">💸 売却</button>
+          <button id="btnSelClose" class="sm-btn">とじる</button>
+        </div>
+      </div>
+
+      <!-- 配置確認バー -->
+      <div id="confirmBar" class="hidden">
+        <span id="confirmText">場所をタップ</span>
+        <button id="btnRotate" class="sm-btn">🔄 向き</button>
+        <button id="btnPlaceOk" class="sm-btn ok">ここに置く</button>
+        <button id="btnPlaceNo" class="sm-btn">やめる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- メニュー（保存・トップ画面へ・外部リンク） -->
+  <div id="menuModal" class="overlay hidden">
+    <div class="modal">
+      <h2>☰ メニュー</h2>
+      <p id="menuInfo" class="modal-note"></p>
+      <div id="menuBody"></div>
+    </div>
+  </div>
+
+  <!-- 日報 -->
+  <div id="reportModal" class="overlay hidden">
+    <div class="modal report">
+      <h2 id="repTitle">1日目の営業結果</h2>
+      <div id="repBody"></div>
+      <button id="btnRepOk" class="big-btn">翌日の準備へ</button>
+    </div>
+  </div>
+
+  <!-- 運営メニュー -->
+  <div id="manageModal" class="overlay hidden">
+    <div class="modal manage">
+      <h2>⚙ 運営メニュー</h2>
+      <p class="modal-note">料金とサービスで、集客と経費が変わる。</p>
+      <div id="manageBody"></div>
+      <button id="btnManageClose" class="big-btn">とじる</button>
+    </div>
+  </div>
+
+  <!-- 広告 -->
+  <div id="adModal" class="overlay hidden">
+    <div class="modal">
+      <h2>広告を出す</h2>
+      <p class="modal-note">明日の客入りが増える。効果は1日だけ。</p>
+      <div id="adList"></div>
+      <button id="btnAdClose" class="big-btn">とじる</button>
+    </div>
+  </div>
+
+  <!-- データ（営業データ・客の評価・関係性の計器盤） -->
+  <div id="dataModal" class="overlay hidden">
+    <div class="modal manage">
+      <h2>📊 データ</h2>
+      <p class="modal-note">いまの夕凪湯の数字。判断に迷ったらここを見ろ。</p>
+      <div id="dataBody"></div>
+      <button id="btnDataClose" class="big-btn">とじる</button>
+    </div>
+  </div>
+
+  <!-- 融資（信用金庫＋ヤミ金） -->
+  <div id="loanModal" class="overlay hidden">
+    <div class="modal">
+      <h2>資金を借りる</h2>
+      <p id="loanInfo" class="modal-note"></p>
+      <div class="loan-actions">
+        <button id="btnBorrow" class="big-btn">300万円 借りる（受取は3日後）</button>
+        <button id="btnRepay" class="big-btn">残りを一括で返す</button>
+      </div>
+      <button id="btnYamiBorrow" class="big-btn danger">🩸 灰田金融から借りる…</button>
+      <button id="btnYamiRepay" class="big-btn">🩸 一括で返す</button>
+      <button id="btnLoanClose" class="big-btn">とじる</button>
+    </div>
+  </div>
+
+  <!-- ヤミ金「灰田金融」の取り立て -->
+  <div id="yamiModal" class="overlay hidden">
+    <div class="modal mikajime">
+      <h2 id="yamiTitle">🩸 灰田金融</h2>
+      <p id="yamiInfo" class="modal-note"></p>
+      <div id="yamiChoices"></div>
+    </div>
+  </div>
+
+  <!-- みかじめ料（ヤクザの来訪） -->
+  <div id="mikajimeModal" class="overlay hidden">
+    <div class="modal mikajime">
+      <h2 id="mikajimeTitle">🚗 黒塗りのベンツ</h2>
+      <p id="mikajimeInfo" class="modal-note"></p>
+      <div class="loan-actions">
+        <button id="btnMikaPay" class="big-btn">払う</button>
+        <button id="btnMikaRefuse" class="big-btn danger">断る</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 田所（古参常連）との一幕 -->
+  <div id="tadokoroModal" class="overlay hidden">
+    <div class="modal mikajime">
+      <h2 id="tadokoroTitle">🧓 田所源造</h2>
+      <p id="tadokoroInfo" class="modal-note"></p>
+      <div id="tadokoroChoices"></div>
+    </div>
+  </div>
+
+  <!-- 黒田修司（同級生・数字/継続）＝味方に引き込む -->
+  <div id="kurodaModal" class="overlay hidden">
+    <div class="modal mikajime">
+      <h2 id="kurodaTitle">💼 黒田修司</h2>
+      <p id="kurodaInfo" class="modal-note"></p>
+      <div id="kurodaChoices"></div>
+    </div>
+  </div>
+
+  <!-- 桐生玲奈（蒼天SPA・設備/業界）＝味方に引き込む／買収を受けると売却エンド -->
+  <div id="reinaModal" class="overlay hidden">
+    <div class="modal mikajime">
+      <h2 id="reinaTitle">❄ 桐生玲奈</h2>
+      <p id="reinaInfo" class="modal-note"></p>
+      <div id="reinaChoices"></div>
+    </div>
+  </div>
+
+  <!-- 鬼頭との決着（分岐） -->
+  <div id="kitoModal" class="overlay hidden">
+    <div class="modal mikajime">
+      <h2 id="kitoTitle">🚬 鬼頭との決着</h2>
+      <p id="kitoInfo" class="modal-note"></p>
+      <div id="kitoChoices"></div>
+    </div>
+  </div>
+
+  <!-- 求人応募（求人広告を出した翌朝、3人が面接に来る） -->
+  <div id="jobModal" class="overlay hidden">
+    <div class="modal manage">
+      <h2>🧑‍🔧 バイトの応募</h2>
+      <p class="modal-note" id="jobNote"></p>
+      <div id="jobList"></div>
+      <button id="btnJobClose" class="big-btn">見送る（とじる）</button>
+    </div>
+  </div>
+
+  <!-- スタッフ個別（給料変更・クビ）と賃上げ相談 -->
+  <div id="staffModal" class="overlay hidden">
+    <div class="modal">
+      <h2 id="staffTitle"></h2>
+      <p class="modal-note" id="staffInfo"></p>
+      <div id="staffActions"></div>
+      <button id="btnStaffClose" class="big-btn">とじる</button>
+    </div>
+  </div>
+
+</div>
+<script src="js/sfx.js"></script>
+<script src="js/data.js"></script>
+<script src="js/story.js"></script>
+<script src="js/game.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(() => {}));
+  }
+</script>
+</body>
+</html>

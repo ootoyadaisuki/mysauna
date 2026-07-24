@@ -1,0 +1,290 @@
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body { height:100%; overscroll-behavior:none; }
+body {
+  font-family:'DotGothic16', 'Hiragino Kaku Gothic ProN', sans-serif;
+  background:#2a2320; color:#f5ead8;
+  user-select:none; -webkit-user-select:none; touch-action:manipulation;
+}
+#app { height:100dvh; display:flex; flex-direction:column; max-width:520px; margin:0 auto; position:relative; }
+.hidden { display:none !important; }
+
+/* ===== オーバーレイ共通 ===== */
+.overlay {
+  position:absolute; inset:0; z-index:50;
+  background:#1c1714; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; padding:16px;
+}
+.modal {
+  background:#3a2f28; border:3px solid #c9a86a; border-radius:10px;
+  padding:20px; width:100%; max-width:400px; text-align:center;
+  box-shadow:0 8px 0 rgba(0,0,0,.4);
+}
+.modal h2 { color:#ffd98a; margin-bottom:10px; font-size:20px; }
+.modal-note { font-size:13px; color:#d8c6a8; margin-bottom:14px; line-height:1.6; }
+
+/* ===== ボタン ===== */
+.big-btn {
+  display:block; width:100%; margin:8px 0; padding:13px 10px;
+  font-family:inherit; font-size:17px; color:#fff8ea;
+  background:linear-gradient(#8a5a3a,#6b432a); border:2px solid #c9a86a;
+  border-radius:8px; box-shadow:0 4px 0 #3d2517; cursor:pointer;
+}
+.big-btn:active { transform:translateY(3px); box-shadow:0 1px 0 #3d2517; }
+.big-btn.danger { background:linear-gradient(#8a3030,#6b2020); border-color:#c96a6a; box-shadow:0 4px 0 #3d1515; }
+.big-btn.danger:active { box-shadow:0 1px 0 #3d1515; }
+.mika-note { color:#e6b04a; font-size:12px; }
+.sm-btn {
+  font-family:inherit; font-size:14px; padding:8px 10px; color:#fff8ea;
+  background:#5a4433; border:2px solid #a68656; border-radius:6px;
+  box-shadow:0 3px 0 #32241a; cursor:pointer;
+}
+.sm-btn:active { transform:translateY(2px); box-shadow:0 1px 0 #32241a; }
+.sm-btn.ok { background:#3f6b3a; border-color:#8fc97a; }
+.open-btn { background:linear-gradient(#b3402e,#8a2f20); border-color:#ffb37a; font-size:18px; }
+.chip {
+  font-family:inherit; font-size:13px; padding:6px 10px; margin:3px;
+  background:#54402f; color:#ffd98a; border:1px solid #a68656; border-radius:14px; cursor:pointer;
+}
+
+/* ===== タイトル ===== */
+#title { background:radial-gradient(ellipse at 50% 30%, #46352a, #17110d 75%); }
+.title-inner { text-align:center; width:100%; max-width:340px; }
+.title-steam { font-size:64px; animation:steam 2.2s ease-in-out infinite; }
+@keyframes steam { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+#title h1 {
+  font-size:52px; color:#ffd98a; letter-spacing:4px;
+  text-shadow:0 4px 0 #6b3a1f, 0 8px 12px rgba(0,0,0,.6); margin:6px 0;
+}
+.title-sub { color:#c9b494; margin-bottom:30px; font-size:15px; }
+.title-note { color:#7a6a55; font-size:11px; margin-top:22px; }
+
+/* ===== ストーリー ===== */
+#story { background:#0d0a08; justify-content:center; gap:14px; }
+#storyArt {
+  width:min(92vw, 420px); image-rendering:pixelated;
+  border:3px solid #6b5b44; border-radius:6px; background:#000;
+}
+#storyBox {
+  width:min(92vw, 420px); min-height:150px; background:#241d17;
+  border:3px solid #c9a86a; border-radius:8px; padding:12px 14px; position:relative;
+}
+#storySpeaker { color:#ffb37a; font-size:14px; min-height:20px; margin-bottom:6px; }
+#storyText { font-size:15px; line-height:1.9; min-height:84px; white-space:pre-wrap; }
+#storyText.narr { color:#bfae93; font-size:14px; }
+#storyNext { position:absolute; right:12px; bottom:6px; font-size:11px; color:#8a7a60; animation:steam 1.4s infinite; }
+
+/* ===== 屋号 ===== */
+#nameInput {
+  font-family:inherit; font-size:22px; text-align:center; width:100%;
+  padding:10px; margin-bottom:8px; background:#241d17; color:#ffd98a;
+  border:2px solid #c9a86a; border-radius:8px;
+}
+.name-suggests { margin-bottom:10px; }
+
+/* ===== メインUI ===== */
+#game-ui { display:flex; flex-direction:column; height:100%; }
+#topbar {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:8px 10px; background:#3a2f28; border-bottom:3px solid #c9a86a;
+  font-size:13px; gap:6px;
+}
+#topbar span { white-space:nowrap; }
+/* 右上のメニューボタン。保存・トップ画面へ・（今後）ウェブサイトの入口 */
+#btnMenu {
+  flex:none; margin-left:2px; padding:1px 8px 3px;
+  background:#5a4436; color:#ffe8c0; border:2px solid #c9a86a; border-radius:6px;
+  font-family:inherit; font-size:15px; line-height:1.2; cursor:pointer;
+}
+#btnMenu:active { background:#7a5c46; }
+#uiCash { color:#ffd98a; }
+#uiClock { color:#9fd8ff; }
+#uiRep { color:#ffb3c8; }
+
+#canvasWrap { position:relative; background:#17110d; line-height:0; }
+#game { width:100%; image-rendering:pixelated; display:block; }
+#hint {
+  position:absolute; left:8px; right:8px; bottom:8px; line-height:1.5;
+  background:rgba(20,14,10,.88); border:2px solid #c9a86a; border-radius:8px;
+  padding:8px 10px; font-size:12px; color:#ffe8c0; pointer-events:none;
+}
+
+#panel { flex:1; overflow-y:auto; background:#2a2320; padding:8px; }
+
+/* 営業中 */
+#bizLog {
+  background:#241d17; border:2px solid #6b5b44; border-radius:6px;
+  padding:8px 10px; font-size:13px; min-height:36px; margin-bottom:8px; color:#e8d8b8;
+}
+#bizStats { font-size:13px; color:#e8d8b8; margin-bottom:6px; }
+/* 運営・データ・一時停止/再開・速度は、準備中と同じく横一列に並べる（折り返さない） */
+.biz-actions { display:flex; gap:6px; align-items:stretch; }
+.biz-actions .sm-btn { flex:1; font-size:11px; padding:6px 1px; white-space:nowrap; }
+/* 営業中はログ＋カタログを両方出すので、ログ側をコンパクトに */
+#bizPanel:not(.hidden) ~ #shopPanel { margin-top:8px; border-top:1px dashed #6b5b44; padding-top:8px; }
+#bizPanel:not(.hidden) + #shopPanel #shopList { max-height:34dvh; overflow-y:auto; }
+
+/* 準備中 */
+.prep-actions { display:flex; gap:6px; margin-bottom:8px; align-items:stretch; }
+/* 「🏮 営業開始」は1行に収める（折り返すと2行になって高さが揃わない） */
+.prep-actions .open-btn { flex:1.6; margin:0; padding:8px 4px; font-size:14px; white-space:nowrap; }
+.prep-actions .sm-btn { flex:1; font-size:11px; padding:6px 1px; white-space:nowrap; }
+#shopTabs { display:flex; gap:4px; margin-bottom:6px; flex-wrap:wrap; }
+#shopTabs .tab {
+  font-family:inherit; font-size:12px; padding:6px 9px; border-radius:6px 6px 0 0;
+  background:#3a2f28; color:#c9b494; border:2px solid #6b5b44; border-bottom:none; cursor:pointer;
+}
+#shopTabs .tab.on { background:#5a4433; color:#ffd98a; border-color:#c9a86a; }
+#shopTabs .tab { position:relative; }
+/* 新しく解放された設備があるカテゴリの赤丸 */
+.new-dot {
+  position:absolute; top:-3px; right:-3px; width:9px; height:9px; border-radius:50%;
+  background:#e8402e; border:1px solid #ffd0c4; animation:newpulse 1.4s ease-in-out infinite;
+}
+@keyframes newpulse { 0%,100% { transform:scale(1); } 50% { transform:scale(1.28); } }
+.new-tag {
+  display:inline-block; background:#e8402e; color:#fff; font-size:9px; line-height:1;
+  padding:3px 4px; border-radius:3px; vertical-align:middle; letter-spacing:.5px;
+}
+.shop-item.is-new { border-color:#e8825a; }
+#shopList { display:flex; flex-direction:column; gap:6px; }
+.shop-item {
+  display:flex; align-items:center; gap:10px; padding:8px 10px;
+  background:#3a2f28; border:2px solid #6b5b44; border-radius:8px; cursor:pointer;
+}
+.shop-item:active { background:#4a3a2e; }
+.shop-item.locked { opacity:.45; }
+.shop-icon { width:34px; height:34px; image-rendering:pixelated; flex:none; }
+.shop-name { font-size:14px; }
+.shop-desc { font-size:11px; color:#b8a888; }
+.shop-price { margin-left:auto; font-size:13px; color:#ffd98a; white-space:nowrap; }
+
+/* 設備選択 */
+#selInfo { font-size:13px; line-height:1.7; background:#241d17; border-radius:6px; padding:8px 10px; margin-bottom:8px; }
+.sel-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.cond-bar { display:inline-block; width:90px; height:9px; background:#1a140f; border:1px solid #6b5b44; vertical-align:middle; }
+.cond-bar i { display:block; height:100%; background:#7ac96a; }
+/* 壊れている設備の一行（修理は自動＝プレイヤーの操作はない） */
+.broken-note { color:#ff8a6a; font-size:12px; }
+/* 「飾り」＝通路につながっていない設備の警告（設備選択パネルの先頭） */
+.dead-note {
+  display:block; margin:4px 0 6px; padding:6px 8px; border-radius:6px;
+  background:#3a221e; border:2px solid #e07a6a; color:#ff9a8a; font-size:13px; font-weight:bold;
+}
+.dead-note .shop-desc { display:block; margin-top:3px; font-weight:normal; line-height:1.6; }
+/* 収容人数チップ */
+.cap-chip {
+  display:inline-block; font-size:10px; color:#cfe8ff; background:#2b3a4a;
+  border:1px solid #4a6274; border-radius:4px; padding:1px 5px; vertical-align:middle;
+}
+/* 配置確認 */
+#confirmBar {
+  display:flex; align-items:center; gap:8px; padding:10px;
+  background:#3a2f28; border:2px solid #c9a86a; border-radius:8px; font-size:13px;
+}
+#confirmText { flex:1; }
+
+/* 日報。iPhone実機のスクロールなし1画面に収まる密度を基準（作者指定）。
+   イベントが重なった日はそれでも溢れうるので、安全弁として overflow-y:auto は残す */
+.report { text-align:left; max-height:96dvh; overflow-y:auto; padding:12px 14px; }
+.report h2 { text-align:center; font-size:17px; margin-bottom:6px; }
+/* 本日の収支＝この画面の主役。最上部に大きく */
+.rep-headline {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  margin:2px 0 8px; padding:9px 12px; border-radius:10px;
+  background:#241d17; border:3px solid #c9a86a;
+}
+.rep-headline .rh-label { font-size:12px; color:#e8dcc4; }
+.rep-headline .rh-value { font-size:22px; font-weight:bold; letter-spacing:.5px; }
+.rep-headline.plus { border-color:#7ac96a; }
+.rep-headline.plus .rh-value { color:#8fe07a; }
+.rep-headline.minus { border-color:#e07a6a; }
+.rep-headline.minus .rh-value { color:#ff9a8a; }
+/* 設備投資こみの手残り＝収支のすぐ下に、ひとまわり小さく添える */
+.rep-headline.sub { margin-top:-4px; padding:6px 12px; border-width:2px; }
+.rep-headline.sub .rh-label { font-size:11px; color:#b8a888; }
+.rep-headline.sub .rh-value { font-size:15px; }
+.rep-headline .rh-value { white-space:nowrap; }
+.rep-row { display:flex; justify-content:space-between; font-size:12.5px; padding:3px 2px; border-bottom:1px dashed #6b5b44; line-height:1.4; }
+.rep-row .v { color:#ffd98a; }
+.rep-row.minus .v { color:#ff9a8a; }
+.rep-row.total { border-bottom:none; font-size:15px; margin-top:4px; }
+/* 収入／支払いの欄見出しと、その小計行（フェーズ3：日報を2欄のP/Lに再構成） */
+.rep-sec { font-size:12px; font-weight:bold; letter-spacing:.5px; margin:9px 0 1px; padding-bottom:2px; border-bottom:1.5px solid #6b5b44; }
+.rep-sec.in { color:#8fe07a; }
+.rep-sec.out { color:#ff9a8a; }
+.rep-row.sub { border-bottom:none; font-weight:bold; padding-top:4px; }
+.rep-row.sub .v { color:#ffe6a8; }
+/* 設備投資（買い物＝経費ではない）は、支払い欄の下に色を分けて添える */
+.rep-row.capex { border-bottom:none; margin-top:2px; }
+.rep-row.capex .v { color:#c9b0ff; }
+/* 本日の手ごたえ（満足度・ととのい）＝小さくまとめる */
+.rep-feel { display:flex; gap:12px; justify-content:center; font-size:12px; color:#e8dcc4; margin:8px 0 2px; }
+.rep-feel b { color:#ffd98a; }
+/* フェーズ3改：収入・支払いの項目を枠付きチップの2列グリッドで横並びに（縦を圧縮） */
+.rep-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin:3px 0 2px; }
+.rep-chip { display:flex; flex-direction:column; justify-content:center; background:#241d17; border:1px solid #5a4a38; border-radius:6px; padding:3px 7px; min-height:34px; }
+.rep-chip .cl { font-size:10.5px; color:#b8a888; line-height:1.2; }
+.rep-chip .cv { font-size:14px; font-weight:bold; color:#ffd98a; line-height:1.25; }
+.rep-chip.minus .cv { color:#ff9a8a; }
+.rep-chip.capex .cv { color:#c9b0ff; }
+/* 合計・設備投資は横いっぱいに1枠（ラベル左・数字右） */
+.rep-chip.wide { grid-column:1 / -1; flex-direction:row; align-items:baseline; justify-content:space-between; }
+.rep-chip.total { border-color:#c9a86a; background:#2b2118; }
+.rep-chip.total .cv { color:#ffe6a8; }
+.rep-chip.wide .cl { font-size:12px; }
+.rep-voice { font-size:11px; color:#c9e8ff; background:#241d17; border-radius:6px; padding:5px 7px; margin-top:6px; line-height:1.5; }
+#reportModal { padding:6px; }
+#reportModal .big-btn { margin:8px 0 0; padding:10px; }
+
+/* 広告・融資 */
+.ad-item { display:flex; align-items:center; gap:8px; padding:9px; margin:6px 0;
+  background:#54402f; border:2px solid #a68656; border-radius:8px; font-size:13px; cursor:pointer; }
+.ad-item.done { opacity:.4; pointer-events:none; }
+.ad-item .shop-price { margin-left:auto; }
+.loan-actions { display:flex; gap:8px; }
+.loan-actions .big-btn { font-size:14px; }
+
+/* 汎用トースト */
+#toast {
+  position:absolute; top:52px; left:50%; transform:translateX(-50%); z-index:99;
+  background:rgba(30,20,12,.94); border:2px solid #ffd98a; color:#ffe8c0;
+  padding:8px 16px; border-radius:8px; font-size:13px; white-space:nowrap;
+  transition:opacity .3s; pointer-events:none;
+}
+
+/* 運営メニュー */
+.manage { text-align:left; max-height:84dvh; overflow-y:auto; }
+.manage h2 { text-align:center; }
+.opt-sec { font-size:13px; color:#ffd98a; font-weight:bold; margin:12px 0 4px; border-bottom:1px solid #6b5b44; padding-bottom:3px; }
+.opt-row { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:13px; padding:6px 2px; }
+.opt-row > span:first-child { flex:1; line-height:1.4; }
+.opt-sub { font-size:10px; color:#b8a888; }
+.opt-btn {
+  background:#54402f; border:2px solid #a68656; color:#f5ead8; border-radius:6px;
+  padding:5px 9px; font-size:12px; font-family:inherit; cursor:pointer; margin-left:4px;
+}
+.opt-btn.on { background:#c9a86a; border-color:#ffd98a; color:#2a1f16; font-weight:bold; }
+.opt-btn.toggle { min-width:44px; text-align:center; }
+.opt-row.locked { opacity:.5; }
+.opt-btn:disabled { cursor:default; opacity:.7; }
+/* 「自由」を選んだときの料金スライダー */
+.slider-row { background:rgba(201,168,106,.1); border-radius:6px; padding:8px 6px; }
+.fee-slider { display:flex; align-items:center; gap:8px; flex:1.4; }
+.fee-slider input[type=range] { flex:1; min-width:110px; accent-color:#c9a86a; }
+.fee-slider b { color:#ffd98a; min-width:62px; text-align:right; font-size:15px; }
+
+/* ヤミ金（灰田金融）の枠 */
+.yami-box {
+  margin-top:8px; padding:8px 10px; border-radius:6px;
+  background:rgba(140,30,30,.18); border:2px solid #a34a4a; color:#ffc9c0; font-size:12px; line-height:1.6;
+}
+#btnYamiBorrow, #btnYamiRepay { font-size:14px; }
+
+/* データ画面 */
+#dataBody .rep-row { font-size:13px; }
+#dataBody .rep-voice { margin-top:6px; }
+
+/* 湯温コントロール */
+.temp-ctrl { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:13px; }
+.temp-ctrl b { min-width:38px; text-align:center; color:#ffd98a; }
+.temp-band { font-size:11px; color:#9fd0ff; }
