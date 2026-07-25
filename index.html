@@ -265,7 +265,7 @@
       <h2>🧑‍🔧 バイトの応募</h2>
       <p class="modal-note" id="jobNote"></p>
       <div id="jobList"></div>
-      <button id="btnJobClose" class="big-btn">見送る（とじる）</button>
+      <button id="btnJobClose" class="big-btn">今回は見送る</button>
     </div>
   </div>
 
@@ -285,8 +285,16 @@
 <script src="js/story.js"></script>
 <script src="js/game.js"></script>
 <script>
+  /* 開発中（localhost）はキャッシュの仕組みを一切挟まない＝直したものが必ずすぐ画面に出る。
+     オフライン対応（サービスワーカー）は本番のドメインで動かす時だけ入れる */
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(() => {}));
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+      // 以前 localhost で入れてしまったサービスワーカーと、そのキャッシュを片付ける
+      navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
+      if (window.caches) caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
+    } else {
+      window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js').catch(() => {}));
+    }
   }
 </script>
 </body>

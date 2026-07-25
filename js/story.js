@@ -1022,6 +1022,15 @@ const Story = {
     }, 80);
   },
 
+  /* セリフの中の {店名} を、プレイヤーが名づけた銭湯の名前に差し替える（作者指定＝
+     親父たちは「お前の店」ではなく「たいし湯」のように、店の名前で呼ぶ）。
+     まだ名前が決まっていない時だけ「うち」で逃がす */
+  lineText(line) {
+    if (line.text.indexOf('{店名}') < 0) return line.text;
+    const nm = (typeof G !== 'undefined' && G.name) ? G.name : 'うち';
+    return line.text.replace(/\{店名\}/g, nm);
+  },
+
   showLine() {
     const scene = this.cur();
     StoryArt.draw(this.el.art.getContext('2d'), scene.art);
@@ -1033,12 +1042,13 @@ const Story = {
     clearInterval(this.typeTimer);
     this.typing = true;
     let i = 0;
+    const full = this.lineText(line);
     this.el.text.textContent = '';
     this.typeTimer = setInterval(() => {
       i++;
-      this.el.text.textContent = line.text.slice(0, i);
+      this.el.text.textContent = full.slice(0, i);
       if (i % 3 === 1) Sfx.play('talk');     // 1文字ずつではうるさいので3文字に1回＝「ピピピピ」
-      if (i >= line.text.length) { clearInterval(this.typeTimer); this.typing = false; }
+      if (i >= full.length) { clearInterval(this.typeTimer); this.typing = false; }
     }, 28);
   },
 
@@ -1047,7 +1057,7 @@ const Story = {
     const line = this.cur().lines[this.lineIdx];
     if (this.typing) {                      // 表示中なら全文表示
       clearInterval(this.typeTimer); this.typing = false;
-      this.el.text.textContent = line.text;
+      this.el.text.textContent = this.lineText(line);
       return;
     }
     this.lineIdx++;

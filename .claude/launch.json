@@ -4,7 +4,7 @@
     {
       "name": "oreno-sauna",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8765", "-d", "/Users/papa/Dev/oreno-sauna"],
+      "runtimeArgs": ["/Users/papa/Dev/oreno-sauna/dev-server.py", "8765"],
       "port": 8765
     }
   ]

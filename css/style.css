@@ -163,7 +163,7 @@ body {
 }
 .shop-item.is-new { border-color:#e8825a; }
 #shopList { display:flex; flex-direction:column; gap:5px; }
-/* カタログは説明文を出さないコンパクト表示（作者指定）＝1行で名前・★・収容・価格だけ */
+/* カタログは名前＋収容＋価格に、下段の一行説明だけを添えたコンパクト表示（作者指定） */
 .shop-item {
   display:flex; align-items:center; gap:8px; padding:5px 8px;
   background:#3a2f28; border:2px solid #6b5b44; border-radius:8px; cursor:pointer;
@@ -171,7 +171,14 @@ body {
 .shop-item:active { background:#4a3a2e; }
 .shop-item.locked { opacity:.45; }
 .shop-icon { width:30px; height:30px; image-rendering:pixelated; flex:none; }
+/* 名前と一行説明を積む箱。min-width:0 が無いと flex 内で省略（…）が効かない */
+.shop-body { flex:1; min-width:0; }
 .shop-name { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* 名前の下の一行説明。必ず1行に収める＝はみ出したら … で切る */
+.shop-note {
+  font-size:10.5px; color:#e8c84a; line-height:1.3; margin-top:1px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
 .shop-desc { font-size:11px; color:#b8a888; }
 /* 未解放の設備に添える小さな錠前チップ */
 .lock-chip {
@@ -264,6 +271,11 @@ body {
 .ad-item { display:flex; align-items:center; gap:8px; padding:9px; margin:6px 0;
   background:#54402f; border:2px solid #a68656; border-radius:8px; font-size:13px; cursor:pointer; }
 .ad-item.done { opacity:.4; pointer-events:none; }
+/* 広告の名前と説明は左詰め（親のモーダルが中央寄せなので、ここで上書きする） */
+.ad-item > div { flex:1; min-width:0; text-align:left; }
+/* 黒田の口利きで値引き中のアイテムは、カタログで赤く目立たせる */
+.kuroda-off { display:inline-block; font-size:10px; color:#ff6a5a; font-weight:bold; line-height:1.2; }
+.price-was  { font-size:10px; color:#9a9088; text-decoration:line-through; }
 .ad-item .shop-price { margin-left:auto; }
 .loan-actions { display:flex; gap:8px; }
 .loan-actions .big-btn { font-size:14px; }
