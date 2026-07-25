@@ -131,6 +131,8 @@ body {
   background:#241d17; border:2px solid #6b5b44; border-radius:6px;
   padding:8px 10px; font-size:13px; min-height:36px; margin-bottom:8px; color:#e8d8b8;
 }
+/* 営業中のお知らせ欄に流れる「客の不満」＝赤文字で目立たせる（見逃すと評判に効く） */
+.log-gripe { color:#ff7a6a; font-weight:bold; }
 #bizStats { font-size:13px; color:#e8d8b8; margin-bottom:6px; }
 /* 運営・データ・一時停止/再開・速度は、準備中と同じく横一列に並べる（折り返さない） */
 .biz-actions { display:flex; gap:6px; align-items:stretch; }

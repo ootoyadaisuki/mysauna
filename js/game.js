@@ -397,6 +397,13 @@ function hasWorking(id) { return G.equip.some(e => e.id === id && e.cond > 0); }
 /* 熱波師が店にいるか（フェーズ3：フィンランド式サウナ設置＋黒田クリアで黒田が紹介。獲得処理はバッチ4で実装） */
 function nappaOn() { return !!(G.nappa && G.nappa.hired); }
 /* 置くだけで効く設備（洗面所・体重計・テレビ・冷水機…）を種類ごとに1つだけ数える */
+/* 小綺麗に見せる備品（観葉植物など）は、汚れの出かたを少し抑える。
+   置いた台数ぶん効くが、効きすぎると掃除が要らなくなるので5割で打ち止め */
+function cleanFactor() {
+  let cut = 0;
+  for (const e of G.equip) { const d = EQ[e.id]; if (d.clean && e.cond > 0) cut += d.clean; }
+  return Math.max(0.5, 1 - cut);
+}
 function passiveEquips() {
   const seen = {}, out = [];
   for (const e of G.equip) {
@@ -482,9 +489,16 @@ function lockersFull() { return lockersInUse() >= lockerCapacity(); }
 /* 「放置された汚れ」の数＝落ちてから一定時間たった汚れだけを数える。
    「汚い店」の判定はこれを使う＝落ちた直後の汚れで客が怒らないように（作者指摘で緩和）。
    前日から持ち越した汚れ（tなし・時刻が今日より大きい）は問答無用で放置扱い */
-function oldDirtCount() {
-  return G.dirts.filter(d => d.t == null || d.t > G.minutes || G.minutes - d.t >= CONF.dirtOldMin).length;
+/* 汚れの濃さを数える（作者指定の2段階）。
+   薄い＝落ちたばかり／濃い＝dirtOldMin ぶん放置され、こびり付いたもの。
+   t が無い・未来の汚れ（前日からの持ち越し）は最初から濃い扱い */
+function isThickDirt(d) { return d.t == null || d.t > G.minutes || G.minutes - d.t >= CONF.dirtOldMin; }
+function dirtCounts() {
+  let thin = 0, thick = 0;
+  for (const d of G.dirts) { if (isThickDirt(d)) thick++; else thin++; }
+  return { thin, thick, total: thin + thick };
 }
+function oldDirtCount() { return dirtCounts().thick; }
 
 /* ============ エンティティ ============ */
 function makeEntity(x, y, spd) {
@@ -505,16 +519,30 @@ function stepMove(e, dt) {
   e.walkPx = (e.walkPx || 0) + step;      // 歩かされた距離＝動線の悪さの目安（客の不満の判定に使う）
   return false;
 }
-function bubble(e, text, dur) { e.bub = { text, t: dur || 3.4 }; }   // 吹き出しは実時間で消える。読める長さに
+/* その客が「今なにをしているか」の指紋。これが変わったら吹き出しは場違いになるので消す。
+   （番台で「やってる？」と言った客が、そのまま浴槽やサウナまで持ち歩いてしまうのを防ぐ） */
+function bubKey(e) {
+  if (e.kind !== 'cust') return '';
+  return `${e.state}|${e.use && e.use.item ? e.use.item.id : ''}|${e.mode || ''}`;
+}
+/* 吹き出しは「実時間で読める長さ」と「ゲーム内で居座らない長さ」の両方で切る。
+   実時間だけで管理すると、速度MAX（16分/秒）では3.4秒＝ゲーム内54分。
+   その間に客は番台→脱衣所→浴室→サウナまで歩き、セリフだけが頭に残る（作者報告のバグ） */
+const BUB_GAME_MIN = 20;                                             // 吹き出しが持つゲーム内の分数
+function bubble(e, text, dur) { e.bub = { text, t: dur || 3.4, gm: BUB_GAME_MIN, key: bubKey(e) }; }
 // 運営メニューで直せる不満は赤枠で長めに出す＝プレイヤーへの改善サイン
-function hintBubble(e, text) { e.bub = { text, t: 5.0, hint: true }; }
+function hintBubble(e, text) {
+  e.bub = { text, t: 5.0, gm: BUB_GAME_MIN * 1.5, hint: true, key: bubKey(e) };
+  // 赤枠の吹き出し＝運営で直せる不満。画面直下のお知らせ欄にも赤文字で流す
+  if (e.kind === 'cust' && e.type) logGripe(e.type.name, text);
+}
 /* 「そこまで歩いて行けない」＝設備で通路を塞いでいる時の赤い吹き出し。
    不満（！）とは別の印（⚠）にしてある。運営メニューでは直せず、配置を直すしかない問題なので。
    同じ相手が延々と喋り続けないよう、6秒に1回までに絞る */
 function stuckBubble(e, text) {
   if (e.stuckCd > 0) return;
   e.stuckCd = 6.0;
-  e.bub = { text, t: 5.0, hint: true, stuck: true };
+  e.bub = { text, t: 5.0, gm: BUB_GAME_MIN * 1.5, hint: true, stuck: true, key: bubKey(e) };
   if (!G.stuckLogged) { G.stuckLogged = true; log(`⚠ ${text}（通路が塞がっている）`); }
 }
 // 設備名つきで「たどり着けない」と言わせる
@@ -523,7 +551,10 @@ function stuckAt(e, name) { stuckBubble(e, `${name}にたどり着けない`); }
 /* ---- 客 ---- */
 /* 子供料金の許容ライン＝大人料金と連動（作者指定で厳しく）。
    大人¥600なら¥100・¥700なら¥200・¥800なら¥300まで。これを超えると家族連れが来なくなる */
-function kidFeeCap() { return clamp((G.opts.fee || 0) - 500, KID_FEES[0], KID_FEES[KID_FEES.length - 1]); }
+/* 子供料金の上限は「大人料金の目安（worthFee）」に連動させる（作者指定）。
+   自分で付けた大人料金に連動させると「大人を高くすれば子供も高くできる」という抜け道になる。
+   施設が充実して目安が上がったぶんだけ、子供料金も上げられる、が正しい */
+function kidFeeCap() { return clamp(worthFee() - 500, KID_FEES[0], KID_FEES[KID_FEES.length - 1]); }
 function kidFeeOK() { return (G.opts.kidFee || KID_FEES[0]) <= kidFeeCap(); }
 let custId = 0;
 /* forceKey を渡すと、その客タイプで1人だけ湧かせる（親のあとに続く子ども用） */
@@ -805,26 +836,31 @@ function finishUse(c) {
     const near = G.dirts.filter(p => Math.abs(p.x - c.use.approach.x) <= 2 && Math.abs(p.y - c.use.approach.y) <= 2).length;
     if (near > 0) { c.sat -= Math.min(near * 2, 6); c.dirtHits++; gripe('dirty'); if (Math.random() < .4) bubble(c, pick(LINES.dirty)); }
   }
-  /* 「放置された汚れ」が一定数を超えたら、使った設備の近くかどうかに関係なく「汚い店」になる（作者指定）。
-     判定は客ひとりにつき一度だけ＝ちょうど半分の客が口に出す。
-     落ちてすぐの汚れは数えない＝バイトを置いてこまめに掃除している店が「汚い」と言われないように（作者指摘で緩和）。
-     これが無かった頃は、汚れを一日中ためたままでも普通に経営できてしまっていた */
-  if (oldDirtCount() >= CONF.dirtAngryN && !c.dirtAngry) {
+  /* 店ぜんたいの汚れ具合。使った設備の近くかどうかに関係なく効く。判定は客ひとりにつき一度だけ。
+     ・薄いのが3つ以上 → 小さな不満（一部の客が漏らす。満足度は少しだけ落ちる）
+     ・濃いのが3つ以上 → 大きな不満（全員が口に出し、満足度がごっそり落ちる）
+     こまめに掃除していれば汚れは濃くならない＝バイトを置く価値がここで効く（作者指定） */
+  const dc = dirtCounts();
+  if (dc.thick >= CONF.dirtAngryN && !c.dirtAngry) {
     c.dirtAngry = true;
     if (Math.random() < CONF.dirtAngryRate) {
       c.sat -= CONF.dirtAngryHit;
       gripe('dirty');
-      const line = pick(LINES.dirty);
+      const line = pick(LINES.dirtyBad);
       hintBubble(c, line);
       if (G.today.voices.length < 6) G.today.voices.push(`⚠ ${c.type.name}「${line}」`);
     }
+  } else if (dc.total >= CONF.dirtThinN && !c.dirtAnnoy) {
+    c.dirtAnnoy = true;
+    c.sat -= CONF.dirtThinHit;
+    if (Math.random() < CONF.dirtThinRate) { gripe('dirty'); bubble(c, pick(LINES.dirty)); }
   }
   // セリフ
   if (!c.bub) {
     if (cat === 'furo') {
       if (def.old) bubble(c, pick(LINES.bathOld));
-      else if (c.tempReact === 'hot') { gripe('temp'); bubble(c, pick(LINES.furoHot)); }
-      else if (c.tempReact === 'nuru') { gripe('temp'); bubble(c, pick(LINES.furoNuru)); }
+      else if (c.tempReact === 'hot') { gripe('temp'); gripeBubble(c, pick(LINES.furoHot), 'temp'); }
+      else if (c.tempReact === 'nuru') { gripe('temp'); gripeBubble(c, pick(LINES.furoNuru), 'temp'); }
       else if (item.id === 'bath2') bubble(c, pick(LINES.bathHinoki));
       else bubble(c, pick(LINES.furoAtsu));
     }
@@ -833,13 +869,13 @@ function finishUse(c) {
       if (def.gentle) bubble(c, pick(item.id === 'sauna_shio' ? LINES.saunaShio : LINES.saunaMist));
       else if (item.id === 'sauna2' && (item.temp ?? def.temp) >= 100 && c.tempReact !== 'atsusa') bubble(c, pick(LINES.saunaSuper));
       else if (c.tempReact === 'gekinetsu') bubble(c, pick(LINES.saunaHot));
-      else if (c.tempReact === 'atsusa') { gripe('temp'); bubble(c, pick(LINES.saunaTooHot)); }
-      else if (c.tempReact === 'nurusa') { gripe('temp'); bubble(c, pick(LINES.saunaNuru)); }
+      else if (c.tempReact === 'atsusa') { gripe('temp'); gripeBubble(c, pick(LINES.saunaTooHot), 'temp'); }
+      else if (c.tempReact === 'nurusa') { gripe('temp'); gripeBubble(c, pick(LINES.saunaNuru), 'temp'); }
       else bubble(c, pick(LINES.saunaGood));
     }
     else if (cat === 'mizu') {
       if (c.tempReact === 'kinkin') bubble(c, pick(LINES.mizuKinkin));
-      else if (c.tempReact === 'nurui') { gripe('temp'); bubble(c, pick(LINES.mizuNurui)); }
+      else if (c.tempReact === 'nurui') { gripe('temp'); gripeBubble(c, pick(LINES.mizuNurui), 'temp'); }
       else bubble(c, pick(LINES.mizuGood));
     }
     else if (cat === 'wash') bubble(c, pick(def.old ? LINES.washOld : LINES.washGood));
@@ -875,7 +911,7 @@ function finishUse(c) {
   }
   // 子どもは湯をはねさせ、走り回る＝浴室が汚れやすい（作者指定）
   if ((cat === 'furo' || cat === 'wash' || cat === 'sauna')
-      && Math.random() < (c.isChild ? CONF.dirtChanceKid : CONF.dirtChance) && G.dirts.length < CONF.dirtMax) {
+      && Math.random() < (c.isChild ? CONF.dirtChanceKid : CONF.dirtChance) * cleanFactor() && G.dirts.length < CONF.dirtMax) {
     /* 汚れが落ちるのは「掃除しに行けるマス」だけ。しかも1マスに1つまで。
        壁際などで誰もたどり着けないマスに落ちると、主人公もバイトも一生掃除できず、
        汚れが上限まで溜まったまま店が永久に「汚い店」になる（実測で発生した） */
@@ -1058,7 +1094,10 @@ function facilityParts(condFloor) {
   if (G.opts.towel === 'free') system += 4;
   if (G.opts.tebura && G.opts.towel !== 'free') system += 4;   // 手ぶらで来られる＝立派な充実
   for (const id of passiveEquips()) system += EQ[id].pas.score || 2;
-  const dirt = -Math.min(G.dirts.length * 0.6, 12);   // 汚れていると台無し（フェーズ2で下げ幅6→12に強化）
+  /* 汚れていると台無し。薄い汚れは軽く、放置してこびり付いた濃い汚れは重く効く（作者指定＝罰を厳しく）。
+     こまめに掃除していれば濃い汚れは出ないので、ここが重くても掃除さえすれば痛くない */
+  const dcf = dirtCounts();
+  const dirt = -Math.min(dcf.thin * 0.4 + dcf.thick * 2.5, 25);
   return { equip, variety, system, dirt, total: Math.max(0, equip + variety + system + dirt) };
 }
 function facilityScore(condFloor) { return facilityParts(condFloor).total; }   // 目安: 初日10前後 〜 充実で70超
@@ -1080,14 +1119,22 @@ function repFacilityParts() {
     aiso = (a - 2.5) * 2;
   }
   const feePen = -feeGripe() * 8;                                            // 設備に見合わない高い料金は格を下げる
-  return { equip: fp.equip, variety: fp.variety, system: fp.system + ban, oldPen, aiso, feePen,
-           total: fp.equip + fp.variety + fp.system + ban + oldPen + aiso + feePen };
+  const yakuzaPen = kitoAccepted() ? -KITO_ACCEPT_PEN : 0;                   // 彼らを受け入れた店、という街の評価
+  return { equip: fp.equip, variety: fp.variety, system: fp.system + ban, oldPen, aiso, feePen, yakuzaPen,
+           total: fp.equip + fp.variety + fp.system + ban + oldPen + aiso + feePen + yakuzaPen };
 }
 function repFacility() { return repFacilityParts().total; }
+/* 充実度（repFacility）を、0〜100の「店の格」に変換する。
+   以前は ×1.2 の素の比例だったが、それだと鬼頭編の途中で格が100に張り付いてしまった（作者報告）。
+   序盤の伸びはそのままに、投資が積み上がる中盤以降だけを圧縮する曲線に変える＝実感としては「伸びが半分」。
+   狙い（作者指定）：黒田ミッションをクリアする頃＝設備がそこそこ揃った時点で、評判60あたり。
+     充実度 10→11 ／ 25→24 ／ 50→43 ／ 90→63 ／ 130→76 ／ 200→89（100には漸近するだけで届かない） */
+const GRADE_SCALE = 90;
+function gradeFromFacility(total) { return 100 * (1 - Math.exp(-Math.max(0, total) / GRADE_SCALE)); }
 /* 評判の天井。故障や日々の消耗で格がギザギザ動くと評判が理不尽に上下するので、直近5日の平均でならす */
 function repCeiling() {
   if (!Array.isArray(G.ceilHist)) G.ceilHist = [];
-  G.ceilHist.push(clamp(repFacility() * 1.2, 3, 100));
+  G.ceilHist.push(clamp(gradeFromFacility(repFacility()), 3, 100));
   if (G.ceilHist.length > 5) G.ceilHist.shift();
   return G.ceilHist.reduce((a, b) => a + b, 0) / G.ceilHist.length;
 }
@@ -1100,22 +1147,11 @@ function gradePts(id) {
   return 0;
 }
 
-/* 評判の上限＝ミッションのクリア状況で解放される（作者指定）。
-   田所クリアで40／鬼頭クリアで55／黒田クリアで70／玲奈クリアで100（最大値）。
-   ※上限の存在も理由も、プレイヤーには見せない（作者指定） */
-function repCap() {
-  if (!(G.solved && G.solved.tadokoro)) return 30;
-  if (!(G.solved && G.solved.yakuza)) return 40;
-  if (!(G.solved && G.solved.kuroda)) return 55;
-  if (!(G.solved && G.solved.reina)) return 70;
-  return 100;
-}
-/* 評判を上げる時は必ずここを通す。上限は「上へ行くのを止める」だけで、既に上限を超えている値は下げない
-   （お断りを一度オフにしても、積み上げた評判が一瞬で溶けるのは理不尽なため） */
-function addRep(d) {
-  if (d >= 0) G.rep = clamp(G.rep + d, 0, Math.max(G.rep, repCap()));
-  else G.rep = clamp(G.rep + d, 0, 100);
-}
+/* 【廃止】ミッションのクリア状況による評判の上限（30/40/55/70/100）。
+   旧方式で「何もしなくても評判が上がる」のを無理やり押さえるための仕掛けだったが、
+   天井＋速度方式では店の格そのものが天井になるので不要。むしろ
+   「設備を入れたのに評判が動かない」という不可解な壁になっていたので撤廃した（作者指定）。 */
+function addRep(d) { G.rep = clamp(G.rep + d, 0, 100); }
 
 /* その種類の湯温が何段階に分かれているか（1種類だけ=0／熱いのとぬるいの=1…）。
    90℃派と110℃派、キンキン派とぬるめ派の両方に応えられているかの指標。
@@ -1355,7 +1391,12 @@ function customerLeave(c) {
   }
   // 帰り際の一言。ヒントの吹き出しが出ている時は上書きしない（赤枠を消さない）
   if (c.sat >= 70) { if (!c.bub) bubble(c, pick(LINES.leaveGood)); if (G.today.voices.length < 6 && Math.random() < .4) G.today.voices.push(`${c.type.name}「${pick(LINES.leaveGood)}」`); }
-  else if (c.sat < 45) { if (!c.bub) bubble(c, pick(LINES.leaveBad)); if (G.today.voices.length < 6 && Math.random() < .5) G.today.voices.push(`${c.type.name}「${pick(LINES.leaveBad)}」`); }
+  else if (c.sat < 45) {
+    const bad = pick(LINES.leaveBad);
+    if (!c.bub) bubble(c, bad);
+    logGripe(c.type.name, bad, 'leaveBad');                              // 不満顔で帰った客は赤文字で知らせる
+    if (G.today.voices.length < 6 && Math.random() < .5) G.today.voices.push(`${c.type.name}「${bad}」`);
+  }
   c.state = 'toExit';
   walkToExit(c);
 }
@@ -2050,6 +2091,9 @@ function refuseMikajime() {
 /* ============ ボス「鬼頭」との決着（分岐） ============ */
 /* ※セリフは叩き台＝作者リライト前提 */
 const KITO_PAYOFF = 5000000;   // 大金で手を切る一括額（500万円）
+/* 「札を下ろして受け入れる」結末を選んだ店に乗る、店の格への固定ペナルティ（作者指定）。
+   -30 は「投票対決（評判65）には事実上届かない」重さ＝物語は進むが第1章はクリアできない道 */
+const KITO_ACCEPT_PEN = 30;
 const KITO_OUT = {
   payoff: {
     title: '💴 金で、縁を切った',
@@ -2130,15 +2174,39 @@ function openKitoThanks() {
     `「……札、下ろしたんだってな。」<br><br>` +
     `鬼頭は番台に小銭を置き、少しだけ目を伏せた。<br><br>` +
     `「<b>ありがとな。もう悪いことはしねえよ。</b>」<br><br>` +
-    `<span class="mika-note">ヤクザを受け入れる限り、みかじめの要求は止まる。ただし一般客は強面の客を怖がり、満足度が伸びない</span>`;
+    `鬼頭は湯気の向こうへ消えていった。みかじめの話は、二度と出なかった。<br><br>` +
+    `<span class="mika-note">これで鬼頭とのけじめは付いた。もう札は掲げられない（受け入れると約束したのだから）。` +
+    `代わりに、この店は「そういう店」として街に知られる ——<b>店の格 -${KITO_ACCEPT_PEN}</b></span>`;
   const box = $('kitoChoices'); box.innerHTML = '';
   const b = document.createElement('button');
   b.className = 'big-btn';
-  b.innerHTML = `…ゆっくりしていってくれ<br><span class="opt-sub">とじる</span>`;
-  b.onclick = () => { $('kitoModal').classList.add('hidden'); dismissVisitor(); saveGame(); };
+  b.innerHTML = `…ゆっくりしていってくれ<br><span class="opt-sub">これも、ひとつの終わらせ方だ</span>`;
+  b.onclick = () => {
+    $('kitoModal').classList.add('hidden');
+    resolveKitoByAccept();
+    dismissVisitor(); saveGame();
+  };
   box.appendChild(b);
   $('kitoModal').classList.remove('hidden');
 }
+
+/* 【第3の結末】札を下ろして彼らを受け入れる（作者指定＝案a）。
+   鬼頭との縁は切れないが、けじめは付いた扱いにする＝物語は先へ進み、黒田編が始まる。
+   ただし代償は重い。強面の客が出入りする店として街に知れ渡り、店の格が -30 される。
+   これは事実上「投票対決（評判65）には届かない」＝第1章はクリアできない道。
+   抜け道を塞ぐため、以後「刺青・ヤクザお断り」は掲げられない（受け入れると約束したのだから）。 */
+function resolveKitoByAccept() {
+  const k = G.kito; if (!k || k.resolved) return;
+  k.resolved = true;
+  k.endedBy = 'accept';
+  k.ally = false;                              // 集金には来ない＝みかじめの取り立ては完全に終わる
+  if (G.solved) G.solved.yakuza = true;
+  G.opts.banYakuza = false;
+  log('🚬 鬼頭と和解した。もう取り立ては来ない。だが、この店は「そういう店」になった');
+  toast('🚬 けじめは付いた。だが街の目は冷たい（店の格 -30）');
+}
+// 受け入れる形で決着したか＝格に重い罰が乗り、お断りの札も掲げられなくなる
+function kitoAccepted() { return !!(G.kito && G.kito.endedBy === 'accept'); }
 
 function buildKitoShowdown() {
   const k = G.kito;
@@ -2540,7 +2608,10 @@ function resolveKuroda(kind, arg) {
 
 /* 親父の"ながら確執"＝新設備や借入のたびに、親父が電話口で軽く小言を言う（通奏低音）。
    全画面イベントにはせず log＋toast で軽く。評判が育つと口調が和らぎ、1日1回まで、エンディング後は言わない */
-function oyajiNag(kind) {
+/* delaySec を渡すと、トーストだけ遅らせて出す。
+   設備を置いた直後は「○○を設置した！」を先に読ませたいので、親父の小言は少し待たせる
+   （即出しすると設置のトーストが一瞬で上書きされ、置いた実感が消える） */
+function oyajiNag(kind, delaySec) {
   if (G.solved && G.solved.oyaji) return false;         // 和解後はもう小言を言わない
   if (G.day <= 1) return false;                          // 初日は控える（チュートリアル中）
   if (G.flags.lastOyajiNagDay === G.day) return false;   // 同じ日に何度も言わせない
@@ -2550,7 +2621,8 @@ function oyajiNag(kind) {
   const line = pool[Math.floor(Math.random() * pool.length)].replace(/\{店名\}/g, G.name || 'うち');
   G.flags.lastOyajiNagDay = G.day;
   log('📞 親父：「' + line + '」');
-  toast('📞 親父：' + line);
+  if (delaySec) setTimeout(() => toast('📞 親父：' + line), delaySec * 1000);
+  else toast('📞 親父：' + line);
   saveGame();
   return true;
 }
@@ -3081,9 +3153,7 @@ function closeDay() {
   repD = clamp(repD - gripePen, -3, 3);
   repD = Math.round(repD * 10) / 10;
   const oldRep = G.rep;
-  // ミッション上限は保険として残す。対立を片付けるまでは、それ以上は街に広がらない
-  const cap = repCap();
-  if (repD > 0 && oldRep + repD > cap) repD = Math.max(0, Math.round((cap - oldRep) * 10) / 10);
+  // ミッションによる隠し上限は廃止（作者指定）。伸びを止めるのは「店の格＝天井」だけ
   G.rep = clamp(Math.round((G.rep + repD) * 10) / 10, 0, 100);
 
   const row = (l, v, minus, cls) =>
@@ -3920,6 +3990,37 @@ function log(text) {
   G.logLines = G.logLines.slice(0, 2);
   $('bizLog').innerHTML = G.logLines.join('<br>');
 }
+/* 客の不満を、画面直下のお知らせ欄に赤文字で流す（作者指定）。
+   これまで不満は日報を開くまで見えなかった＝営業中に手の打ちようがなかった。
+   同じ不満を連呼させないよう、種類ごとにクールダウンを持たせる */
+let gripeLogCd = {};
+// 不満のセリフ＝吹き出し＋お知らせ欄の赤文字をセットで出す
+function gripeBubble(c, line, kind) { bubble(c, line); logGripe(c.type.name, line, kind); }
+function logGripe(who, line, kind) {
+  const k = kind || line;
+  const now = performance.now() / 1000;
+  if (gripeLogCd[k] && now - gripeLogCd[k] < 12) return;
+  gripeLogCd[k] = now;
+  log(`<span class="log-gripe">😠 ${who}「${line}」</span>`);
+}
+/* 運営・データを開いているあいだは時間を止める（作者指定）。
+   数字を読みながら考えている間に客が帰っていくのは理不尽なので。
+   開く前の一時停止の状態は覚えておき、閉じた時にそこへ戻す（自分で止めていたなら止まったまま） */
+let modalPauseMemo = {};
+function openPausedModal(id) {
+  const el = $(id);
+  modalPauseMemo[id] = G.paused;
+  if (G.phase === 'biz') { G.paused = true; $('btnPause').textContent = '▶ 再開'; }
+  el.classList.remove('hidden');
+  // 開くたびに必ず一番上から見せる（前回のスクロール位置を引きずらない。作者指定）
+  const body = el.querySelector('.modal');
+  if (body) body.scrollTop = 0;
+}
+function closePausedModal(id) {
+  $(id).classList.add('hidden');
+  if (G.phase === 'biz' && !modalPauseMemo[id]) { G.paused = false; $('btnPause').textContent = '⏸ 一時停止'; }
+  delete modalPauseMemo[id];
+}
 let toastTimer = null;
 function toast(text) {
   let el = $('toast');
@@ -4284,8 +4385,8 @@ function drawThug(x, y, rt, ph) {
 }
 
 function drawDirt(d) {
-  // 客が我慢できない量になったら、汚れそのものを濃く描く＝画面を見ただけで「まずい」と分かる
-  ctx.fillStyle = oldDirtCount() >= CONF.dirtAngryN ? 'rgba(74,52,26,.8)' : 'rgba(110,85,50,.45)';
+  // 汚れ1つずつを濃さで描き分ける＝放置してこびり付いたものは黒ずみ、画面を見ただけで分かる
+  ctx.fillStyle = isThickDirt(d) ? 'rgba(58,40,18,.85)' : 'rgba(110,85,50,.45)';
   ctx.beginPath();
   ctx.ellipse(d.x * T + T / 2, d.y * T + T / 2, 9, 6, 0, 0, Math.PI * 2);
   ctx.ellipse(d.x * T + T / 2 - 6, d.y * T + T / 2 + 4, 5, 3, 0, 0, Math.PI * 2);
@@ -4792,14 +4893,33 @@ function drawCharBody(e, rt) {
   const skin = '#f2c9a0';
   const hair = e.kind === 'player' ? '#2a2a2a' : e.kind === 'staff' ? '#3a2a1a' : e.type.hair;
   if (inWater) {                                     // 湯に浸かる: 頭だけ
+    // 湯船の中でも“その人”に見えるよう、スキンヘッド・サングラス・髭は頭だけ描画でも再現する。
+    // ここを省くと強面の客が湯に浸かった瞬間、髪が生えた別人の顔になる
+    const wBald = hasFace(e) && e.type.bald;
+    const wShades = hasFace(e) && e.type.shades;
+    const wBeard = hasFace(e) && e.type.beard;
     if (e.kind === 'cust' && e.type.sex === 'f') {   // 女性は湯面に髪が広がる
       ctx.fillStyle = hair;
       ctx.beginPath(); ctx.roundRect(x - 6, y - 1, 12, 6, 3); ctx.fill();
     }
     ctx.fillStyle = skin;
     ctx.beginPath(); ctx.arc(x, y + 2, 5.5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = hair; ctx.beginPath(); ctx.arc(x, y, 5.5, Math.PI, 0); ctx.fill();
-    ctx.fillStyle = '#333'; ctx.fillRect(x - 3, y + 2, 1.6, 1.6); ctx.fillRect(x + 1.6, y + 2, 1.6, 1.6);
+    if (wBald) {                                     // 剃り上げ：髪の代わりに陰だけ
+      ctx.fillStyle = 'rgba(0,0,0,.10)'; ctx.beginPath(); ctx.arc(x, y + 0.8, 5.5, Math.PI, 0); ctx.fill();
+    } else {
+      ctx.fillStyle = hair; ctx.beginPath(); ctx.arc(x, y, 5.5, Math.PI, 0); ctx.fill();
+    }
+    if (wBeard) { ctx.fillStyle = wBeard; ctx.fillRect(x - 3.4, y + 4.6, 6.8, 2.2); }
+    if (wShades) {
+      ctx.fillStyle = '#141414';
+      ctx.beginPath(); ctx.roundRect(x - 4, y + 1.2, 3.4, 2.6, 1); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(x + 0.6, y + 1.2, 3.4, 2.6, 1); ctx.fill();
+      ctx.fillRect(x - 0.7, y + 2, 1.4, 0.7);
+      ctx.fillStyle = 'rgba(255,255,255,.4)';
+      ctx.fillRect(x - 3.4, y + 1.6, 1.3, 0.8); ctx.fillRect(x + 1.2, y + 1.6, 1.3, 0.8);
+    } else {
+      ctx.fillStyle = '#333'; ctx.fillRect(x - 3, y + 2, 1.6, 1.6); ctx.fillRect(x + 1.6, y + 2, 1.6, 1.6);
+    }
     if (e.use.cat === 'furo') {
       ctx.fillStyle = '#fff'; ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
       if (Math.sin(rt * 2 + e.wob) > 0.4) ctx.fillText('～', x + 9, y);
@@ -5264,8 +5384,11 @@ function frame(ts) {
   const rDt = Math.min((ts - lastTs) / 1000, .1);
   lastTs = ts;
   const rt = ts / 1000;
+  // 今フレームで進んだゲーム内の分数（吹き出しの寿命にも使う）
+  let gDt = 0;
   if (G.phase === 'biz' && !G.paused) {
     const dt = Math.min(rDt * CONF.minPerSec * CONF.speeds[G.speedIdx], 45);
+    gDt = dt;
     updateBiz(dt);
   } else if (G.phase === 'prep' && G.player) {
     // 準備中は時計が進まない（速度倍率なし）ので、等速1倍ぶんだけ動かして掃除させる
@@ -5283,7 +5406,14 @@ function frame(ts) {
   // バブル・エフェクトは実時間で減衰（一時停止中は止める＝吹き出しを読める）
   if (!G.paused) {
     for (const e of [...G.customers, ...G.staff, ...(G.player ? [G.player] : [])]) {
-      if (e.bub && (e.bub.t -= rDt) <= 0) e.bub = null;
+      // 実時間・ゲーム内時間のどちらかが尽きたら消す。
+      // さらに、客がやっていることが変わった瞬間も消す（場面に合わないセリフが居座るのを防ぐ）
+      if (e.bub) {
+        e.bub.t -= rDt;
+        if (e.bub.gm != null) e.bub.gm -= gDt;
+        const moved = e.bub.key != null && e.bub.key !== bubKey(e);
+        if (e.bub.t <= 0 || (e.bub.gm != null && e.bub.gm <= 0) || moved) e.bub = null;
+      }
       if (e.stuckCd > 0) e.stuckCd -= rDt;      // 「たどり着けない」の連呼を防ぐクールダウン
     }
     for (let i = floaters.length - 1; i >= 0; i--) if ((floaters[i].t -= rDt) <= 0) floaters.splice(i, 1);
@@ -5910,10 +6040,10 @@ function initUI() {
   // ☰ メニュー（準備中でも営業中でも、右上からいつでも開ける）
   $('btnMenu').onclick = openMenu;
   // データ（準備中でも営業中でも開ける）
-  const openData = () => { renderData(); $('dataModal').classList.remove('hidden'); };
+  const openData = () => { renderData(); openPausedModal('dataModal'); };
   $('btnData').onclick = openData;
   $('btnDataBiz').onclick = openData;
-  $('btnDataClose').onclick = () => $('dataModal').classList.add('hidden');
+  $('btnDataClose').onclick = () => closePausedModal('dataModal');
   // 一覧の組み立てで転んでも画面自体は必ず開く（スマホで「押しても広告画面が出ない」報告への対策）
   $('btnSenden').onclick = () => {
     try { renderAds(); } catch (e) { toast('広告の一覧を出せなかった：' + e.message); }
@@ -6021,7 +6151,7 @@ function initUI() {
       p.placedN++;
       toast(`${EQ[p.id].name}を設置した！`);
       // 立派な（金のかかる）設備を入れると、親父がぼやく（安い小物＝観葉植物やイスには反応しない）
-      if (EQ[p.id].price >= 200000 && Math.random() < 0.6) oyajiNag('equip');
+      if (EQ[p.id].price >= 200000 && Math.random() < 0.6) oyajiNag('equip', 2.4);
       if (p.onPlaced) p.onPlaced();
       // 「やめる」を押すまで同じものを続けて置ける（ととのいイスや牛乳をまとめて並べる用）
       if (p.once) endPlacing();
@@ -6072,10 +6202,10 @@ function initUI() {
   };
   // 運営メニュー
   // 運営メニューは準備中でも営業中でも開ける（料金やアメニティは営業中に手直ししたくなる）
-  const openManage = () => { renderManage(); $('manageModal').classList.remove('hidden'); };
+  const openManage = () => { renderManage(); openPausedModal('manageModal'); };
   $('btnManage').onclick = openManage;
   $('btnManageBiz').onclick = openManage;
-  $('btnManageClose').onclick = () => { $('manageModal').classList.add('hidden'); updateTopbar(); };
+  $('btnManageClose').onclick = () => { closePausedModal('manageModal'); updateTopbar(); };
   // 営業
   $('btnPause').onclick = () => {
     G.paused = !G.paused;
@@ -6189,7 +6319,11 @@ function renderManage() {
     ${tog('saunaMat', hasMat(), 'サウナマット', 'サウナ満足度↑／¥500/日')}
     <div class="opt-row locked"><span>垢すりサービス（プロが担当）<br><span class="opt-sub">🔒 新店で解放予定</span></span><button class="opt-btn" disabled>近日</button></div>
     <div class="opt-sec">🚪 入店ルール</div>
-    ${tog('banYakuza', o.banYakuza, '刺青・ヤクザお断り', '「怖い」不満が消える。ただし連中がみかじめ料を要求しに来る')}`;
+    ${kitoAccepted()
+      /* 鬼頭を受け入れる形で決着した店は、もう札を掲げられない（受け入れると約束したのだから）。
+         ここを開けておくと「下ろして決着 → すぐ掲げ直す」で罰だけ踏み倒せてしまう */
+      ? `<div class="opt-row locked"><span>刺青・ヤクザお断り<br><span class="opt-sub">🔒 鬼頭と交わした約束がある（店の格 -${KITO_ACCEPT_PEN}）</span></span><button class="opt-btn" disabled>—</button></div>`
+      : tog('banYakuza', o.banYakuza, '刺青・ヤクザお断り', '「怖い」不満が消える。ただし連中がみかじめ料を要求しに来る')}`;
   box.querySelectorAll('.opt-btn').forEach(b => b.onclick = () => {
     const act = b.dataset.act, v = b.dataset.v;
     if (act === 'fee') { o.fee = +v; o.feeCustom = false; }
@@ -6216,7 +6350,8 @@ function renderManage() {
       // フェーズ3：お断りを下ろすと、翌日に鬼頭が礼を言いに来る
       if (!o.banYakuza && G.kito && G.kito.met && !G.kito.resolved) {
         G.flags.kitoThanksDay = G.day + 1;
-        toast('⚠ お断りの札を下ろした…');
+        // これは実質「鬼頭を受け入れる結末」を選ぶ操作。重い代償があることは伏せずに知らせる
+        toast('⚠ 札を下ろした。明日、鬼頭が来る…（受け入れれば取り立ては終わるが、街の目は変わる）');
       }
     }
     else if (act === 'dryerFee') o.dryerFee = +v;
@@ -6251,7 +6386,7 @@ function renderData() {
      格＝評判の天井。「あとどれだけ伸びるか」「どこを伸ばせば格が上がるか」をここで見せる。
      ※ミッションの隠し上限はここには出さない（作者指定＝上限の存在は見せない） */
   const rp = repFacilityParts();
-  const kaku = Math.round(clamp(rp.total * 1.2, 3, 100));
+  const kaku = Math.round(clamp(gradeFromFacility(rp.total), 3, 100));
   const nobi = kaku - G.rep;
   h += sec('🏮 評判と店の格');
   h += row('評判', `${G.rep} / 100`);
@@ -6260,9 +6395,12 @@ function renderData() {
   h += `<div class="rep-voice">${nobi >= 3 ? `☝ 伸びしろ あと${Math.round(nobi)}。評判は格に向かって伸びていく`
     : nobi <= -3 ? '⚠ 評判が店の格を上回っている。このままでは少しずつ下がる'
     : '⏸ 評判は格に追いついた＝頭打ち。設備投資で格を上げよう'}</div>`;
-  // 格の内訳（どこを伸ばせば格が上がるかが分かる）。×1.2して「格」と同じ物差しに揃えてある
+  /* 格の内訳＝どこを伸ばせば格が上がるか。
+     格は充実度をならした曲線（伸びるほど1点の効きが薄くなる）なので、内訳は素の「充実度」の点で見せる。
+     格と同じ物差しに換算して並べると、足し算が合わなくなって逆に分からなくなる */
+  h += row('充実度の合計', `${Math.round(rp.total)}点<br><span class="opt-sub">この点が積み上がるほど店の格が上がる（上がるほど1点の効きは小さくなる）</span>`);
   const part = (l, v, always) => {
-    const n = Math.round(v * 1.2);
+    const n = Math.round(v);
     if (n || always) h += row(`<span class="opt-sub">　${l}</span>`, `<span class="opt-sub">${n > 0 ? '+' : ''}${n}</span>`, n < 0 ? 'minus' : '');
   };
   part('設備の質（⭐の合計）', rp.equip, true);
@@ -6271,6 +6409,7 @@ function renderData() {
   part('古いボロ設備', rp.oldPen);
   part('バイトの愛想', rp.aiso);
   part('割高な料金', rp.feePen);
+  part('連中を受け入れた店という評判', rp.yakuzaPen);
   // 品揃えの評価は「種類の数」で見る（作者指定）＝1種類△／2種類○／3種類以上◎
   h += row('品揃え', `風呂 ${kindMark('furo')}　サウナ ${kindMark('sauna')}　水風呂 ${kindMark('mizu')}`);
   const lacks = [];
@@ -6290,9 +6429,12 @@ function renderData() {
   }
   h += row('ととのい率', `${Math.round(totonoiChance() * 100)}%<br><span class="opt-sub">ととのった客の口コミは評判を直接押し上げる</span>`);
   // 設備1台ごとの状態はマップの耐久度バーで見える＝ここでは重複するので出さない（作者指定）
-  h += row('汚れ', `${G.dirts.length}箇所`
-    + (oldDirtCount() >= CONF.dirtAngryN ? '（客の半分が「汚い」と言っている）' : ''),
-    G.dirts.length >= 4 ? 'minus' : '');
+  const dcd = dirtCounts();
+  h += row('汚れ', `薄い${dcd.thin} / 濃い${dcd.thick}<br><span class="opt-sub">${
+    dcd.thick >= CONF.dirtAngryN ? '客全員が「汚い店」と言っている'
+      : dcd.total >= CONF.dirtThinN ? '小さな不満が出はじめている'
+      : '放置すると濃くなり、一気に嫌われる'}</span>`,
+    dcd.thick >= CONF.dirtAngryN ? 'minus' : '');
   if ((G.roughDays || 0) >= 1)
     h += row('客の我慢', `荒れた日が${G.roughDays}日連続`
       + (G.roughDays >= CONF.riotDays ? '（いつ暴れてもおかしくない）' : ''), 'minus');
