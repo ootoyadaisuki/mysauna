@@ -180,35 +180,32 @@
     </div>
   </div>
 
-  <!-- 融資メニュー（作者指定の構成：銀行／ヤミ金の2セクション。各＝見出し＋説明＋[借りる][一括返済]） -->
+  <!-- 資金繰り（作者指定：銀行・ヤミ金は廃止し、サラ金「灰田ファイナンス」一本に統一）。
+       潰れかけの銭湯に銀行融資は下りない＝審査のいらないサラ金だけが頼り、という設定が仕組みそのもの -->
   <div id="loanModal" class="overlay hidden">
     <div class="modal">
-      <h2>融資メニュー</h2>
+      <h2>資金繰り</h2>
       <p id="loanCash" class="modal-note"></p>
       <div class="loan-sec">
         <div class="loan-sec-title">🏦 銀行から借りる</div>
-        <p id="loanInfoBank" class="modal-note"></p>
-        <div class="loan-actions">
-          <button id="btnBorrow" class="big-btn">借りる</button>
-          <button id="btnRepay" class="big-btn">一括返済</button>
-        </div>
+        <p class="modal-note">「申し訳ありませんが、<b>審査は通りません</b>。……失礼ですが、赤字の銭湯さんですので。」<br>—— 信用金庫 融資担当</p>
       </div>
       <div class="loan-sec yami">
-        <div class="loan-sec-title">🩸 ヤミ金から借りる</div>
+        <div class="loan-sec-title">💳 灰田ファイナンス（サラ金）</div>
         <p id="loanInfoYami" class="modal-note"></p>
         <div class="loan-actions">
-          <button id="btnYamiBorrow" class="big-btn danger">借りる</button>
-          <button id="btnYamiRepay" class="big-btn">一括返済</button>
+          <button id="btnYamiBorrow" class="big-btn danger">10万円 借りる</button>
+          <button id="btnYamiRepay" class="big-btn">全額返済</button>
         </div>
       </div>
       <button id="btnLoanClose" class="big-btn">とじる</button>
     </div>
   </div>
 
-  <!-- ヤミ金「灰田金融」の取り立て -->
+  <!-- サラ金「灰田ファイナンス」の週1回（水曜）の集金 -->
   <div id="yamiModal" class="overlay hidden">
     <div class="modal mikajime">
-      <h2 id="yamiTitle">🩸 灰田金融</h2>
+      <h2 id="yamiTitle">💳 灰田ファイナンス</h2>
       <p id="yamiInfo" class="modal-note"></p>
       <div id="yamiChoices"></div>
     </div>
