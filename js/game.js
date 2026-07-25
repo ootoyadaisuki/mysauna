@@ -880,13 +880,16 @@ function finishUse(c) {
     // フェーズ3：熱波師のアウフグース。フィンランド式に限り満足度が上乗せ ※数値は叩き台
     if (item.id === 'sauna2' && nappaOn()) { c.sat += 3; if (!c.bub && Math.random() < .3) bubble(c, pick(LINES.aufguss)); }
   }
-  // 周辺の汚れ
+  /* 周辺の汚れ。薄い汚れは数えない（作者指定）＝薄いうちはプレイヤーに掃除する手がなく、
+     見えた瞬間に怒られるのは理不尽だった。こびり付いた濃い汚れだけが客の目に入る */
   if (c.dirtHits < 3) {
-    const near = G.dirts.filter(p => Math.abs(p.x - c.use.approach.x) <= 2 && Math.abs(p.y - c.use.approach.y) <= 2).length;
+    const near = G.dirts.filter(p => isThickDirt(p)
+      && Math.abs(p.x - c.use.approach.x) <= 2 && Math.abs(p.y - c.use.approach.y) <= 2).length;
     if (near > 0) { c.sat -= Math.min(near * 2, 6); c.dirtHits++; gripe('dirty'); if (Math.random() < .4) bubble(c, pick(LINES.dirty)); }
   }
   /* 店ぜんたいの汚れ具合。使った設備の近くかどうかに関係なく効く。判定は客ひとりにつき一度だけ。
-     ・薄いのが3つ以上 → 小さな不満（一部の客が漏らす。満足度は少しだけ落ちる）
+     ・薄い汚れ → セーフ。何も起きない（作者指定＝薄いうちは掃除できないので罰しない）
+     ・濃いのが1つでも → 小さな不満（一部の客が漏らす。満足度は少しだけ落ちる）
      ・濃いのが3つ以上 → 大きな不満（全員が口に出し、満足度がごっそり落ちる）
      こまめに掃除していれば汚れは濃くならない＝バイトを置く価値がここで効く（作者指定） */
   const dc = dirtCounts();
@@ -899,7 +902,7 @@ function finishUse(c) {
       hintBubble(c, line);
       if (G.today.voices.length < 6) G.today.voices.push(`⚠ ${c.type.name}「${line}」`);
     }
-  } else if (dc.total >= CONF.dirtThinN && !c.dirtAnnoy) {
+  } else if (dc.thick >= 1 && !c.dirtAnnoy) {
     c.dirtAnnoy = true;
     c.sat -= CONF.dirtThinHit;
     if (Math.random() < CONF.dirtThinRate) { gripe('dirty'); bubble(c, pick(LINES.dirty)); }
@@ -1149,7 +1152,7 @@ function facilityParts(condFloor) {
   /* 汚れていると台無し。薄い汚れは軽く、放置してこびり付いた濃い汚れは重く効く（作者指定＝罰を厳しく）。
      こまめに掃除していれば濃い汚れは出ないので、ここが重くても掃除さえすれば痛くない */
   const dcf = dirtCounts();
-  const dirt = -Math.min(dcf.thin * 0.4 + dcf.thick * 2.5, 25);
+  const dirt = -Math.min(dcf.thick * 3, 25);   // 薄い汚れは数えない（作者指定）
   return { equip, variety, system, sysList, dirt, total: Math.max(0, equip + variety + system + dirt) };
 }
 function facilityScore(condFloor) { return facilityParts(condFloor).total; }   // 目安: 初日10前後 〜 充実で70超
@@ -1178,6 +1181,49 @@ const REP_ITEMS = [
   { key: 'omote',  name: 'おもてなし',       hint: '愛想のいいバイト・待たせない' },
 ];
 
+/* ---- アメニティ1品ごとの評価（作者指定） ----
+   適正値 +1.5 ／ 適正値より安い +2 ／ 適正値より高い 0 ／ なし 0。
+   ドライヤーだけは 無料 +1・有料 +0.5（そもそも取れる額が小さいので幅も小さい）。
+   「アメニティが高い −10」という一発の減点をやめ、1品ずつの積み上げにした＝
+   何をいくらにしているかが、そのまま点として読める。満点は AMEN_MAX。 */
+const AMEN_CHEAP = 2, AMEN_FAIR = 1.5;
+const AMEN_MAX = 11;
+function amenityParts() {
+  const o = G.opts;
+  const list = [];
+  const add = (name, v, note) => list.push({ name, v, note });
+  // タオル：無料がいちばん安い／¥50 安い／¥100 適正／¥150以上は高い
+  if (o.towel === 'free') add('タオル', AMEN_CHEAP, '無料');
+  else if (o.towel === 'paid')
+    add('タオル', o.towelPrice < 100 ? AMEN_CHEAP : o.towelPrice === 100 ? AMEN_FAIR : 0, `¥${o.towelPrice}`);
+  else add('タオル', 0, 'なし');
+  // シャンプー・ボディソープ（適正は¥100）
+  const soap = (label, price) => {
+    if (o.soapMode === 'free') add(label, AMEN_CHEAP, '無料');
+    else if (o.soapMode === 'sell')
+      add(label, price < 100 ? AMEN_CHEAP : price === 100 ? AMEN_FAIR : 0, `¥${price}`);
+    else add(label, 0, 'なし');
+  };
+  soap('シャンプー', o.shampooPrice);
+  soap('ボディソープ', o.bodysoapPrice);
+  // 化粧水・乳液とドライヤーは、洗面所を置いてはじめて客が使える
+  if (hasWorking('sink')) {
+    add('化粧水・乳液', o.lotionFee === 0 ? AMEN_CHEAP : o.lotionFee <= 50 ? AMEN_FAIR : 0,
+      o.lotionFee ? `¥${o.lotionFee}` : '無料');
+    add('ドライヤー', o.dryerFee ? 0.5 : 1, o.dryerFee ? `¥${o.dryerFee}` : '無料');
+  } else {
+    add('化粧水・乳液', 0, '洗面所がない');
+    add('ドライヤー', 0, '洗面所がない');
+  }
+  /* 手ぶらセット。タオルも石鹸も無料の店は、そもそも手ぶらで来られる＝満点扱い
+     （無料にすると手ぶらセットが売れなくなる＝黙って2点損する、では筋が通らない） */
+  if (o.towel === 'free' && o.soapMode === 'free') add('手ぶらセット', AMEN_CHEAP, '全部無料＝手ぶらで来られる');
+  else if (o.tebura && o.towel !== 'free')
+    add('手ぶらセット', o.teburaPrice < 400 ? AMEN_CHEAP : o.teburaPrice === 400 ? AMEN_FAIR : 0, `¥${o.teburaPrice}`);
+  else add('手ぶらセット', 0, 'なし');
+  return { list, total: list.reduce((a, b) => a + b.v, 0) };
+}
+
 /* そのカテゴリでいちばん良い設備の質（q）。壊れている台は数えない */
 function bestQ(cat) {
   let q = 0;
@@ -1205,11 +1251,11 @@ function repDayScores() {
   const s = {};
 
   /* 清潔度：その日、床に平均いくつ汚れが転がっていたか（こびり付いた濃い汚れは3倍に重い）。
-     開店から閉店まで測った平均なので、こまめに掃除して回った日はそのまま高得点になる。
-     汚れは営業中どうしても出るので、平均2.5個ぶんまでは満点のまま（＝掃除が追いついている状態）。
-     そこを超えて溜まりはじめたぶんだけ点が落ちる（バイト6人の繁盛店で8点台になる線・シム実測） */
-  const dirtAvg = t.dirtN ? t.dirtSum / t.dirtN : (dirtCounts().thin + dirtCounts().thick * 3);
-  s.clean = clamp(10 - Math.max(dirtAvg - 2.5, 0) * 1.5, 0, 10);
+     数えるのは「濃い汚れ」だけ（作者指定）。薄いうちは掃除する手がないのでセーフ、
+     こびり付いたらアウト、濃いのが増えるほど加速して落ちる＝大不満になる。
+     平均1つで7.6点・2つで4.4点・3つで0.4点 */
+  const dirtAvg = t.dirtN ? t.dirtSum / t.dirtN : dirtCounts().thick;
+  s.clean = clamp(10 - dirtAvg * 2 - dirtAvg * dirtAvg * 0.4, 0, 10);
 
   // 混雑度：待たされた・入れなかった。帰らせてしまった客は2倍に重く見る
   const crowdN = (g.crowd || 0) + (g.locker || 0) + (g.bandai || 0)
@@ -1229,13 +1275,12 @@ function repDayScores() {
   s.mizu = !hasCat('mizu') ? 0 : clamp(
     3 + bestQ('mizu') + Math.min(tempVariety('mizu'), 3) * 0.8 - tempPen, 0, 10);
 
-  // 脱衣所サービス：ロッカーの余裕2＋洗面所2＋備品2.5＋石鹸1.8＋タオル1.7＝10点
+  /* 脱衣所サービス：ロッカーの余裕2＋脱衣所の備品2＋アメニティ6＝10点。
+     アメニティは1品ごとの合算（amenityParts・満点11）を6点ぶんに換算して入れる */
   const lockerPart = clamp(2 - (t.turnedAway || 0) / paid * 20, 0, 2);
   const goods = G.equip.filter(e => EQ[e.id].room === 'datsui' && EQ[e.id].cat !== 'locker'
     && !e.dead && e.cond > 0).length;
-  s.datsui = clamp(lockerPart + (hasWorking('sink') ? 2 : 0) + Math.min(goods * 0.5, 2.5)
-    + (G.opts.soapMode === 'free' ? 1.8 : G.opts.soapMode === 'sell' ? 0.9 : 0)
-    + (G.opts.towel === 'free' ? 1.7 : G.opts.tebura ? 1.1 : G.opts.towel === 'paid' ? 0.5 : 0), 0, 10);
+  s.datsui = clamp(lockerPart + Math.min(goods * 0.4, 2) + amenityParts().total / AMEN_MAX * 6, 0, 10);
 
   // ととのいスペース：イスの質＋サウナ定員に対する席の足り具合＋冷水機＋実際にととのえた率
   const restCap = capOf('rest');
@@ -1271,13 +1316,8 @@ function repPenalties() {
   if (broken.length) add('故障したまま放置している設備', 10, `${broken.length}台。修理すれば消える`);
   if (hasCat('sauna') && !hasMat()) add('サウナマットがない', 5, '浴室に置き場を設置する（無料）');
   if (!hasAkasuri()) add('垢すりタオルがない', 5, '浴室に置き場を設置する（無料）');
-  if (G.opts.dryerFee > 0) add('ドライヤーが有料', 2, '運営メニューで無料にできる');
-  const pricey = [];
-  if (G.opts.soapMode === 'sell' && Math.max(G.opts.shampooPrice, G.opts.bodysoapPrice) >= 150) pricey.push('石鹸');
-  if (G.opts.towel === 'paid' && G.opts.towelPrice >= 200) pricey.push('タオル');
-  if (G.opts.tebura && G.opts.teburaPrice >= 500) pricey.push('手ぶらセット');
-  if (G.opts.lotionFee >= 100) pricey.push('化粧水');
-  if (pricey.length) add('アメニティが高い', 10, `${pricey.join('・')}の値付けが高すぎる`);
+  /* 「ドライヤー有料 −2」「アメニティが高い −10」はここから外した（作者指定）。
+     高い＝一発で引かれる、ではなく、1品ごとの評価（amenityParts）の取り分が減る形にしてある */
   return p;
 }
 
@@ -1359,7 +1399,7 @@ function furoTemps() { return furoUsable().map(e => EQ[e.id].temp); }
 /* ととのい率。サウナ→水風呂→休憩の順を踏んだ客が実際に「ととのう」確率。
    設備が充実して清潔なほど上がる＝評判の伸びに直結する */
 function totonoiChance() {
-  const clean = clamp(1 - G.dirts.length / 12, 0.25, 1);   // フェーズ2で清潔さのフロアを0.4→0.25に強化
+  const clean = clamp(1 - dirtCounts().thick / 6, 0.25, 1);   // 濃い汚れだけが響く（薄いうちはセーフ・作者指定）
   return clamp(0.3 + facilityScore() / 90, 0.3, 0.95) * clean;
 }
 // 客が受け入れられる入浴料の水準。設備の数ではなく「街での評判」で決まる（作者指定）。
@@ -2029,7 +2069,7 @@ function updateBiz(dt) {
      不満の声（dirty）の数で測ると、汚れ1つの脇を客が何度も通るだけで数百件に膨れ、
      満足度95の店が清潔度1点になってしまった（シム実測）。見るべきは、掃除できていたかどうか */
   const dcNow = dirtCounts();
-  G.today.dirtSum += (dcNow.thin + dcNow.thick * 3) * dt;
+  G.today.dirtSum += dcNow.thick * dt;        // 薄い汚れは数えない（作者指定）
   G.today.dirtN += dt;
   while (G.spawnQueue.length && G.spawnQueue[0] <= G.minutes) {
     G.spawnQueue.shift();
@@ -6740,13 +6780,21 @@ function renderData() {
       avgSat0 < 50 ? 'minus' : '');
   }
   h += row('ととのい率', `${Math.round(totonoiChance() * 100)}%<br><span class="opt-sub">ととのった客の口コミは評判を直接押し上げる</span>`);
+  /* ── アメニティの内訳（作者指定）。1品ごとの評価をそのまま並べる＝
+     どれをいくらにすると何点になるかが読める。合計は「脱衣所サービス」に効いている */
+  const am = amenityParts();
+  h += sec(`🧴 アメニティ（合計 ${am.total} / ${AMEN_MAX}）`);
+  for (const it of am.list)
+    h += row(`${it.name}<br><span class="opt-sub">${it.note}</span>`,
+      `${it.v ? '+' : ''}${it.v}`, it.v === 0 ? 'minus' : '');
+  h += `<div class="rep-voice">適正値+1.5・安ければ+2・高いと0。合計は「脱衣所サービス」の点</div>`;
   // 設備1台ごとの状態はマップの耐久度バーで見える＝ここでは重複するので出さない（作者指定）
   const dcd = dirtCounts();
   h += row('汚れ', `薄い${dcd.thin} / 濃い${dcd.thick}<br><span class="opt-sub">${
     dcd.thick >= CONF.dirtAngryN ? '客全員が「汚い店」と言っている'
-      : dcd.total >= CONF.dirtThinN ? '小さな不満が出はじめている'
-      : '放置すると濃くなり、一気に嫌われる'}</span>`,
-    dcd.thick >= CONF.dirtAngryN ? 'minus' : '');
+      : dcd.thick >= 1 ? '濃い汚れが出た。ここから嫌われはじめる'
+      : '薄いうちはセーフ。濃くなる前に拭いてしまおう'}</span>`,
+    dcd.thick >= 1 ? 'minus' : '');
   if ((G.roughDays || 0) >= 1)
     h += row('客の我慢', `荒れた日 ${G.roughDays}日連続`
       + (G.roughDays >= CONF.riotDays ? '<br><span class="opt-sub">いつ暴れてもおかしくない</span>' : ''), 'minus');
