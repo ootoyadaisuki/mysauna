@@ -1171,57 +1171,77 @@ const REP_START = 10;                               // 集計中のあいだの�
 const REP_ITEMS = [
   { key: 'clean',  name: '清潔度',           hint: 'こまめに掃除する・バイトを増やす' },
   { key: 'crowd',  name: '混雑度',           hint: '設備の台数と収容力を増やす' },
-  { key: 'cospa',  name: 'コスパ',           hint: '設備に見合った料金にする' },
+  { key: 'cospa',  name: 'コスパ',           hint: '入浴料・子供料金・サウナ料を下げる' },
   { key: 'sauna',  name: 'サウナ',           hint: 'いいサウナ・温度の違う2台目' },
   { key: 'furo',   name: 'お風呂',           hint: '浴槽の種類を増やす' },
   { key: 'mizu',   name: '水風呂',           hint: '水風呂の質と水温の選択肢' },
-  { key: 'datsui', name: '脱衣所サービス',   hint: 'ロッカー・洗面所・備品・タオル・石鹸' },
-  { key: 'rest',   name: 'ととのいスペース', hint: 'ととのいイスを増やす・冷水機' },
-  { key: 'dosen',  name: '動線',             hint: '設備の置き場所を見直す' },
+  { key: 'datsui', name: '脱衣所サービス',   hint: '脱衣所に備品を置く（6つで満点）' },
+  { key: 'rest',   name: 'ととのいスペース', hint: 'イスを増やす・違う種類も置く' },
+  { key: 'dosen',  name: '動線',             hint: '客が使う順に設備を近く並べる' },
   { key: 'omote',  name: 'おもてなし',       hint: '愛想のいいバイト・待たせない' },
 ];
 
-/* ---- アメニティ1品ごとの評価（作者指定） ----
-   適正値 +1.5 ／ 適正値より安い +2 ／ 適正値より高い 0 ／ なし 0。
-   ドライヤーだけは 無料 +1・有料 +0.5（そもそも取れる額が小さいので幅も小さい）。
-   「アメニティが高い −10」という一発の減点をやめ、1品ずつの積み上げにした＝
-   何をいくらにしているかが、そのまま点として読める。満点は AMEN_MAX。 */
-const AMEN_CHEAP = 2, AMEN_FAIR = 1.5;
-const AMEN_MAX = 11;
-function amenityParts() {
+/* ---- 料金の値ごろ感（作者指定） ----
+   適正値 +2.5 ／ 適正値より安い +3.5 ／ 適正値より高い 0。
+   「適正値」＝客が受け入れる上限（worthFee など）と同じ¥100の段。
+   その1段でも下げれば「安い」＝満点、超えたら一発で0。入浴料・子供料金・サウナ料の3本立て。 */
+const FEE_FAIR = 2.5, FEE_CHEAP = 3.5;
+function feeScore(price, fair) { return price > fair ? 0 : price > fair - 100 ? FEE_FAIR : FEE_CHEAP; }
+function cospaParts() {
   const o = G.opts;
   const list = [];
-  const add = (name, v, note) => list.push({ name, v, note });
-  // タオル：無料がいちばん安い／¥50 安い／¥100 適正／¥150以上は高い
-  if (o.towel === 'free') add('タオル', AMEN_CHEAP, '無料');
-  else if (o.towel === 'paid')
-    add('タオル', o.towelPrice < 100 ? AMEN_CHEAP : o.towelPrice === 100 ? AMEN_FAIR : 0, `¥${o.towelPrice}`);
-  else add('タオル', 0, 'なし');
-  // シャンプー・ボディソープ（適正は¥100）
-  const soap = (label, price) => {
-    if (o.soapMode === 'free') add(label, AMEN_CHEAP, '無料');
-    else if (o.soapMode === 'sell')
-      add(label, price < 100 ? AMEN_CHEAP : price === 100 ? AMEN_FAIR : 0, `¥${price}`);
-    else add(label, 0, 'なし');
-  };
-  soap('シャンプー', o.shampooPrice);
-  soap('ボディソープ', o.bodysoapPrice);
-  // 化粧水・乳液とドライヤーは、洗面所を置いてはじめて客が使える
-  if (hasWorking('sink')) {
-    add('化粧水・乳液', o.lotionFee === 0 ? AMEN_CHEAP : o.lotionFee <= 50 ? AMEN_FAIR : 0,
-      o.lotionFee ? `¥${o.lotionFee}` : '無料');
-    add('ドライヤー', o.dryerFee ? 0.5 : 1, o.dryerFee ? `¥${o.dryerFee}` : '無料');
-  } else {
-    add('化粧水・乳液', 0, '洗面所がない');
-    add('ドライヤー', 0, '洗面所がない');
+  const fw = worthFee();
+  list.push({ name: '入浴料', v: feeScore(o.fee, fw), note: `¥${o.fee}（適正 ¥${fw}）` });
+  const kw = kidFeeCap();
+  const kf = o.kidFee || KID_FEES[0];
+  list.push({ name: '子供料金', v: kf > kw ? 0 : kf === kw ? FEE_FAIR : FEE_CHEAP, note: `¥${kf}（適正 ¥${kw}）` });
+  // サウナがまだ無い店は、サウナ料で損も得もしない（サウナ自体の点で評価される）
+  if (!hasCat('sauna')) list.push({ name: 'サウナ料金', v: FEE_FAIR, note: 'サウナがない' });
+  else {
+    const sw = worthSaunaFee();
+    list.push({ name: 'サウナ料金', v: feeScore(o.saunaFee, sw), note: `¥${o.saunaFee}（適正 ¥${sw}）` });
   }
-  /* 手ぶらセット。タオルも石鹸も無料の店は、そもそも手ぶらで来られる＝満点扱い
-     （無料にすると手ぶらセットが売れなくなる＝黙って2点損する、では筋が通らない） */
-  if (o.towel === 'free' && o.soapMode === 'free') add('手ぶらセット', AMEN_CHEAP, '全部無料＝手ぶらで来られる');
-  else if (o.tebura && o.towel !== 'free')
-    add('手ぶらセット', o.teburaPrice < 400 ? AMEN_CHEAP : o.teburaPrice === 400 ? AMEN_FAIR : 0, `¥${o.teburaPrice}`);
-  else add('手ぶらセット', 0, 'なし');
   return { list, total: list.reduce((a, b) => a + b.v, 0) };
+}
+
+/* ---- 動線＝設備の並び順（作者指定） ----
+   浴室入口→洗い場→風呂→サウナ→水風呂→ととのいイス。
+   となり合う工程の「いちばん近い設備どうしの距離」を測り、3マス以内なら+3、4マス以内なら+1。
+   4本ぜんぶ近ければ12点ぶん取れるが上限10＝どこか1本が遠くても他で埋められる余地を残してある。
+   距離は設備のふちどうしの歩数（となり合っていれば1マス）。 */
+function equipRect(e) { const d = EQ[e.id]; return { x1: e.x, y1: e.y, x2: e.x + d.w - 1, y2: e.y + d.h - 1 }; }
+function rectDist(a, b) {
+  return Math.max(0, Math.max(a.x1 - b.x2, b.x1 - a.x2)) + Math.max(0, Math.max(a.y1 - b.y2, b.y1 - a.y2));
+}
+function liveOf(cat) { return G.equip.filter(e => EQ[e.id].cat === cat && !e.dead && e.cond > 0); }
+// 脱衣所の備品（ロッカーは数えない・作者指定）。洗面所・体重計・扇風機・自販機・テレビなど
+function datsuiGoods() {
+  return G.equip.filter(e => EQ[e.id].room === 'datsui' && EQ[e.id].cat !== 'locker'
+    && !e.dead && e.cond > 0);
+}
+// そのカテゴリどうしで、いちばん近い組み合わせの距離（片方でも無ければ null＝測れない）
+function catDist(a, b) {
+  const A = Array.isArray(a) ? a : liveOf(a).map(equipRect);
+  const B = liveOf(b).map(equipRect);
+  if (!A.length || !B.length) return null;
+  let m = Infinity;
+  for (const p of A) for (const q of B) m = Math.min(m, rectDist(p, q));
+  return m;
+}
+function dosenParts() {
+  // 浴室の入口＝脱衣所とのあいだのガラス引き戸（浴室側の1マス）
+  const doorRect = [{ x1: CONF.doorX, y1: CONF.divideY - 1, x2: CONF.doorX, y2: CONF.divideY - 1 }];
+  const legs = [
+    { name: '入口 → 洗い場', d: catDist(doorRect, 'wash') },
+    { name: '風呂 → サウナ', d: catDist('furo', 'sauna') },
+    { name: 'サウナ → 水風呂', d: catDist('sauna', 'mizu') },
+    { name: '水風呂 → イス', d: catDist('mizu', 'rest') },
+  ];
+  for (const l of legs) {
+    l.v = l.d == null ? 0 : l.d <= 3 ? 3 : l.d <= 4 ? 1 : 0;
+    l.note = l.d == null ? 'どちらかが無い' : `${l.d}マス`;
+  }
+  return { list: legs, total: legs.reduce((a, b) => a + b.v, 0) };
 }
 
 /* そのカテゴリでいちばん良い設備の質（q）。壊れている台は数えない */
@@ -1262,8 +1282,8 @@ function repDayScores() {
     + (t.turnedAway || 0) * 2 + (t.gaveUp || 0) * 2 + (t.queueMiss || 0);
   s.crowd = clamp(10 - Math.max(crowdN / paid - 0.1, 0) / 0.22, 0, 10);
 
-  // コスパ：設備の目安を超えた料金ぶん。¥100の超過で入浴料は3点、サウナ料は2点減る
-  s.cospa = clamp(10 - feeGripe() * 3 - saunaFeeGripe() * 2 - Math.min(rate('price') * 12, 3), 0, 10);
+  // コスパ：入浴料・子供料金・サウナ料の3本を、それぞれ適正値と見くらべる（作者指定）
+  s.cospa = clamp(cospaParts().total, 0, 10);
 
   // 湯の温度が合わない不満は、サウナ・風呂・水風呂で分け合う（同じ声を3回引かない）
   const tempPen = Math.min(rate('temp') * 4, 1.5);
@@ -1275,23 +1295,16 @@ function repDayScores() {
   s.mizu = !hasCat('mizu') ? 0 : clamp(
     3 + bestQ('mizu') + Math.min(tempVariety('mizu'), 3) * 0.8 - tempPen, 0, 10);
 
-  /* 脱衣所サービス：ロッカーの余裕2＋脱衣所の備品2＋アメニティ6＝10点。
-     アメニティは1品ごとの合算（amenityParts・満点11）を6点ぶんに換算して入れる */
-  const lockerPart = clamp(2 - (t.turnedAway || 0) / paid * 20, 0, 2);
-  const goods = G.equip.filter(e => EQ[e.id].room === 'datsui' && EQ[e.id].cat !== 'locker'
-    && !e.dead && e.cond > 0).length;
-  s.datsui = clamp(lockerPart + Math.min(goods * 0.4, 2) + amenityParts().total / AMEN_MAX * 6, 0, 10);
+  /* 脱衣所サービス：脱衣所の備品1つにつき1.7点（作者指定）＝6つ置けば満点。
+     ロッカーは0点（置くのは当たり前で、受入人数として別に効いている） */
+  s.datsui = clamp(datsuiGoods().length * 1.7, 0, 10);
 
-  // ととのいスペース：イスの質＋サウナ定員に対する席の足り具合＋冷水機＋実際にととのえた率
-  const restCap = capOf('rest');
-  const saunaCap = capOf('sauna');
-  s.rest = !restCap ? 0 : clamp(
-    bestQ('rest') * 1.2 + Math.min(restCap / Math.max(saunaCap * 0.5, 2), 1) * 2.8
-    + (hasWorking('cooler') ? 1.5 : 0)
-    + Math.min((t.satN ? t.totonoi / t.satN : 0) * 3, 2.5) - Math.min(rate('totonoi') * 8, 2), 0, 10);
+  // ととのいスペース：イスの数（1脚+1・上限5）＋イスの種類（1種類+2・上限5）＝10点（作者指定）
+  const chairs = liveOf('rest');
+  s.rest = Math.min(chairs.length, 5) + Math.min(new Set(chairs.map(e => e.id)).size * 2, 5);
 
-  // 動線：たどり着けないと言われた回数＋道が通っていない“飾り”設備
-  s.dosen = clamp(10 - Math.min(rate('dosen') * 14, 6) - deadEquip().length * 2, 0, 10);
+  // 動線：設備の並び順（浴室入口→洗い場→風呂→サウナ→水風呂→イス）の近さ（作者指定）
+  s.dosen = clamp(dosenParts().total, 0, 10);
 
   // おもてなし：満足度6＋バイトの愛想2.5＋番台で待たせない1.5
   const avgSat = t.satN ? t.satSum / t.satN : 50;
@@ -1317,7 +1330,8 @@ function repPenalties() {
   if (hasCat('sauna') && !hasMat()) add('サウナマットがない', 5, '浴室に置き場を設置する（無料）');
   if (!hasAkasuri()) add('垢すりタオルがない', 5, '浴室に置き場を設置する（無料）');
   /* 「ドライヤー有料 −2」「アメニティが高い −10」はここから外した（作者指定）。
-     高い＝一発で引かれる、ではなく、1品ごとの評価（amenityParts）の取り分が減る形にしてある */
+     タオル・石鹸・ドライヤーの値付けは、客ひとりひとりの満足度に効く形にしてある
+     （高ければその場で文句が出て、それが「おもてなし」の点として返ってくる） */
   return p;
 }
 
@@ -6735,6 +6749,29 @@ function renderData() {
   // ── タスク（判断に迷ったらまずここ。作者指定でトップへ）
   const dm = demandHint();
   if (dm.length) h += sec('📌 タスク') + dm.map(s => `<div class="rep-voice">${s}</div>`).join('');
+  // ── 経営（金まわり）
+  h += sec('📊 経営');
+  h += row('手元資金', yen(G.cash));
+  if (G.yami && G.yami.debt > 0)
+    h += row('💳 灰田ファイナンスの残債',
+      `${yen(G.yami.debt)}<br><span class="opt-sub">今週の金利 ${yen(yamiDue())}・集金は毎週水曜（あと ${yen(CONF.sarakinMax - G.yami.debt)} 借りられる）</span>`, 'minus');
+  h += row('直近5日の平均収支', `${avg >= 0 ? '+' : ''}${yen(avg)}`, avg < 0 ? 'minus' : '');
+  h += row('直近5日の黒字日数', `${hist.filter(p => p > 0).length}日 / ${hist.length}日`);
+  /* 昨日の利益・客単価・常連（作者指定）＝黒田の課題で問われる数字は、この欄で確かめられるようにする。
+     課題は「直近の営業日」で判定するので、ここも同じ G.lastStats を見せて食い違わないようにしてある。
+     今日ぶんは締めるまで確定しないが、途中経過が分かるほうが手を打てるので併記する */
+  const ls = G.lastStats;
+  const tt = G.today || {};
+  const tankaNow = tt.paid ? Math.round(tt.revenue / tt.paid) : 0;
+  h += row('昨日の利益', ls ? `${ls.profit >= 0 ? '+' : ''}${yen(ls.profit)}` : 'まだ営業していない', ls && ls.profit < 0 ? 'minus' : '');
+  h += row('客単価', ls
+    ? `${yen(ls.tanka)}<br><span class="opt-sub">昨日 ${ls.paid}人・${tankaNow ? `今日は ${yen(tankaNow)}` : '今日はまだ0人'}</span>`
+    : 'まだ営業していない');
+  h += row('常連', `${G.regulars || 0}人<br><span class="opt-sub">満足して帰った客が、また来てくれる</span>`);
+  h += row('入浴料', `¥${G.opts.fee}` + (hasCat('sauna') ? `（＋サウナ ¥${G.opts.saunaFee}）` : ''));
+  h += row('客が受け入れる入浴料', `〜¥${worthFee()}`, G.opts.fee > worthFee() ? 'minus' : '');
+  if (hasCat('sauna')) h += row('客が受け入れるサウナ料', `〜¥${worthSaunaFee()}`, G.opts.saunaFee > worthSaunaFee() ? 'minus' : '');
+  h += row('受入人数（ロッカー）', `${lockerCapacity()}人（${G.equip.filter(e => EQ[e.id].cat === 'locker' && e.cond > 0).length}台）`);
   /* ── 評判の内訳（新評判システム・作者指定）。10項目×10点満点＝100点を、
      プラス評価（項目ごとの取れ高）とマイナス評価（その他の減点）の一覧で見せる。
      設備もシステム（アメニティ・マット・垢すり・お断り）もおもてなしも、ぜんぶここに入っている。
@@ -6747,9 +6784,19 @@ function renderData() {
     : row('総合スコア', `${G.rep} / 100<br><span class="opt-sub">下の足し引きの合計。直近${Math.min(sp.days, REP_DAYS)}日の営業をならした点</span>`);
   const lo = sp.items.reduce((a, b) => (b.v < a.v ? b : a));
   h += `<div class="rep-row sub"><span>＋ プラス評価</span><span class="v">+${sp.base.toFixed(1)}</span></div>`;
+  /* 取りこぼしているところだけを名指しで出す（作者指定の計算式に対応）。
+     コスパは「高い」と言われている料金、動線は「遠い」区間だけ。全部そろっていれば何も出さない */
+  const badCospa = cospaParts().list.filter(x => x.v === 0);
+  const badDosen = dosenParts().list.filter(x => x.v < 3);
   for (const it of sp.items) {
     const mark = it.v >= 8 ? '◎' : it.v >= 6 ? '○' : it.v >= 4 ? '△' : '×';
-    h += row(`　${mark} ${it.name}${it.v < 6 ? `<br><span class="opt-sub">　${it.hint}</span>` : ''}`,
+    let sub = it.v < 6 ? it.hint : '';
+    // 1行に収まるよう、名指しは1件だけ＋残りは件数で（折り返すと読めない・作者指定）
+    if (it.key === 'cospa' && badCospa.length)
+      sub = `高い：${badCospa[0].name} ${badCospa[0].note}` + (badCospa.length > 1 ? ` ほか${badCospa.length - 1}件` : '');
+    if (it.key === 'dosen' && badDosen.length)
+      sub = `遠い：${badDosen[0].name} ${badDosen[0].note}` + (badDosen.length > 1 ? ` ほか${badDosen.length - 1}件` : '');
+    h += row(`　${mark} ${it.name}${sub ? `<br><span class="opt-sub">　${sub}</span>` : ''}`,
       `${it.v.toFixed(1)} / 10`, it.v < 4 ? 'minus' : '');
   }
   h += `<div class="rep-row sub minus"><span>− マイナス評価</span><span class="v">${sp.penSum ? '−' + sp.penSum : '0'}</span></div>`;
@@ -6780,14 +6827,6 @@ function renderData() {
       avgSat0 < 50 ? 'minus' : '');
   }
   h += row('ととのい率', `${Math.round(totonoiChance() * 100)}%<br><span class="opt-sub">ととのった客の口コミは評判を直接押し上げる</span>`);
-  /* ── アメニティの内訳（作者指定）。1品ごとの評価をそのまま並べる＝
-     どれをいくらにすると何点になるかが読める。合計は「脱衣所サービス」に効いている */
-  const am = amenityParts();
-  h += sec(`🧴 アメニティ（合計 ${am.total} / ${AMEN_MAX}）`);
-  for (const it of am.list)
-    h += row(`${it.name}<br><span class="opt-sub">${it.note}</span>`,
-      `${it.v ? '+' : ''}${it.v}`, it.v === 0 ? 'minus' : '');
-  h += `<div class="rep-voice">適正値+1.5・安ければ+2・高いと0。合計は「脱衣所サービス」の点</div>`;
   // 設備1台ごとの状態はマップの耐久度バーで見える＝ここでは重複するので出さない（作者指定）
   const dcd = dirtCounts();
   h += row('汚れ', `薄い${dcd.thin} / 濃い${dcd.thick}<br><span class="opt-sub">${
@@ -6813,29 +6852,6 @@ function renderData() {
       : lo.avg < 55 ? `⚠ いちばん冷めているのは<b>${lo.name}</b>（${lo.avg}点）。効くのは ${lo.hint}`
       : '✨ どの層にも偏らず満足させられている'}</div>`;
   }
-  // ── 経営（金まわり）
-  h += sec('📊 経営');
-  h += row('手元資金', yen(G.cash));
-  if (G.yami && G.yami.debt > 0)
-    h += row('💳 灰田ファイナンスの残債',
-      `${yen(G.yami.debt)}<br><span class="opt-sub">今週の金利 ${yen(yamiDue())}・集金は毎週水曜（あと ${yen(CONF.sarakinMax - G.yami.debt)} 借りられる）</span>`, 'minus');
-  h += row('直近5日の平均収支', `${avg >= 0 ? '+' : ''}${yen(avg)}`, avg < 0 ? 'minus' : '');
-  h += row('直近5日の黒字日数', `${hist.filter(p => p > 0).length}日 / ${hist.length}日`);
-  /* 昨日の利益・客単価・常連（作者指定）＝黒田の課題で問われる数字は、この欄で確かめられるようにする。
-     課題は「直近の営業日」で判定するので、ここも同じ G.lastStats を見せて食い違わないようにしてある。
-     今日ぶんは締めるまで確定しないが、途中経過が分かるほうが手を打てるので併記する */
-  const ls = G.lastStats;
-  const tt = G.today || {};
-  const tankaNow = tt.paid ? Math.round(tt.revenue / tt.paid) : 0;
-  h += row('昨日の利益', ls ? `${ls.profit >= 0 ? '+' : ''}${yen(ls.profit)}` : 'まだ営業していない', ls && ls.profit < 0 ? 'minus' : '');
-  h += row('客単価', ls
-    ? `${yen(ls.tanka)}<br><span class="opt-sub">昨日 ${ls.paid}人・${tankaNow ? `今日は ${yen(tankaNow)}` : '今日はまだ0人'}</span>`
-    : 'まだ営業していない');
-  h += row('常連', `${G.regulars || 0}人<br><span class="opt-sub">満足して帰った客が、また来てくれる</span>`);
-  h += row('入浴料', `¥${G.opts.fee}` + (hasCat('sauna') ? `（＋サウナ ¥${G.opts.saunaFee}）` : ''));
-  h += row('客が受け入れる入浴料', `〜¥${worthFee()}`, G.opts.fee > worthFee() ? 'minus' : '');
-  if (hasCat('sauna')) h += row('客が受け入れるサウナ料', `〜¥${worthSaunaFee()}`, G.opts.saunaFee > worthSaunaFee() ? 'minus' : '');
-  h += row('受入人数（ロッカー）', `${lockerCapacity()}人（${G.equip.filter(e => EQ[e.id].cat === 'locker' && e.cond > 0).length}台）`);
   // ── 客の不満（直近3日ぶんの声を種類ごとに数えたもの。ここを見れば直すべき所が分かる）
   const { sum: gsum, total: gtot } = gripeSummary();
   h += sec('😠 客の不満');
