@@ -284,6 +284,9 @@ body {
 .senden-item .shop-price { margin-left:auto; }
 .loan-actions { display:flex; gap:8px; }
 .loan-actions .big-btn { font-size:14px; }
+/* 借入額のボタン（10万円刻み）。1行に収めて折り返さない */
+.loan-amts { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:8px; }
+.loan-amts .opt-btn { flex:1 1 0; min-width:0; white-space:nowrap; font-size:12px; padding:8px 2px; }
 
 /* 汎用トースト */
 #toast {

@@ -75,12 +75,13 @@ const KITO_APPEAR_REP = 20;                         // 鬼頭の集金が始ま�
 const KURODA_APPEAR_REP = 38;                       // 黒田が現れる評判（田所＋鬼頭の一件が片付いてから）
                                                     // 黒田の要求は高価な設備ばかりなので、中盤以降＝買える体力が付いてから現れる
 const KURODA_KEIEI_STAGE = 2;                       // 「数字で示す」を選んだ回数がこの値に達すると決戦の資格
-const KURODA_DEMAND_CLEAR = 2;                      // 黒田の要求（高価な設備投資）をこの回数だけ叶える
+const KURODA_DEMAND_CLEAR = 2;                      // 黒田の課題をこの回数だけ達成すると決戦へ
+const KURODA_DEMAND_GIVEUP = 15;                    // この日数たっても届かない課題は、黒田が別の手に切り替える
 const DEMAND_NAJIMI_GAIN = 12;                      // 田所の要求を叶えたときに伸びる常連との絆
 const DEMAND_REP_GAIN = 3;                          // 要求を叶えたときの評判の伸び
 const KURODA_CASH_OK = 500000;                      // 健全経営の基準＝手元資金50万（＋資金ショートしていないこと）
 const KURODA_KEIEI_GAIN_NAJIMI = 6;                 // 黒田イベントで「現場」を選んだ時に伸びる常連との絆
-const REINA_APPEAR_REP = 44;                        // 玲奈が現れる評判（黒田の決着が済むまで現れない）
+const REINA_APPEAR_REP = 42;                        // 玲奈が現れる評判（黒田の決着が済むまで現れない）
 const REINA_STAGE = 2;                              // 買収を断り“孤高を貫いた回数”の上限目安（投票の共感票に加算）
 const REINA_BUYOUT = 20000000;                      // 買収額（2,000万）＝受けると売却エンド分岐
 const REINA_PRESSURE = 0.78;                        // 競合圧＝蒼天SPA開業中は集客がこの倍率に落ちる（勝つまで）
@@ -89,7 +90,7 @@ const REINA_POACH_COST = 150000;                    // 引き抜きに対し「�
 const REINA_STAY_NAJIMI = 40;                       // 「本人に任せる」でバイトが忠義で残ってくれる常連絆の下限
 const REINA_EQ_OFF = 0.85;                          // 玲奈が仲間＝設備15%引き（業界の伝手で安く仕入れられる）
 // ── サウナ天下分け目の投票対決（第1章クライマックス）。※数値は叩き台
-const REINA_DUEL_APPEAR_REP = 48;                   // この評判に達すると玲奈が“挑戦状”＝公開投票対決を仕掛けてくる
+const REINA_DUEL_APPEAR_REP = 44;                   // この評判に達すると玲奈が“挑戦状”＝公開投票対決を仕掛けてくる
                                                     // ※黒田を50に下げた分ここも後ろへ。60のままだと玲奈の初登場直後に挑戦状が来て、
                                                     //   引き抜き・買収の揺さぶりが丸ごと飛んでしまう
 const REINA_DUEL_PREP_DAYS = 7;                     // 告知から投票日までの準備営業日
@@ -2502,6 +2503,13 @@ function openKurodaVisit() {
   if (kurodaKessenOK()) { bathCutThen(STORY_KURODA_BOND, 'bathKurodaBond', () => openKuroda('kessen')); return; }
   const d = demandOf('kuroda');
   if (d && demandMet(d)) { openKuroda('done', d); return; }
+  /* 届かない課題を永久に抱え込ませない（作者指定の狙い＝黒田編で待つだけの区間を作らない）。
+     引き受けてから KURODA_DEMAND_GIVEUP 日たっても届かなければ、黒田が別の手を出し直す。
+     通しシムでは「評判+3」「満足度65」が店の作りしだいで何十日も届かず、そこで止まっていた */
+  if (d && (G.day - (k.demandDay || 0)) >= KURODA_DEMAND_GIVEUP) {
+    const alt = pickDemand('kuroda');
+    if (alt && alt.key !== d.key) { openKuroda('swap', alt, d); return; }
+  }
   if (d) { openKuroda('nag', d); return; }
   const nd = pickDemand('kuroda');
   if (nd && (k.done || 0) < KURODA_DEMAND_CLEAR) { openKuroda('ask', nd); return; }
@@ -2535,7 +2543,7 @@ const KURODA_TEXT = {
       `<span class="mika-note">✅ 数字と継続を証明し、黒田を認めさせた（仲間に：人件費・経費↓／会社員客↑）</span>`,
   },
 };
-function openKuroda(kind, d) {
+function openKuroda(kind, d, oldD) {
   const k = G.kuroda;
   if (kind === 'intro') { k.met = true; G.flags.kurodaMet = true; }
   const box = $('kurodaChoices'); box.innerHTML = '';
@@ -2544,24 +2552,39 @@ function openKuroda(kind, d) {
     b.className = 'big-btn'; b.innerHTML = `${label}<br><span class="opt-sub">${sub}</span>`;
     b.onclick = fn; box.appendChild(b);
   };
+  if (kind === 'swap') {
+    // 届かない課題を、黒田のほうから引っ込める。プレイヤーを責めずに次の手へ移す
+    $('kurodaTitle').textContent = '💼 黒田が、電卓を閉じた';
+    $('kurodaInfo').innerHTML =
+      `黒田は日報をめくり、しばらく黙っていた。<br><br>` +
+      `「<b>${demandLabel(oldD)}</b>――この店の今の形じゃ、そこには届かんな。<br>` +
+      `見立てを誤ったのは俺だ。筋を変える。」<br><br>${askText(d)}<br><br>` +
+      (d.advice ? `<span class="opt-sub">「${d.advice}」</span><br><br>` : '') +
+      `<span class="mika-note">📌 ${demandLabel(d)}<br>${demandNow(d)}</span>`;
+    addBtn('💼 …やってやる', '課題を差し替える（前の課題はここで終わり）', () => resolveKuroda('accept', d));
+    $('kurodaModal').classList.remove('hidden');
+    return;
+  }
   if (kind === 'ask' || kind === 'done' || kind === 'nag') {
     const price = d.need.type === 'equip' ? eqPrice(d.need.id) : 0;
-    $('kurodaTitle').textContent = kind === 'done' ? '💼 黒田が、電卓を置いた' : `💼 黒田の“投資提案”（${(k.done || 0) + 1}件目）`;
+    $('kurodaTitle').textContent = kind === 'done' ? '💼 黒田が、電卓を置いた' : `💼 黒田の“課題”（${(k.done || 0) + 1}件目）`;
     if (kind === 'ask') {
-      $('kurodaInfo').innerHTML = `黒田は番台に電卓を置き、こちらの目を見ずに言った。<br><br>${d.ask}<br><br>` +
+      $('kurodaInfo').innerHTML = `黒田は番台に電卓を置き、こちらの目を見ずに言った。<br><br>${askText(d)}<br><br>` +
+        (d.advice ? `<span class="opt-sub">「――やり方が分からんとは言わせないぞ。${d.advice}」</span><br><br>` : '') +
         `<span class="mika-note">📌 ${demandLabel(d)}${price ? `（${yen(price)}）` : ''}` +
-        (price ? `<br>💡 引き受ければ、黒田の口利きで<b>今だけ${Math.round(KURODA_DISCOUNT * 100)}%オフ</b>（要求を果たすまで）` : '') +
-        `　→ 資金を作って揃えれば、黒田は数字で認めざるを得なくなる</span>`;
-      addBtn('💼 …やってやる', `引き受ける${price ? `（今だけ${Math.round(KURODA_DISCOUNT * 100)}%オフの ${yen(Math.round(price * (1 - KURODA_DISCOUNT)))}／通常${yen(price)}）` : ''}。達成で評判↑・数字↑`, () => resolveKuroda('accept', d));
+        (price ? `<br>💡 引き受ければ、黒田の口利きで<b>${Math.round(KURODA_DISCOUNT * 100)}%オフ</b>（課題を果たすまで）` : '') +
+        `<br>${demandNow(d)}　→ 数字で示せば、黒田は認めざるを得なくなる</span>`;
+      addBtn('💼 …やってやる', `引き受ける${price ? `（${Math.round(KURODA_DISCOUNT * 100)}%オフの ${yen(Math.round(price * (1 - KURODA_DISCOUNT)))}／通常${yen(price)}）` : ''}。達成で評判↑・数字↑`, () => resolveKuroda('accept', d));
       addBtn('🙅 今の身の丈じゃない', '断る（黒田は鼻で笑う）', () => resolveKuroda('refuse', d));
     } else if (kind === 'done') {
-      $('kurodaInfo').innerHTML = `${d.ok}<br><br><span class="mika-note">✅ ${demandLabel(d)}　――黒田の投資提案をひとつ、実行した</span>`;
-      addBtn('とじる', `評判↑・数字を積む姿勢↑（実行した投資 ${(k.done || 0) + 1}/${KURODA_DEMAND_CLEAR}）`, () => resolveKuroda('clear', d));
+      $('kurodaInfo').innerHTML = `${fillGoal(d.ok, d)}<br><br><span class="mika-note">✅ ${demandLabel(d)}　――黒田の出した課題をひとつ、達成した</span>`;
+      addBtn('とじる', `評判↑・数字を積む姿勢↑（達成した課題 ${(k.done || 0) + 1}/${KURODA_DEMAND_CLEAR}）`, () => resolveKuroda('clear', d));
     } else {
       $('kurodaInfo').innerHTML = `黒田はロビーを一瞥し、電卓を叩いた。<br><br>` +
-        `「まだ<b>${demandLabel(d)}</b>、やってないのか。<br>金がない？　なら、それを作るのが経営だろう。……言い訳は数字にならないぞ。」<br><br>` +
-        `<span class="mika-note">📌 ${demandLabel(d)}${price ? `（${yen(price)}）` : ''}</span>`;
-      addBtn('とじる', '資金を作って揃えよう', () => resolveKuroda('hold', d));
+        `「まだ<b>${demandLabel(d)}</b>、届いてないな。<br>言い訳は数字にならないぞ。」<br><br>` +
+        (d.advice ? `<span class="opt-sub">「${d.advice}」</span><br><br>` : '') +
+        `<span class="mika-note">📌 ${demandLabel(d)}　（${demandNow(d)}）</span>`;
+      addBtn('とじる', '数字で示そう', () => resolveKuroda('hold', d));
     }
     $('kurodaModal').classList.remove('hidden');
     return;
@@ -2588,13 +2611,15 @@ function resolveKuroda(kind, arg) {
     toast('黒田が仲間に！ 人件費・経費↓／会社員客↑');
   } else if (kind === 'accept') {
     k.demand = arg.key; k.lastKey = arg.key;
+    k.goal = computeGoal(arg);                    // 目標値はここで確定＝あとから逃げない
+    k.demandDay = G.day;                          // 出し直しの判定に使う（届かないまま抱え込ませない）
     k.nextDay = G.day + 1;                        // 引き受けたら、黒田は翌日に確かめに来る（作者指定）
     // 黒田が話を通した品は、その日のうちだけ30%引きで入る（作者指定）
     k.discountKey = arg.need.type === 'equip' ? arg.need.id : null;
     k.discountDay = G.day;
     toast(k.discountKey ? `💼 ${EQ[k.discountKey].name}が今だけ${Math.round(KURODA_DISCOUNT * 100)}%オフ！（要求を果たすまで）`
-                        : `💼 黒田の投資提案：${demandLabel(arg)}`);
-    log(`💼 黒田から投資提案を受けた：${demandLabel(arg)}` +
+                        : `💼 黒田の課題：${demandLabel(arg)}`);
+    log(`💼 黒田から課題を受けた：${demandLabel(arg)}` +
       (k.discountKey ? `（黒田の口利きで今だけ${Math.round(KURODA_DISCOUNT * 100)}%オフ・要求を果たすまで）` : ''));
     if (k.discountKey && G.phase === 'prep') renderShop();
   } else if (kind === 'refuse') {
@@ -2603,13 +2628,13 @@ function resolveKuroda(kind, arg) {
     toast('黒田は鼻で笑って帰っていった');
   } else if (kind === 'clear') {
     k.doneKeys = (k.doneKeys || []).concat([arg.key]);
-    k.done = (k.done || 0) + 1; k.demand = null;
+    k.done = (k.done || 0) + 1; k.demand = null; k.goal = null;
     k.discountKey = null;                    // 揃ったら口利きの割引はおしまい
     k.stage = (k.stage || 0) + 1;
     k.nextDay = G.day + 1;
     addRep(DEMAND_REP_GAIN + 1);
-    toast(`✅ 黒田の投資提案を実行した（${k.done}/${KURODA_DEMAND_CLEAR}）評判↑・数字↑`);
-    log(`💼 黒田の投資提案を実行した（${demandLabel(arg)}）`);
+    toast(`✅ 黒田の課題を達成した（${k.done}/${KURODA_DEMAND_CLEAR}）評判↑・数字↑`);
+    log(`💼 黒田の課題を達成した（${demandLabel(arg)}）`);
   } else if (kind === 'hold') {
     k.nextDay = G.day + 1;
   } else {
@@ -2835,8 +2860,14 @@ function acceptReinaDuel() {
   const r = G.reina;
   $('reinaModal').classList.add('hidden');
   r.duel = 'announced'; r.duelDay = G.day + REINA_DUEL_PREP_DAYS; r.midDone = false;
-  toast(`🗳 投票対決を受けて立った！ 投票日はあと${r.duelDay - G.day}日（準備期間は競合圧が最高潮）`);
+  /* 【フィンランド式サウナは、この勝負まで取っておく（作者指定）】
+     受けて立った瞬間にカタログで解放され、黒田と商店街の口利きで大幅割引が入る。
+     「勝つための一手が、ここで初めて手が届く値段になる」＝決戦の準備期間そのものが山場になる */
+  G.flags.duelBoost = true;
+  toast(`🗳 投票対決を受けて立った！ 投票日はあと${r.duelDay - G.day}日`);
   log('❄ サウナ天下分け目の投票対決を受けて立った。テレビ・新聞も注目。設備と常連の絆を磨いて投票日に備えろ');
+  toast(`💼 黒田と商店街が動いた——【${EQ.sauna2.name}】が${Math.round(DUEL_DISCOUNT * 100)}%オフ（${yen(eqPrice('sauna2'))}）！`);
+  log(`💼 黒田「業者に話は通した。${EQ.sauna2.name}、${Math.round(DUEL_DISCOUNT * 100)}%引きだ。……勝ってこい」`);
   dismissVisitor();
   updateTopbar(); saveGame();
 }
@@ -3164,6 +3195,10 @@ function closeDay() {
   // 黒田の判定用：直近5日の収支を記録し、資金ショートした日を覚えておく
   if (!Array.isArray(G.recentProfits)) G.recentProfits = [];
   G.recentProfits.push(profit); if (G.recentProfits.length > 5) G.recentProfits.shift();
+  /* 黒田の“経営課題”の判定に使う、その日の成績（作者指定＝黒田は設備を買わせる役ではなく数字を要求する役）。
+     売上・利益・客単価・満足度は日報と同じ数字。あとから読めるようにここで確定させる */
+  G.lastStats = { profit, tanka: t.paid ? Math.round(t.revenue / t.paid) : 0,
+                  avgSat: t.satN ? Math.round(t.satSum / t.satN) : 0, paid: t.paid };
   if (t.autoYami > 0) G.lastShortfallDay = G.day;
   // 連続黒字日数＝信用金庫の審査条件（フェーズ4）。赤字が1日でも出るとゼロに戻る
   G.profitStreak = profit > 0 ? (G.profitStreak || 0) + 1 : 0;
@@ -3414,13 +3449,13 @@ function enterPrep() {
     setHint(`🗳 サウナ天下分け目の投票対決まであと${d}日！　見込み票 夕凪 ${computeYuVotes()} / 蒼天 約${SOUTEN_DUEL_VOTES}<br>設備を磨き、常連の絆を深めて“帰ってきたい湯”にしろ（準備期間は競合圧が最高潮）`);
   } else if (G.flags.freePlay) {
     // クリア後の自由営業。もう追われるものはない＝好きなだけ理想の湯を育てられる（フェーズ4）
-    const next = Object.values(EQ).filter(d => d.rep && d.rep > G.rep).sort((a, b) => a.rep - b.rep)[0];
+    const next = Object.keys(EQ).filter(k => k !== DUEL_ONLY_EQ && EQ[k].rep && EQ[k].rep > G.rep).map(k => EQ[k]).sort((a, b) => a.rep - b.rep)[0];
     setHint(`🎉 第1章クリア！ 夕凪湯は街の湯として蘇った。<br>ここからは自由営業。追い立てるものはもう無い。` +
       (G.rep < 100 ? `<br>🎯 評判100を目指して全設備を解放しよう（いま ${G.rep}）`
                    : (next ? `<br>🎯 次の解放：評判${next.rep}で【${next.name}】` : `<br>評判は最高の100。あとは思うまま、最高の湯を`)));
   } else {
     // 次に解放される設備を準備画面に出しておく（目標が見えるように）
-    const next = Object.values(EQ).filter(d => d.rep && d.rep > G.rep).sort((a, b) => a.rep - b.rep)[0];
+    const next = Object.keys(EQ).filter(k => k !== DUEL_ONLY_EQ && EQ[k].rep && EQ[k].rep > G.rep).map(k => EQ[k]).sort((a, b) => a.rep - b.rep)[0];
     setHint(next ? `🎯 次の解放：評判${next.rep}で【${next.name}】（いま ${G.rep}）` : null);
   }
   updateTopbar();
@@ -3946,8 +3981,34 @@ function demandOf(who) {
   return demandList(who).find(d => d.key === st.demand) || null;
 }
 function cmpOp(a, op, b) { return op === '>=' ? a >= b : op === '<=' ? a <= b : a === b; }
+/* 黒田の経営課題の目標値。rep と regular は「引き受けた時点の店＋α」なので、
+   受けた瞬間に確定させて st.goal に焼き付ける（そうしないと、評判が上がるたびに目標も逃げていく）。
+   まだ引き受けていない提示中の課題は、いまの店から計算した見込み値を返す */
+function computeGoal(d) {
+  const n = d.need;
+  if (n.type === 'rep') return Math.min(96, Math.ceil(G.rep) + n.add);
+  if (n.type === 'regular') return (G.regulars || 0) + n.add;
+  if (n.type === 'profit' || n.type === 'tanka' || n.type === 'cash') return n.yen;
+  if (n.type === 'sat') return n.v;
+  return 0;
+}
+// いま有効な目標値（引き受け済みなら焼き付けた値、まだなら見込み値）
+function goalOf(d) {
+  for (const st of [G.tadokoro, G.kuroda])
+    if (st && st.demand === d.key && st.goal != null) return st.goal;
+  return computeGoal(d);
+}
 function demandMet(d) {
   const n = d.need;
+  const ls = G.lastStats || {};
+  const g = goalOf(d);
+  if (n.type === 'rep') return G.rep >= g;
+  if (n.type === 'regular') return (G.regulars || 0) >= g;
+  if (n.type === 'cash') return G.cash >= g;
+  // 利益・客単価・満足度は「直近の営業日の成績」で見る＝1日だけでも出せば認められる
+  if (n.type === 'profit') return (ls.profit || 0) >= g;
+  if (n.type === 'tanka') return (ls.tanka || 0) >= g;
+  if (n.type === 'sat') return (ls.avgSat || 0) >= g;
   if (n.type === 'equip') return hasWorking(n.id);
   if (n.type === 'remove') return !hasEquip(n.id);
   if (n.type === 'opt') return cmpOp(G.opts[n.opt], n.op, n.v);
@@ -3956,6 +4017,13 @@ function demandMet(d) {
 }
 function demandLabel(d) {
   const n = d.need;
+  const g = goalOf(d);
+  if (n.type === 'rep') return `評判を ${g} まで上げる`;
+  if (n.type === 'regular') return `常連を ${g}人 まで増やす`;
+  if (n.type === 'cash') return `手元資金を ${yen(g)} まで積む`;
+  if (n.type === 'profit') return `1日の利益を ${yen(g)} 以上にする`;
+  if (n.type === 'tanka') return `客単価を ${yen(g)} 以上にする`;
+  if (n.type === 'sat') return `客の満足度を ${g}点 以上にする`;
   if (n.type === 'equip') return `【${EQ[n.id].name}】を置く`;
   if (n.type === 'remove') return `【${EQ[n.id].name}】を撤去する`;
   if (n.type === 'opt') return `入浴料を ¥${n.v} 以下にする`;
@@ -4007,6 +4075,27 @@ function pickDemand(who) {
     return relaxed.length ? pick(relaxed) : null;
   }
   return pick(cands);
+}
+/* セリフ中の {目標} を、その課題の目標値の表記に差し替える */
+function fillGoal(text, d) {
+  const n = d.need, g = goalOf(d);
+  const label = (n.type === 'rep' || n.type === 'sat') ? `${g}`
+    : n.type === 'regular' ? `${g}人`
+    : yen(g);
+  return String(text || '').replace(/\{目標\}/g, label);
+}
+function askText(d) { return fillGoal(d.ask, d); }
+
+/* 黒田の経営課題の「いまの数字」＝進捗。どれだけ足りないかを見せる */
+function demandNow(d) {
+  const n = d.need, ls = G.lastStats || {};
+  if (n.type === 'rep') return `いま ${Math.round(G.rep)}`;
+  if (n.type === 'regular') return `いま ${G.regulars || 0}人`;
+  if (n.type === 'cash') return `いま ${yen(G.cash)}`;
+  if (n.type === 'profit') return ls.paid ? `昨日 ${yen(ls.profit || 0)}` : 'まだ営業していない';
+  if (n.type === 'tanka') return ls.paid ? `昨日 ${yen(ls.tanka || 0)}` : 'まだ営業していない';
+  if (n.type === 'sat') return ls.paid ? `昨日 ${ls.avgSat || 0}点` : 'まだ営業していない';
+  return '';
 }
 /* 準備画面や「データ」に出す、いま抱えている宿題の1行 */
 function demandHint() {
@@ -5507,13 +5596,17 @@ function isNewItem(id) { const d = EQ[id]; return !!d.rep && G.rep >= d.rep && !
 function newInCat(cat) { return shopIds(cat).some(isNewItem); }
 
 // 設備の仕入れ値。玲奈が仲間なら15%引き（業界の伝手で安く回してもらえる）
-/* 黒田の投資提案を引き受けると、その品だけ30%引きで買える（作者指定）。
-   割引は「その要求を果たすまで」ずっと有効。
-   以前は引き受けた翌朝で切れていたが、要求される品はフィンランド式サウナ（240万）のように高く、
-   引き受けた日の手持ちではまず買えない＝割引が一度も使えないまま消える死んだ選択肢になっていた
-   （通しシムで実際に発生。240万が貯まる頃には定価に戻っていて、黒田編がそこで止まった）。
-   達成すれば resolveKuroda 側で discountKey が消えるので、割引が居座ることはない */
+/* 黒田の課題が設備の購入だった場合の30%引き（作者指定）。課題を果たすまで有効。
+   黒田の課題は経営の数字に作り替えたので今は出番がないが、仕組みは残してある
+   （田所側や、今後この形の課題を足す時のため）。
+   ※以前は「引き受けた翌朝まで」で、240万の設備が貯まる頃には定価に戻っていた＝死んだ選択肢だった */
 const KURODA_DISCOUNT = 0.30;
+/* 投票対決を受けて立つと、フィンランド式サウナだけ大幅割引になる（作者指定）。
+   黒田の口利き＋商店街の後押し＝「街ぐるみで勝ちにいく」という場面を、値段で見せる */
+const DUEL_DISCOUNT = 0.50;
+const DUEL_ONLY_EQ = 'sauna2';
+// 決戦仕様の設備は、投票対決を受けて立つまでカタログに並ばない（評判では解放されない）
+function duelEqReady() { return !!(G.flags && G.flags.duelBoost); }
 function kurodaDiscountId() {
   const k = G.kuroda;
   if (!k || !k.discountKey || k.resolved) return null;
@@ -5521,6 +5614,7 @@ function kurodaDiscountId() {
 }
 function eqPrice(id) {
   let p = EQ[id].price * (reinaAllyOn() ? REINA_EQ_OFF : 1);
+  if (id === DUEL_ONLY_EQ && duelEqReady()) p *= (1 - DUEL_DISCOUNT);
   if (kurodaDiscountId() === id) p *= (1 - KURODA_DISCOUNT);
   return Math.round(p);
 }
@@ -5540,7 +5634,9 @@ function renderShop(markSeen) {
     const def = EQ[id];
     const price = eqPrice(id);
     const discounted = reinaAllyOn() && price < def.price;
-    const locked = def.rep && G.rep < def.rep && !isDemandedEquip(id);
+    const locked = id === DUEL_ONLY_EQ
+      ? !duelEqReady()                                   // 決戦仕様は投票対決を受けて立つまで並ばない
+      : (def.rep && G.rep < def.rep && !isDemandedEquip(id));
     const isNew = isNewItem(id);
     const capTxt = CAP_CATS.includes(def.cat) && def.cap > 0 ? ` <span class="cap-chip">収容${def.cap}人</span>` : '';
     // ⭐＝店の格への貢献（1〜5）。数字で「評判+○」と書くと即効性があると誤解されるので、星でそれとなく伝える
@@ -5551,14 +5647,19 @@ function renderShop(markSeen) {
     // 名前の下に一行だけ短い説明（EQ_NOTE）。長い説明は設備をタップした時の詳細に置いてある
     const note = EQ_NOTE[id] ? `<div class="shop-note">${EQ_NOTE[id]}</div>` : '';
     div.innerHTML = `<img class="shop-icon" src="${iconFor(id)}">
-      <div class="shop-body"><div class="shop-name">${isNew ? '<b class="new-tag">NEW</b> ' : ''}${def.name}${capTxt}${starTxt}${locked ? ` <span class="lock-chip">🔒評判${def.rep}</span>` : ''}</div>${note}</div>
+      <div class="shop-body"><div class="shop-name">${isNew ? '<b class="new-tag">NEW</b> ' : ''}${def.name}${capTxt}${starTxt}${locked ? (id === DUEL_ONLY_EQ ? ' <span class="lock-chip">🔒決戦仕様</span>' : ` <span class="lock-chip">🔒評判${def.rep}</span>`) : ''}</div>${note}</div>
       <div class="shop-price">${
         // 黒田割引中は「定価を消して、赤で割引後の額」。定価のほうを赤で出すと、どちらを払うのか分からなくなる
         kurodaDiscountId() === id
           ? `<span class="price-was">通常${yenShort(def.price)}</span>/<span class="kuroda-off">今だけ${yenShort(price)}（黒田割引）</span>`
+          : (id === DUEL_ONLY_EQ && duelEqReady())
+          ? `<span class="price-was">通常${yenShort(def.price)}</span>/<span class="kuroda-off">今だけ${yenShort(price)}（決戦割引）</span>`
           : yenShort(price) + (discounted ? '<br><span style="font-size:10px;color:#37a">玲奈割15%引き</span>' : '')}</div>`;
     div.onclick = () => {
-      if (locked) { toast(`評判${def.rep}になったら仕入れられる`); return; }
+      if (locked) {
+        toast(id === DUEL_ONLY_EQ ? 'これは、まだ手が届く代物じゃない…' : `評判${def.rep}になったら仕入れられる`);
+        return;
+      }
       if (G.cash < price) { toast('資金が足りない…（融資も検討しよう）'); return; }
       startPlacing(id, null);
     };
@@ -6116,26 +6217,28 @@ function initUI() {
     renderLoan(); $('loanModal').classList.remove('hidden');
   };
   $('btnLoanClose').onclick = () => $('loanModal').classList.add('hidden');
-  $('btnYamiBorrow').onclick = () => {
-    /* サラ金は審査なし・即日・10万円刻み、限度100万（作者指定）。
-       銀行は廃止したので、ここが唯一の資金調達口。
-       限度が低いのが肝＝借金で設備を揃えることはできず、稼いで返すしかない */
-    if (G.yami.debt + CONF.sarakinUnit > CONF.sarakinMax) { toast('灰田も、これ以上は貸さないと言った'); return; }
-    // 初回は店の前で灰田と会う（全画面シーン）→ その場で10万を受け取る
+  /* サラ金は審査なし・即日。10万円刻みで好きな額を、限度100万まで一度に借りられる（作者指定）。
+     銀行は廃止したので、ここが唯一の資金調達口。
+     限度が低いのが肝＝借金で設備を揃えることはできず、稼いで返すしかない */
+  window.doBorrowSarakin = (amount) => {
+    const room = CONF.sarakinMax - (G.yami.debt || 0);
+    const amt = Math.min(amount, room);
+    if (amt < CONF.sarakinUnit) { toast('灰田も、これ以上は貸さないと言った'); return; }
+    // 初回は店の前で灰田と会う（全画面シーン）→ その場で受け取る
     if (!G.yami.met) {
       $('loanModal').classList.add('hidden');
       Story.play(STORY_YAMI_INTRO, () => {
-        borrowYami(CONF.sarakinUnit);
-        toast(`💳 灰田から ${yen(CONF.sarakinUnit)} 借りた…毎週水曜に集金が来る`);
+        borrowYami(amt);
+        toast(`💳 灰田から ${yen(amt)} 借りた…毎週水曜に集金が来る`);
         updateTopbar();
         // 借りたことは、なぜか親父に伝わっている（初回だけ全画面の小言）
         if (!G.flags.loanNag) { G.flags.loanNag = true; saveGame(); Story.play(STORY_LOAN, () => {}); }
       });
       return;
     }
-    borrowYami(CONF.sarakinUnit);
+    borrowYami(amt);
     renderLoan(); updateTopbar();
-    toast(`灰田から ${yen(CONF.sarakinUnit)} 借りた…`);
+    toast(`灰田から ${yen(amt)} 借りた…`);
     oyajiNag('loan', 2.4);                       // 2回目以降は“ながら”の小言だけ
   };
   $('btnYamiRepay').onclick = () => {
@@ -6560,17 +6663,27 @@ function renderAds() {
 function renderLoan() {
   $('loanCash').innerHTML = `手持ち資金: <b>${yen(G.cash)}</b>`;
   const yDebt = G.yami ? G.yami.debt : 0;
-  const canBorrow = yDebt + CONF.sarakinUnit <= CONF.sarakinMax;
+  const canBorrow = yDebt + CONF.sarakinUnit <= CONF.sarakinMax;   // 10万すら借りられない＝枠いっぱい
   $('loanInfoYami').innerHTML =
-    `審査なし・即日。<b>${manYen(CONF.sarakinUnit)}</b>ずつ、<b>${manYen(CONF.sarakinMax)}まで</b>。<br>` +
+    `審査なし・即日。<b>${manYen(CONF.sarakinUnit)}刻み</b>で、<b>${manYen(CONF.sarakinMax)}まで</b>好きなだけ。<br>` +
     `金利は年${Math.round(CONF.sarakinApr * 100)}%。毎週水曜に集金が来る。<br>` +
     `集金では「ジャンプ（金利のみ）／10万円返す／全額返済」から選ぶ。` +
     (yDebt > 0
       ? `<br>残債 <b>${manYen(yDebt)}</b>（今週の金利 ${yen(yamiDue())}）`
       : '') +
     (canBorrow ? '' : '<br><b>限度額いっぱい＝これ以上は貸してくれない</b>');
-  $('btnYamiBorrow').innerHTML = `${manYen(CONF.sarakinUnit)} 借りる`;
-  $('btnYamiBorrow').disabled = !canBorrow;
+  /* 借入額のボタンを10万円刻みで並べる（作者指定）。残枠を超える額は押せない。
+     枠が広いと10本並んで折り返すので、10万・30万・50万・残り全部、の4つに絞ってある */
+  const room = CONF.sarakinMax - yDebt;
+  const amts = [CONF.sarakinUnit, CONF.sarakinUnit * 3, CONF.sarakinUnit * 5];
+  if (room > 0 && !amts.includes(room)) amts.push(room);
+  $('borrowAmts').innerHTML = amts
+    .filter(a => a >= CONF.sarakinUnit && a <= CONF.sarakinMax)
+    .map(a => `<button class="opt-btn" data-amt="${a}"${a > room ? ' disabled' : ''}>${manYen(a)}${a === room && room > CONF.sarakinUnit ? '<br><span class="opt-sub">残り全部</span>' : ''}</button>`)
+    .join('');
+  $('borrowAmts').querySelectorAll('button').forEach(b => {
+    b.onclick = () => window.doBorrowSarakin(+b.dataset.amt);
+  });
   $('btnYamiRepay').innerHTML = yDebt > 0 ? `全額返済<br>（${manYen(yamiPayoff())}）` : '全額返済';
   $('btnYamiRepay').disabled = !(yDebt > 0 && G.cash >= yamiPayoff());
 }
