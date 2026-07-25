@@ -19,10 +19,9 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const G = {
   phase: 'title',            // title / prep / biz / report
   day: 1, cash: CONF.startCash, debt: CONF.startDebt, rep: 10, name: '夕凪湯',
-  // 信用金庫の融資：debt=残り返済総額（受取時に330万を計上、毎週水曜10万ずつ減る）。
-  // loanPending=振込待ちの額（申込から3日後に届く）／loanArrive=振込予定日
+  // 銀行融資は廃止（作者指定）。debt/loanPending/loanArrive は旧セーブの読み込み用に残してあるだけで、もう増えない
   loanPending: 0, loanArrive: 0,
-  profitStreak: 0,          // 連続黒字日数（信金の審査条件）
+  profitStreak: 0,          // 連続黒字日数（データ画面の表示に使う）
   uidN: 0,
   equip: [],                 // {uid,id,x,y,rot,cond,occ[]}
   dirts: [],                 // {x,y}
@@ -49,14 +48,14 @@ const G = {
   tadokoro: null,            // ライバル「田所源造」の進行 {met,stage,resolved,ally,nextDay}。常連客問題を統合
   kuroda: null,              // ライバル「黒田修司」（同級生・数字/継続）の進行 {met,stage,resolved,ally,nextDay}
   reina: null,               // ライバル「桐生玲奈」（蒼天SPA・設備/業界）の進行 {met,stage,resolved,ally,nextDay,poachDone}。買収/引き抜き/競合圧
-  yami: null,                // ヤミ金「灰田金融」{debt,met,missed}。毎日取り立てが来る
+  yami: null,                // サラ金「灰田ファイナンス」{debt,met,missed}。毎週水曜に集金が来る
   npcs: [],                  // 歩いて入ってくる面々（重要人物の来訪・修理業者・バットの若い衆）
   visitKey: null, visitAt: null, visitFired: false,   // 今日の来訪者（1日ひとりだけ）
-  yamiAt: null, yamiFired: false,                     // ヤミ金の集金予定
+  yamiAt: null, yamiFired: false,                     // サラ金の集金予定（水曜のみ）
   najimi: 8,                 // 常連（親父時代からの常連）との絆 0–100。田所の決戦＆鬼頭の街ぐるみに効く
   oyajiRel: 0,               // （廃止）旧・親父との関係ゲージ。セーブ互換のため器だけ残す。態度は評判連動
   recentProfits: [],         // 直近5日の日次収支（黒田の「直近5日で3日黒字」判定に使う）
-  lastShortfallDay: 0,       // 直近で資金ショート自動借入をした日（黒田の「健全経営」判定＝ヤミ金不使用の読み替え）
+  lastShortfallDay: 0,       // 直近で資金ショート自動借入をした日（黒田の「健全経営」判定に使う）
   solved: null,              // 4つの対立の解決フラグ {tadokoro,yakuza,kuroda,reina}＋親父和解oyaji。全対立解決＋親父和解で復活エンド
 };
 function newKito() { return { met: false, encounters: 0, paid: 0, paidTotal: 0, refused: 0, destroyed: 0, resolved: false, outcome: null, ally: false, nextShowdownDay: 0, lastAllyDay: 0, showdowns: 0 }; }
@@ -70,15 +69,18 @@ const TADOKORO_APPEAR_REP = 15;                     // 田所が現れる評判�
 const TADOKORO_KESSEN_NAJIMI = 55, TADOKORO_KESSEN_REP = 28, TADOKORO_KYOZON_GAIN = 18;  // 田所が認める条件と、共存の選択で伸びる絆（評判条件は田所クリア前の上限30の内側に）
 const TADOKORO_DEMAND_CLEAR = 5;                    // 田所の要求をこの回数だけ叶えると、認めさせる資格（作者指定で3→5）
 const KITO_APPEAR_REP = 20;                         // 鬼頭の集金が始まる評判（新評判方式＝繁盛の匂いがし始めた店にヤクザが来る）
-const KURODA_APPEAR_REP = 45;                       // 黒田が現れる評判（田所＋鬼頭の一件が片付いてから。鬼頭編の上限40から登り直してすぐ届く値＝テンポを切らさない）
+/* 以下の登場しきい値は、店の格を漸近カーブに変えた（＝伸び半減）あとの実測に合わせ直した値。
+   通しシムでは充実度が57〜64で頭打ちになり、評判の実効レンジは30〜50。旧値（45/55/65）には届かなかった。
+   店をもっと大きくできるようになったら（＝設置場所と資金の詰まりを解けたら）、ここは上げ直す */
+const KURODA_APPEAR_REP = 38;                       // 黒田が現れる評判（田所＋鬼頭の一件が片付いてから）
                                                     // 黒田の要求は高価な設備ばかりなので、中盤以降＝買える体力が付いてから現れる
 const KURODA_KEIEI_STAGE = 2;                       // 「数字で示す」を選んだ回数がこの値に達すると決戦の資格
 const KURODA_DEMAND_CLEAR = 2;                      // 黒田の要求（高価な設備投資）をこの回数だけ叶える
 const DEMAND_NAJIMI_GAIN = 12;                      // 田所の要求を叶えたときに伸びる常連との絆
 const DEMAND_REP_GAIN = 3;                          // 要求を叶えたときの評判の伸び
-const KURODA_CASH_OK = 500000;                      // 健全経営の基準＝手元資金50万（＋ヤミ金不使用）
+const KURODA_CASH_OK = 500000;                      // 健全経営の基準＝手元資金50万（＋資金ショートしていないこと）
 const KURODA_KEIEI_GAIN_NAJIMI = 6;                 // 黒田イベントで「現場」を選んだ時に伸びる常連との絆
-const REINA_APPEAR_REP = 55;                        // 玲奈が現れる評判（黒田編の上限55に張り付いた頃＝上限が外れた直後に現れる。黒田の決着が済むまで現れない）
+const REINA_APPEAR_REP = 44;                        // 玲奈が現れる評判（黒田の決着が済むまで現れない）
 const REINA_STAGE = 2;                              // 買収を断り“孤高を貫いた回数”の上限目安（投票の共感票に加算）
 const REINA_BUYOUT = 20000000;                      // 買収額（2,000万）＝受けると売却エンド分岐
 const REINA_PRESSURE = 0.78;                        // 競合圧＝蒼天SPA開業中は集客がこの倍率に落ちる（勝つまで）
@@ -87,11 +89,11 @@ const REINA_POACH_COST = 150000;                    // 引き抜きに対し「�
 const REINA_STAY_NAJIMI = 40;                       // 「本人に任せる」でバイトが忠義で残ってくれる常連絆の下限
 const REINA_EQ_OFF = 0.85;                          // 玲奈が仲間＝設備15%引き（業界の伝手で安く仕入れられる）
 // ── サウナ天下分け目の投票対決（第1章クライマックス）。※数値は叩き台
-const REINA_DUEL_APPEAR_REP = 65;                   // この評判に達すると玲奈が“挑戦状”＝公開投票対決を仕掛けてくる（玲奈クリア前の上限70の内側に）
+const REINA_DUEL_APPEAR_REP = 48;                   // この評判に達すると玲奈が“挑戦状”＝公開投票対決を仕掛けてくる
                                                     // ※黒田を50に下げた分ここも後ろへ。60のままだと玲奈の初登場直後に挑戦状が来て、
                                                     //   引き抜き・買収の揺さぶりが丸ごと飛んでしまう
 const REINA_DUEL_PREP_DAYS = 7;                     // 告知から投票日までの準備営業日
-const REINA_REMATCH_REP = 65;                       // フェーズ4：敗北（評判-20）から、この評判まで戻すと再挑戦できる（上限70の内側に）
+const REINA_REMATCH_REP = 45;                       // フェーズ4：敗北（評判-20）から、この評判まで戻すと再挑戦できる
 const REINA_LOSE_REP = 20;                          // フェーズ4：初戦敗北で失う評判
 const SOUTEN_DUEL_VOTES = 300;                      // 蒼天SPAの基礎票（規模・話題の壁）＝これを上回れば勝ち
 const DUEL_W_REP = 3.2;                             // 夕凪票：評判の重み
@@ -111,7 +113,39 @@ function newToday() {
            towelRev: 0, towelN: 0, akasuriRev: 0, akasuriN: 0, soapRev: 0, soapN: 0,
            teburaRev: 0, teburaN: 0, soapUnits: 0, totonoiTry: 0, gaveUp: 0, mikajime: 0,
            amenRev: 0, amenN: 0, milkRev: 0, autoYami: 0, yamiPaid: 0, repairCost: 0, unpaid: false,
-           care: 0, queueMiss: 0, gripes: {} };
+           care: 0, queueMiss: 0, gripes: {}, satSeg: {} };
+}
+
+/* ---- 客層別の満足度（データ画面の診断表示。作者指定＝案3のタイプ別） ----
+   狙いは「どこかに偏ると全体が歪む」のを目に見えるようにすること。
+   ※これは評判スコアには一切混ぜない（作者と合意）。評判は1本のまま、ここは“どこが弱いか”を読む計器。
+     5本の平均にしてしまうと、どこが悪いのか逆に分からなくなり、天井＋速度のカーブも壊れる */
+const SEGMENTS = [
+  { key: 'jimoto', name: '昔ながらの常連', types: ['jisan', 'obachan'],   hint: '湯温・ぬるめの湯船・清潔さ・料金' },
+  { key: 'sauner', name: 'サウナー',       types: ['salaryman', 'kinpatsu'], hint: 'サウナの種類・水風呂・マット・ととのい' },
+  { key: 'sentou', name: '銭湯ファン',     types: ['oyaji', 'ol'],        hint: '風呂の種類・アメニティ・洗い場' },
+  { key: 'wakai',  name: '若者',           types: ['wakamono'],           hint: '設備の新しさ・手ぶら・ドライヤー' },
+  { key: 'kozure', name: '子連れ',         types: ['oyako'],              hint: '子供料金・怖い客・清潔さ・混雑' },
+];
+function segOf(typeKey) {
+  for (const s of SEGMENTS) if (s.types.includes(typeKey)) return s.key;
+  return null;                                    // 強面の客（yakuza）はどの層にも入れない
+}
+function addSegSat(c) {
+  const k = segOf(c.typeKey); if (!k) return;
+  const m = (G.today.satSeg = G.today.satSeg || {});
+  const e = (m[k] = m[k] || { sum: 0, n: 0 });
+  e.sum += c.sat; e.n++;
+}
+/* 直近3日ぶんをならして返す。1日ぶんだと、その層が2〜3人しか来なかった日に数字が跳ねて読めない */
+function segSatParts() {
+  const hist = Array.isArray(G.recentSegSat) ? G.recentSegSat : [];
+  const all = hist.concat(G.today && G.today.satSeg ? [G.today.satSeg] : []);
+  return SEGMENTS.map(sg => {
+    let sum = 0, n = 0;
+    for (const day of all) { const e = day[sg.key]; if (e) { sum += e.sum; n += e.n; } }
+    return { ...sg, avg: n ? Math.round(sum / n) : null, n };
+  });
 }
 
 /* ---- 客の不満の集計（データ画面の「客の不満」欄） ----
@@ -1379,6 +1413,7 @@ function customerLeave(c) {
   }
   c.sat = clamp(c.sat, 0, 100);
   G.today.satSum += c.sat; G.today.satN++;
+  addSegSat(c);
   /* 行きつけになるか、足が遠のくか。
      気持ちよく帰った新規の一部が常連に変わり、がっかりした常連はそのぶん離れる＝
      「客をどれだけ集めたか」より「集めた客をどれだけ満足させたか」が効いてくる */
@@ -1786,9 +1821,9 @@ function startDay() {
   if (v === 'mikajime') G.mikajimeAt = rand(120, 720);
   // 田所の顔合わせだけは開店まもなく（10〜12時台）。「暖簾を出して間もなく」の一幕なので
   else if (v) { G.visitKey = v; G.visitAt = (v === 'tadokoro' && !G.tadokoro.hello) ? rand(60, 190) : rand(150, 660); }
-  // ヤミ金の取り立ては毎日、開店直後にやってくる
+  // サラ金の集金は毎週水曜、開店直後にやってくる（作者指定＝毎日の取り立ては廃止）
   G.yamiFired = false;
-  G.yamiAt = (G.yami && G.yami.debt > 0) ? 30 : null;
+  G.yamiAt = (G.yami && G.yami.debt > 0 && dayOfWeek(G.day) === 2) ? 30 : null;
   // 客の来店予定を作る。土台は評判＝評判が上がるほど客が増える。
   // フェーズ3.5：傾きを0.7→0.45に緩和（評判50で行列が捌けなくなっていたため。※数値は叩き台）
   let n = CONF.guestBase + G.rep * CONF.guestPerRep + G.adBoost;
@@ -2456,7 +2491,7 @@ function kurodaBiz() {
   const profitDays = hist.filter(p => p > 0).length;                       // 直近5日の黒字日数
   const c1 = profitDays >= 3;                                              // ①直近5日で3日以上黒字
   const c2 = G.cash >= KURODA_CASH_OK;                                     // ②手元資金50万以上
-  // ③健全経営＝5日間資金ショート無し＆ヤミ金に手を出していない（信用金庫の計画返済は健全のうち）
+  // ③健全経営＝5日間、資金ショートで灰田に駆け込んでいないこと
   const c3 = (G.day - (G.lastShortfallDay || 0)) >= 5 && (!G.yami || G.yami.debt <= 0);
   return { c1, c2, c3, profitDays, count: [c1, c2, c3].filter(Boolean).length };
 }
@@ -2515,7 +2550,7 @@ function openKuroda(kind, d) {
     if (kind === 'ask') {
       $('kurodaInfo').innerHTML = `黒田は番台に電卓を置き、こちらの目を見ずに言った。<br><br>${d.ask}<br><br>` +
         `<span class="mika-note">📌 ${demandLabel(d)}${price ? `（${yen(price)}）` : ''}` +
-        (price ? `<br>💡 引き受ければ、黒田の口利きで<b>今だけ${Math.round(KURODA_DISCOUNT * 100)}%オフ</b>（今夜の準備まで）` : '') +
+        (price ? `<br>💡 引き受ければ、黒田の口利きで<b>今だけ${Math.round(KURODA_DISCOUNT * 100)}%オフ</b>（要求を果たすまで）` : '') +
         `　→ 資金を作って揃えれば、黒田は数字で認めざるを得なくなる</span>`;
       addBtn('💼 …やってやる', `引き受ける${price ? `（今だけ${Math.round(KURODA_DISCOUNT * 100)}%オフの ${yen(Math.round(price * (1 - KURODA_DISCOUNT)))}／通常${yen(price)}）` : ''}。達成で評判↑・数字↑`, () => resolveKuroda('accept', d));
       addBtn('🙅 今の身の丈じゃない', '断る（黒田は鼻で笑う）', () => resolveKuroda('refuse', d));
@@ -2557,10 +2592,10 @@ function resolveKuroda(kind, arg) {
     // 黒田が話を通した品は、その日のうちだけ30%引きで入る（作者指定）
     k.discountKey = arg.need.type === 'equip' ? arg.need.id : null;
     k.discountDay = G.day;
-    toast(k.discountKey ? `💼 ${EQ[k.discountKey].name}が今だけ${Math.round(KURODA_DISCOUNT * 100)}%オフ！（今夜の準備まで）`
+    toast(k.discountKey ? `💼 ${EQ[k.discountKey].name}が今だけ${Math.round(KURODA_DISCOUNT * 100)}%オフ！（要求を果たすまで）`
                         : `💼 黒田の投資提案：${demandLabel(arg)}`);
     log(`💼 黒田から投資提案を受けた：${demandLabel(arg)}` +
-      (k.discountKey ? `（黒田の口利きで今だけ${Math.round(KURODA_DISCOUNT * 100)}%オフ・今夜の準備まで）` : ''));
+      (k.discountKey ? `（黒田の口利きで今だけ${Math.round(KURODA_DISCOUNT * 100)}%オフ・要求を果たすまで）` : ''));
     if (k.discountKey && G.phase === 'prep') renderShop();
   } else if (kind === 'refuse') {
     k.lastKey = arg.key;      // 断られた品は、次にすぐ蒸し返さない（作者指定＝毎回ちがう提案をする）
@@ -3020,11 +3055,9 @@ function careBubbleText() {
   if (careOn() && G.cash <= careDue()) return '親父の治療費が払えない…';
   // ③ みかじめを払った日
   if (G.today && G.today.mikajime > 0) return pick(LINES.nightMika);
-  /* ④ 信用金庫に借りているあいだ、毎週火曜の夜だけ（作者指定）。
-     返済は水曜の営業終わりに自動で引かれる＝この独り言は「明日、10万出ていくぞ」の予告。
-     ※この関数は日付が翌日に進んだあと（準備画面に入る時）に呼ばれるので、
-       火曜の夜＝G.day はもう水曜。だから水曜（曜日番号2）で判定する */
-  if (G.debt > 0 && dayOfWeek(G.day) === 2) return `明日は融資の返済だ…（${yenShort(Math.min(CONF.loanWeekly, G.debt))}）`;
+  /* ④ 灰田に借りているあいだ、集金日（水曜）の朝だけ（作者指定）。
+     ※この関数は日付が翌日に進んだあと（準備画面に入る時）に呼ばれるので、G.day はもう当日 */
+  if (G.yami && G.yami.debt > 0 && dayOfWeek(G.day) === 2) return `今日は灰田の集金日だ…（金利 ${yenShort(yamiDue())}）`;
   // ④ その日の収支（closeDayが計算してG.recentProfitsの末尾に積んだ値＝日報と同じ数字）
   const hist = Array.isArray(G.recentProfits) ? G.recentProfits : [];
   if (!hist.length) return null;
@@ -3059,6 +3092,7 @@ function closeDay() {
     if (c.state !== 'turnAway' && c.state !== 'turnAwayExit') {
       c.sat = clamp(c.sat + c.type.tolerant, 0, 100);
       G.today.satSum += c.sat; G.today.satN++;
+      addSegSat(c);
     } else { G.today.turnedAway++; gripe('locker'); }
     removeCustomer(c);
   }
@@ -3067,9 +3101,8 @@ function closeDay() {
   // 光熱費・水道代は変動制（基本＋客数ぶん）。内訳は日報に出す
   const utilBd = dailyUtil(t.paid), waterBd = dailyWater(t.paid);
   const util = utilBd.total, water = waterBd.total;
-  // 信用金庫の返済は毎週水曜に利子込みで10万円（作者指定）。日次の利息はもう無い
-  const loanPay = (G.debt > 0 && dayOfWeek(G.day) === 2) ? Math.min(CONF.loanWeekly, G.debt) : 0;
-  if (loanPay) { G.debt -= loanPay; t.loanPay = loanPay; }
+  // 銀行融資は廃止（作者指定）。サラ金の返済は集金の場面でその都度払うので、ここでは引かない
+  const loanPay = 0;
   const bathRev = t.paid * G.opts.fee, saunaRev = t.sauna * G.opts.saunaFee, milkRev = t.milkRev || t.milk * 130;
   // 運営メニューの経費
   // シャンプー等は使われた本数ぶんだけ自動で仕入れる（1本¥50）。無料設置はポンプ式で固定¥1,000/日
@@ -3100,8 +3133,9 @@ function closeDay() {
   // 支払い回数や関係の深まりは、営業結果を確認したあとの病院の場面（careScene）で処理する
   if (careOn() && G.day >= (G.careNext || CONF.careFirstDay)) t.care = careDue();
   G.cash -= util + water + loanPay + shiire + staffCost;   // 治療費は営業収支に含めない（私費）
-  // 資金ショート → 信用金庫は3日かかるので即日の金はヤミ金しかない（＝借金の怖さはここから始まる）
-  while (G.cash < 0 && G.yami.debt < CONF.yamiMax) { G.cash += CONF.yamiUnit; G.yami.debt += CONF.yamiUnit; t.autoYami += CONF.yamiUnit; G.yami.met = true; }
+  /* 資金ショート → 頼れるのは灰田だけ（銀行は貸してくれない）。10万刻みで足りるぶんだけ自動で借りる。
+     限度は100万＝ここで借り切ってしまうと、次に足りなくなった日は本当に打つ手がない */
+  while (G.cash < 0 && G.yami.debt < CONF.sarakinMax) { G.cash += CONF.sarakinUnit; G.yami.debt += CONF.sarakinUnit; t.autoYami += CONF.sarakinUnit; G.yami.met = true; }
   if (G.cash < 0) { G.cash = 0; t.unpaid = true; G.rep = clamp(G.rep - 2, 0, 100); }   // どこも貸してくれない日は、店の信用が落ちる
   // 設備の傷み（1日ぶん）
   const brokeToday = applyDailyWear();
@@ -3122,6 +3156,10 @@ function closeDay() {
   if (!Array.isArray(G.recentGripes)) G.recentGripes = [];
   G.recentGripes.push(t.gripes || {});
   if (G.recentGripes.length > 3) G.recentGripes.shift();
+  // 客層別の満足度も同じく直近3日ぶん残す（データ画面の診断表示で読む）
+  if (!Array.isArray(G.recentSegSat)) G.recentSegSat = [];
+  G.recentSegSat.push(t.satSeg || {});
+  if (G.recentSegSat.length > 3) G.recentSegSat.shift();
   G.lastTurnedAway = t.turnedAway || 0;   // ロッカー満杯で帰した人数＝翌日の準備画面で真っ先に知らせる
   // 黒田の判定用：直近5日の収支を記録し、資金ショートした日を覚えておく
   if (!Array.isArray(G.recentProfits)) G.recentProfits = [];
@@ -3187,7 +3225,7 @@ function closeDay() {
   if (t.milk) html += chip(`牛乳 ${t.milk}本`, yen(milkRev));
   html += chip('収入 合計', yen(income), 'wide total');
   // 融資の振込は営業の売上ではないので、収支には混ぜず「別枠のお知らせ」として並べる（作者指定）
-  if (t.loanIn) html += chip('🏦 信用金庫の融資 入金', '+' + yen(t.loanIn), 'wide');
+  if (t.autoYami) html += chip('💳 灰田から やむなく借入', '+' + yen(t.autoYami), 'wide');
   html += `</div>`;
 
   // ── 支払いの欄（チップ2列） ───────────────────
@@ -3198,9 +3236,9 @@ function closeDay() {
   if (shiire) html += chip('仕入れ', '-' + yen(shiire), 'minus');
   if (staffCost) html += chip(`人件費 ${G.roster.length}人`, '-' + yen(staffCost), 'minus');
   if (t.repairCost) html += chip('修理業者', '-' + yen(t.repairCost), 'minus');
-  if (t.loanPay) html += chip('🏦 借金返済', '-' + yen(t.loanPay), 'minus');
+
   if (t.mikajime) html += chip('⚠ みかじめ料', '-' + yen(t.mikajime), 'minus');
-  if (t.yamiPaid) html += chip('🩸 ヤミ金', '-' + yen(t.yamiPaid), 'minus');
+  if (t.yamiPaid) html += chip('💳 灰田への返済', '-' + yen(t.yamiPaid), 'minus');
   html += chip('支払い 合計', '-' + yen(outlay), 'wide total minus');
   /* 設備にかけた金は営業の収支には入らない（買い物であって経費ではない）。
      支払いグリッドの末尾に、色を分けた横長チップで別立て（本日の収支＝収入合計−支払い合計は変わらない） */
@@ -3221,7 +3259,7 @@ function closeDay() {
   // 警告・事件系（起きた日だけ出す）
   if (t.gaveUp) html += row('⚠ 待ちきれず帰った客', `${t.gaveUp}人（受付が追いつかない）`, true);
   if (t.queueMiss) html += row('⏳ 順番待ちで機嫌を損ねた客', `${t.queueMiss}人（設備が混んでいた）`, true);
-  if (t.autoYami) html += row('🩸 やむなくヤミ金から借りた', yen(t.autoYami) + '（利息10%/日）', true);
+  if (t.autoYami) html += row('💳 やむなく灰田から借りた', yen(t.autoYami) + `（残債 ${yen(G.yami.debt)}／限度 ${yen(CONF.sarakinMax)}）`, true);
   if (t.unpaid) html += row('⚠ 支払いきれなかった', '信用が落ちた（評判-2）', true);
   if (brokeToday.length) html += row('💥 今日壊れた設備', brokeToday.join('・') + (autoRepairEnabled() ? '（オート修理：業者が来て直す）' : '（設備をタップ→【修理】で直そう）'), true);
 
@@ -3283,7 +3321,7 @@ function afterReport() {
     t2.hello = true; t2.nextDay = G.day + irand(2, 4);
     G.najimi = clamp(G.najimi + 2, 0, 100);
   }
-  // 親父の小言（STORY_LOAN）は融資を申し込んだ時に流れる（btnBorrow）。自動借入は今はヤミ金のみ
+  // 親父の小言（STORY_LOAN）は、資金ショートで灰田に駆け込んだ日に流れる
   // 母からの電話＝支払いの5日前に「5日後に15万円持ってきて」の予告が入る（作者指定）。
   // 初回は事情説明つきのSTORY_CARE、2回目以降はSTORY_CARE_CALLSの5パターンを順番に。
   // お見舞い（病院）と同じ夜には流さない（作者指定）
@@ -3337,20 +3375,7 @@ function enterPrep() {
   Sfx.bgm('prep');                 // 暖簾を下ろしたあとの夜の曲
   G.customers = []; G.payQueue = [];
   G.player = makePlayer();         // 準備中の主人公はひたすら掃除して回る（作者指定）
-  /* 信用金庫の融資が振り込まれる朝。以前は開店ボタンを押した瞬間に入金していたため、
-     「○日目の朝に振り込まれる」はずの金が準備中は見当たらず、通知も見逃されていた（作者指摘）。
-     準備＝朝のうちに入金して知らせれば、そのままその日の仕入れに使える */
-  if (G.loanPending > 0 && G.day >= G.loanArrive) {
-    G.cash += G.loanPending;
-    G.debt = CONF.loanTotalRepay;
-    G.loanInToday = G.loanPending;         // 今日の日報にも「入金」として1行出す（startDayで拾う）
-    log(`🏦 信用金庫から ${yen(G.loanPending)} が振り込まれた。返済は毎週水曜、利子込みで ${yen(CONF.loanWeekly)} ずつだ`);
-    toast(`🏦 融資 ${yen(G.loanPending)} が振り込まれた！`);
-    Sfx.play('cash');                      // チャリーン（大金が入ったことを音でも知らせる）
-    bubble(G.player, `融資${yenShort(G.loanPending)}、入った！`, 5.0);
-    G.loanPending = 0; G.loanArrive = 0;
-    updateTopbar(); saveGame();
-  }
+  // 銀行融資は廃止（作者指定）。サラ金はその場で現金が出るので、振込待ちという状態はもう無い
   G.staff = [];                    // バイトは準備中いなくなる。営業開始で戻る（作者指定）
   const careLine = careBubbleText();
   // 治療費の話は日報でなく主人公の独り言で（作者指定）。融資入金の吹き出しが出ている朝はそちらを優先
@@ -3644,23 +3669,24 @@ function raidTargets(nMax) {
 }
 
 /* =========================================================
-   ヤミ金「灰田金融」＝毎日、取り立てが来る
+   サラ金「灰田ファイナンス」＝毎週水曜、集金が来る（作者指定＝銀行・ヤミ金は廃止し、ここ一本）
    ========================================================= */
 function newYami() { return { debt: 0, met: false, missed: 0, lastDay: 0 }; }
-/* この場で縁を切るのに要る額＝元金＋今日ぶんの利息。
-   払えば payYami の中で残債0になり、灰田はもう来ない */
+/* 全額返済に要る額＝元本＋今週ぶんの金利。払えば残債0になり、灰田はもう来ない */
 function yamiPayoff() {
   const y = G.yami; if (!y || y.debt <= 0) return 0;
-  return y.debt + Math.round(y.debt * CONF.yamiInterest);
+  return y.debt + yamiDue();
 }
-/* 今日の利息（最低限これだけは払わされる）。10%/日 */
+/* 今週の金利。年率20%を52週で割ったぶん＝毎週これだけは払わされる。
+   金利そのものは軽い（100万借りて週4千円弱）。効いてくるのは「限度が100万しかない」ことのほう＝
+   借金で設備を揃えることはできず、稼いで返すしかない（作者指定の狙い） */
 function yamiDue() {
   const y = G.yami; if (!y || y.debt <= 0) return 0;
-  return Math.max(1000, Math.round(y.debt * CONF.yamiInterest / 1000) * 1000);
+  return Math.max(100, Math.round(y.debt * CONF.sarakinApr / 52 / 100) * 100);
 }
 function borrowYami(amount) {
   G.yami.debt += amount; G.cash += amount; G.yami.met = true;
-  log(`🩸 灰田金融から ${yen(amount)} 借りた。明日から毎日、取り立てが来る`);
+  log(`💳 灰田ファイナンスから ${yen(amount)} 借りた。毎週水曜に集金が来る`);
   saveGame();
 }
 /* 開店直後に灰田が集金に来る（歩いてくる→モーダル） */
@@ -3675,7 +3701,7 @@ function startYamiCollect() {
   walkNpcTo(n, npcSpot());
   n.onArrive = () => showYamiModal(due);
   G.npcs.push(n);
-  log('🩸 灰田金融の集金だ…');
+  log('💳 灰田ファイナンスの集金だ…');
 }
 function showYamiModal(due) {
   G.yamiAsk = due;
@@ -3689,29 +3715,23 @@ function showYamiModal(due) {
     b.innerHTML = `${label}<br><span class="opt-sub">${sub}</span>`;
     b.onclick = fn; box.appendChild(b);
   };
-  // 返す額はその場で選ぶ（作者指定）：利息だけ／利息＋30万／利息＋90万／完済。
-  // 利息だけを選び続けると、元本は1円も減らずに毎日10%を吸われ続ける
+  /* 返し方は3つだけ（作者指定）：ジャンプ（金利のみ）／10万円返す／全額返済。
+     ジャンプを選び続ける限り、元本は1円も減らない＝いつまでも灰田が毎週やって来る */
   const debt = G.yami.debt;
-  add(`💴 利息だけ払う（${yen(due)}）`,
-    G.cash >= due ? `⚠ 元本 ${yen(debt)} は1円も減らない` : '🔒 手元の資金が足りない',
+  add(`🔄 ジャンプする（${yen(due)}）`,
+    G.cash >= due ? `金利だけ。元本 ${yen(debt)} は1円も減らない` : '🔒 手元の資金が足りない',
     () => payYami(due, 0), false, G.cash < due);
-  if (debt > CONF.yamiUnit) {
-    const p1 = due + CONF.yamiUnit;
-    add(`💴 利息＋30万円 返す（${yen(p1)}）`,
-      G.cash >= p1 ? `元本が減って 残り ${yen(debt - CONF.yamiUnit)}` : '🔒 手元の資金が足りない',
-      () => payYami(p1, CONF.yamiUnit), false, G.cash < p1);
-  }
-  if (debt > CONF.yamiUnit * 3) {
-    const p3 = due + CONF.yamiUnit * 3;
-    add(`💴 利息＋90万円 返す（${yen(p3)}）`,
-      G.cash >= p3 ? `一気に減らして 残り ${yen(debt - CONF.yamiUnit * 3)}` : '🔒 手元の資金が足りない',
-      () => payYami(p3, CONF.yamiUnit * 3), false, G.cash < p3);
+  if (debt > CONF.sarakinPrincipal) {
+    const p1 = due + CONF.sarakinPrincipal;
+    add(`💴 10万円 返す（${yen(p1)}）`,
+      G.cash >= p1 ? `元本が減って 残り ${yen(debt - CONF.sarakinPrincipal)}` : '🔒 手元の資金が足りない',
+      () => payYami(p1, CONF.sarakinPrincipal), false, G.cash < p1);
   }
   const off = yamiPayoff();
-  add(`💰 完済する（${yen(off)}）`,
-    G.cash >= off ? '元本＋今日の利息。これで取り立ては二度と来ない' : '🔒 手元の資金が足りない',
+  add(`💰 全額返済（${yen(off)}）`,
+    G.cash >= off ? '元本＋今週の金利。これで集金は二度と来ない' : '🔒 手元の資金が足りない',
     () => payYami(off, debt), false, G.cash < off);
-  add('🙇 待ってくれ…', '利息が元本に乗り、設備を壊されるか持って行かれる', () => failYami(), true);
+  add('🙇 待ってくれ…', '金利が元本に乗り、設備を持って行かれる', () => failYami(), true);
   $('yamiModal').classList.remove('hidden');
 }
 function closeYamiVisit() {
@@ -3724,16 +3744,16 @@ function payYami(pay, principal) {
   G.cash -= pay;
   G.yami.debt = Math.max(0, G.yami.debt - principal);
   G.today.yamiPaid += pay;
-  if (G.yami.debt <= 0) { G.yami.debt = 0; toast('🎉 ヤミ金を完済した…！'); log('🩸 灰田金融への返済を終えた。もう来ない'); }
-  else if (principal > 0) { toast(`灰田に ${yen(pay)} 払った（残り ${yen(G.yami.debt)}）`); log(`🩸 灰田に ${yen(pay)} 払った`); }
-  else { toast(`灰田に利息 ${yen(pay)} を払った…元本は減っていない`); log(`🩸 灰田に利息だけ払った。元本 ${yen(G.yami.debt)} はそのまま`); }
+  if (G.yami.debt <= 0) { G.yami.debt = 0; toast('🎉 灰田ファイナンスを完済した…！'); log('💳 灰田への返済を終えた。もう来ない'); }
+  else if (principal > 0) { toast(`灰田に ${yen(pay)} 払った（残り ${yen(G.yami.debt)}）`); log(`💳 灰田に ${yen(pay)} 払った`); }
+  else { toast(`ジャンプした（金利 ${yen(pay)}）…元本は減っていない`); log(`💳 灰田にジャンプ。元本 ${yen(G.yami.debt)} はそのまま`); }
   closeYamiVisit(); updateTopbar(); saveGame();
 }
 function failYami() {
   G.yami.missed++;
-  G.yami.debt += Math.round(G.yami.debt * CONF.yamiInterest);   // 払えなければ利息だけ乗る
+  G.yami.debt += yamiDue();                                     // 払えなければ今週の金利が元本に乗る
   G.rep = clamp(G.rep - 2, 0, 100);
-  log('🩸 今日ぶんを払えなかった。灰田は笑って若い衆を呼んだ');
+  log('💳 今週ぶんを払えなかった。灰田は笑って若い衆を呼んだ');
   $('yamiModal').classList.add('hidden');
   const h = G.npcs.find(v => v.npc === 'haida');
   if (h) sendNpcHome(h);
@@ -3945,10 +3965,32 @@ function demandLabel(d) {
     : `${n.v}℃以上の${n.cat === 'furo' ? '風呂' : '水風呂'}を置く`;
   return '';
 }
+/* いま田所・黒田に要求されている設備か。要求中の品は、あとで評判が下がっても
+   カタログでロックし直さない。ロックすると「要求されたのに買えない」＝物語が完全に止まる
+   （通しシムで実際に発生：黒田が炭酸泉を要求 → その後わずかに評判が下がって再ロック →
+     金も場所もあるのに買えず、黒田編が140日止まった） */
+function isDemandedEquip(id) {
+  for (const who of ['tadokoro', 'kuroda']) {
+    const d = demandOf(who);
+    if (d && d.need.type === 'equip' && d.need.id === id) return true;
+  }
+  return false;
+}
 /* まだ評判が足りずカタログに並んでいない設備は、要求されても買えない＝出題しない
-   （替わり湯もフィンランド式サウナも、解放される評判まで来てから言い出す） */
+   （替わり湯もフィンランド式サウナも、解放される評判まで来てから言い出す）。
+   さらに「置ける場所が1マスも無い設備」も出題しない＝買えても置けない要求は詰みになる */
 function demandBuyable(d) {
-  return d.need.type !== 'equip' || !(EQ[d.need.id].rep > G.rep);
+  if (d.need.type !== 'equip') return true;
+  const def = EQ[d.need.id];
+  if (def.rep > G.rep) return false;
+  return canPlaceAnywhere(d.need.id);
+}
+// その設備を置ける場所が、いまの間取りに1つでもあるか
+function canPlaceAnywhere(id) {
+  for (let y = 0; y < CONF.H; y++)
+    for (let x = 0; x < CONF.W; x++)
+      for (const rot of [0, 1]) { const c = placeCheck(id, x, y, null, rot); if (c && c.ok) return true; }
+  return false;
 }
 function pickDemand(who) {
   const st = who === 'tadokoro' ? G.tadokoro : G.kuroda;
@@ -5431,7 +5473,9 @@ function updateTopbar() {
     const m = Math.floor(G.minutes % 60);
     $('uiClock').textContent = `${h}:${String(m).padStart(2, '0')}`;
   } else $('uiClock').textContent = '準備中 🌙';
-  $('uiCash').textContent = yen(G.cash) + (G.debt ? ` (借金${(G.debt / 10000) | 0}万)` : '');
+  // 借金の表示はサラ金の残債（銀行融資は廃止）
+  const sDebt = G.yami ? G.yami.debt : 0;
+  $('uiCash').textContent = yen(G.cash) + (sDebt ? ` (借金${(sDebt / 10000) | 0}万)` : '');
   $('uiRep').textContent = `評判 ${G.rep}`;
 }
 
@@ -5464,15 +5508,16 @@ function newInCat(cat) { return shopIds(cat).some(isNewItem); }
 
 // 設備の仕入れ値。玲奈が仲間なら15%引き（業界の伝手で安く回してもらえる）
 /* 黒田の投資提案を引き受けると、その品だけ30%引きで買える（作者指定）。
-   有効なのは「引き受けた当日の営業と、その夜の準備まで」＝翌日の暖簾を出したら定価に戻る。
-   設備を買うのはたいてい夜の準備中なので、当日の営業中だけにすると割引が使えないため */
+   割引は「その要求を果たすまで」ずっと有効。
+   以前は引き受けた翌朝で切れていたが、要求される品はフィンランド式サウナ（240万）のように高く、
+   引き受けた日の手持ちではまず買えない＝割引が一度も使えないまま消える死んだ選択肢になっていた
+   （通しシムで実際に発生。240万が貯まる頃には定価に戻っていて、黒田編がそこで止まった）。
+   達成すれば resolveKuroda 側で discountKey が消えるので、割引が居座ることはない */
 const KURODA_DISCOUNT = 0.30;
 function kurodaDiscountId() {
   const k = G.kuroda;
-  if (!k || !k.discountKey) return null;
-  const d0 = k.discountDay || 0;
-  const alive = G.day === d0 || (G.day === d0 + 1 && G.phase === 'prep');
-  return alive ? k.discountKey : null;
+  if (!k || !k.discountKey || k.resolved) return null;
+  return k.discountKey;
 }
 function eqPrice(id) {
   let p = EQ[id].price * (reinaAllyOn() ? REINA_EQ_OFF : 1);
@@ -5495,7 +5540,7 @@ function renderShop(markSeen) {
     const def = EQ[id];
     const price = eqPrice(id);
     const discounted = reinaAllyOn() && price < def.price;
-    const locked = def.rep && G.rep < def.rep;
+    const locked = def.rep && G.rep < def.rep && !isDemandedEquip(id);
     const isNew = isNewItem(id);
     const capTxt = CAP_CATS.includes(def.cat) && def.cap > 0 ? ` <span class="cap-chip">収容${def.cap}人</span>` : '';
     // ⭐＝店の格への貢献（1〜5）。数字で「評判+○」と書くと即効性があると誤解されるので、星でそれとなく伝える
@@ -5887,7 +5932,7 @@ function saveGame() {
     ceilHist: G.ceilHist || [],
     flags: G.flags, seenEq: G.seenEq, dirts: G.dirts, opts: G.opts, staffCount: G.staffCount, kito: G.kito,
     tadokoro: G.tadokoro, kuroda: G.kuroda, reina: G.reina, yami: G.yami, najimi: G.najimi, oyajiRel: G.oyajiRel,
-    recentProfits: G.recentProfits, recentGripes: G.recentGripes, roughDays: G.roughDays,
+    recentProfits: G.recentProfits, recentGripes: G.recentGripes, recentSegSat: G.recentSegSat, roughDays: G.roughDays,
     lastShortfallDay: G.lastShortfallDay, solved: G.solved,
     invBuy: G.invBuy, invMove: G.invMove, invSell: G.invSell, invFix: G.invFix,
     cashAtDayStart: G.cashAtDayStart, regulars: G.regulars, careNext: G.careNext, careCount: G.careCount, careAmt: G.careAmt,
@@ -5923,6 +5968,7 @@ function loadGame() {
     G.najimi = d.najimi ?? 8; G.oyajiRel = d.oyajiRel ?? 0;
     G.recentProfits = Array.isArray(d.recentProfits) ? d.recentProfits : [];
     G.recentGripes = Array.isArray(d.recentGripes) ? d.recentGripes : [];
+    G.recentSegSat = Array.isArray(d.recentSegSat) ? d.recentSegSat : [];
     G.roughDays = d.roughDays || 0;
     G.lastShortfallDay = d.lastShortfallDay || 0;
     // 設備投資の集計と常連の数（旧セーブには無いので0から）
@@ -5978,7 +6024,7 @@ function resetState() {
     kito: newKito(), tadokoro: newTadokoro(), kuroda: newKuroda(), reina: newReina(), yami: newYami(),
     npcs: [], visitKey: null, visitAt: null, visitFired: false, yamiAt: null, yamiFired: false,
     benz: null, mika: null, mikajimeAt: null, mikaFired: false,
-    najimi: 8, oyajiRel: 0, recentProfits: [], recentGripes: [], roughDays: 0, riotDone: false,
+    najimi: 8, oyajiRel: 0, recentProfits: [], recentGripes: [], recentSegSat: [], roughDays: 0, riotDone: false,
     lastShortfallDay: 0, solved: newSolved(),
     invBuy: 0, invMove: 0, invSell: 0, invFix: 0, cashAtDayStart: CONF.startCash,
     regulars: 0, plannedGuests: 0, stuckLogged: false, lastTurnedAway: 0,
@@ -6059,77 +6105,48 @@ function initUI() {
     $('staffModal').classList.add('hidden');
     if (G.phase === 'biz') { G.paused = false; $('btnPause').textContent = '⏸ 一時停止'; }
   };
-  $('btnLoan').onclick = () => { renderLoan(); $('loanModal').classList.remove('hidden'); };
+  $('btnLoan').onclick = () => {
+    /* 初回だけ、まず信用金庫に断られる場面を挟む（作者指定）。
+       「銀行は選択肢にない」ことを説明文ではなく場面で分からせてから、サラ金の欄を見せる */
+    if (!G.flags.bankIntro) {
+      G.flags.bankIntro = true; saveGame();
+      Story.play(STORY_BANK_INTRO, () => { renderLoan(); $('loanModal').classList.remove('hidden'); });
+      return;
+    }
+    renderLoan(); $('loanModal').classList.remove('hidden');
+  };
   $('btnLoanClose').onclick = () => $('loanModal').classList.add('hidden');
   $('btnYamiBorrow').onclick = () => {
-    // ヤミ金は即日・30万刻み。信用金庫の枠とは無関係に、いつでも手を出せてしまう（＝そこが怖さ）
-    if (G.yami.debt + CONF.yamiUnit > CONF.yamiMax) { toast('灰田も、これ以上は貸さないと言った'); return; }
-    // 初回は店の前で灰田と会う（全画面シーン）→ その場で30万を受け取る
+    /* サラ金は審査なし・即日・10万円刻み、限度100万（作者指定）。
+       銀行は廃止したので、ここが唯一の資金調達口。
+       限度が低いのが肝＝借金で設備を揃えることはできず、稼いで返すしかない */
+    if (G.yami.debt + CONF.sarakinUnit > CONF.sarakinMax) { toast('灰田も、これ以上は貸さないと言った'); return; }
+    // 初回は店の前で灰田と会う（全画面シーン）→ その場で10万を受け取る
     if (!G.yami.met) {
       $('loanModal').classList.add('hidden');
       Story.play(STORY_YAMI_INTRO, () => {
-        borrowYami(CONF.yamiUnit);
-        toast(`🩸 灰田から ${yen(CONF.yamiUnit)} 借りた…明日から毎日、取り立てが来る`);
+        borrowYami(CONF.sarakinUnit);
+        toast(`💳 灰田から ${yen(CONF.sarakinUnit)} 借りた…毎週水曜に集金が来る`);
         updateTopbar();
+        // 借りたことは、なぜか親父に伝わっている（初回だけ全画面の小言）
+        if (!G.flags.loanNag) { G.flags.loanNag = true; saveGame(); Story.play(STORY_LOAN, () => {}); }
       });
       return;
     }
-    borrowYami(CONF.yamiUnit);
+    borrowYami(CONF.sarakinUnit);
     renderLoan(); updateTopbar();
-    toast(`灰田から ${yen(CONF.yamiUnit)} 借りた…`);
+    toast(`灰田から ${yen(CONF.sarakinUnit)} 借りた…`);
+    oyajiNag('loan', 2.4);                       // 2回目以降は“ながら”の小言だけ
   };
   $('btnYamiRepay').onclick = () => {
     if (!G.yami || G.yami.debt <= 0) return;
-    const off = yamiPayoff();                      // 取り立ての画面の【完済】と同じ額（元金＋利息）
-    if (G.cash < off) { toast('一括で返すには足りない…'); return; }
+    const off = yamiPayoff();                      // 集金の画面の【全額返済】と同じ額（元本＋今週の金利）
+    if (G.cash < off) { toast('全額返すには足りない…'); return; }
     G.cash -= off; G.yami.debt = 0;
-    toast('🎉 ヤミ金を完済した…！ 取り立ては来なくなる');
-    log('🩸 灰田金融を完済した。もう、あの男は来ない');
+    toast('🎉 灰田ファイナンスを完済した…！ 集金は来なくなる');
+    log('💳 灰田ファイナンスを完済した。もう、あの男は来ない');
     renderLoan(); updateTopbar(); saveGame();
   };
-  $('btnBorrow').onclick = () => {
-    // 融資は300万一択・受取3日後・完済まで二重借り不可・審査＝直近5日連続黒字（作者指定）
-    if (G.loanPending > 0) { toast(`もう申し込み済みだ。振込は${G.loanArrive}日目の朝`); return; }
-    if (G.debt > 0) { toast('前の融資を完済するまで、次は借りられない'); return; }
-    // 初回は窓口で担当者と会い、条件の説明を受ける（全画面シーン）
-    if (!G.flags.bankIntro) {
-      G.flags.bankIntro = true; saveGame();
-      $('loanModal').classList.add('hidden');
-      Story.play(STORY_BANK_INTRO, () => { tryBankApply(); });
-      return;
-    }
-    tryBankApply();
-  };
-  $('btnRepay').onclick = () => {
-    // 残りを一括で返す（返し終えるまで次の融資は受けられないので、早く縁を切る道）
-    if (G.debt <= 0) { toast('借金はもう残っていない！'); return; }
-    if (G.cash < G.debt) { toast(`一括返済には ${yen(G.debt)} 要る。手元の資金が足りない`); return; }
-    G.cash -= G.debt; G.debt = 0;
-    toast('🎉 信用金庫を完済した！これでまた借りられる');
-    log('🏦 信用金庫への返済を終えた');
-    renderLoan(); updateTopbar(); saveGame();
-  };
-  // 審査（直近5日連続黒字）を通れば申込成立。落ちれば出直し
-  function tryBankApply() {
-    const streak = G.profitStreak || 0;
-    if (streak < CONF.loanNeedStreak) {
-      toast(`🏦 審査落ち：連続黒字 ${streak}/${CONF.loanNeedStreak}日。「まず店を立て直してから、どうぞ」`);
-      log(`🏦 融資の審査に落ちた（連続黒字 ${streak}/${CONF.loanNeedStreak}日）。銀行は晴れた日にしか傘を貸さない…`);
-      renderLoan(); return;
-    }
-    G.loanPending = CONF.loanAmount;
-    G.loanArrive = G.day + CONF.loanArriveDays;
-    toast(`🏦 審査通過！ ${yen(CONF.loanAmount)} は ${G.loanArrive}日目の朝に振り込まれる`);
-    log(`🏦 信用金庫の審査に通った（${yen(CONF.loanAmount)}・振込は${G.loanArrive}日目）`);
-    renderLoan(); updateTopbar(); saveGame();
-    if (!G.flags.loanNag) {                      // 初回申込 → 親父の小言イベント（全画面）
-      G.flags.loanNag = true; saveGame();
-      $('loanModal').classList.add('hidden');
-      Story.play(STORY_LOAN, () => {});
-    } else {                                      // 2回目以降 → 軽い"ながら"小言
-      oyajiNag('loan');
-    }
-  }
   // 配置
   $('btnPlaceOk').onclick = () => {
     const p = G.placing;
@@ -6398,7 +6415,7 @@ function renderData() {
   /* 格の内訳＝どこを伸ばせば格が上がるか。
      格は充実度をならした曲線（伸びるほど1点の効きが薄くなる）なので、内訳は素の「充実度」の点で見せる。
      格と同じ物差しに換算して並べると、足し算が合わなくなって逆に分からなくなる */
-  h += row('充実度の合計', `${Math.round(rp.total)}点<br><span class="opt-sub">この点が積み上がるほど店の格が上がる（上がるほど1点の効きは小さくなる）</span>`);
+  h += row('充実度', `${Math.round(rp.total)}点<br><span class="opt-sub">積むほど格が上がる（上がるほど1点の効きは薄い）</span>`);
   const part = (l, v, always) => {
     const n = Math.round(v);
     if (n || always) h += row(`<span class="opt-sub">　${l}</span>`, `<span class="opt-sub">${n > 0 ? '+' : ''}${n}</span>`, n < 0 ? 'minus' : '');
@@ -6436,14 +6453,29 @@ function renderData() {
       : '放置すると濃くなり、一気に嫌われる'}</span>`,
     dcd.thick >= CONF.dirtAngryN ? 'minus' : '');
   if ((G.roughDays || 0) >= 1)
-    h += row('客の我慢', `荒れた日が${G.roughDays}日連続`
-      + (G.roughDays >= CONF.riotDays ? '（いつ暴れてもおかしくない）' : ''), 'minus');
+    h += row('客の我慢', `荒れた日 ${G.roughDays}日連続`
+      + (G.roughDays >= CONF.riotDays ? '<br><span class="opt-sub">いつ暴れてもおかしくない</span>' : ''), 'minus');
+  /* ── 客層別の満足度（作者指定）。評判には混ぜず、ここは「どこに寄った店になっているか」を読む欄。
+     どれかに偏ると全体が歪むので、いちばん低い層をそのまま次の投資先の指針にできる */
+  const segs = segSatParts().filter(sg => sg.n > 0);
+  if (segs.length) {
+    h += sec('👥 客層べつの満足度');
+    const lo = segs.reduce((a, b) => (b.avg < a.avg ? b : a));
+    for (const sg of segs) {
+      const mark = sg.avg >= 70 ? '◎' : sg.avg >= 55 ? '○' : sg.avg >= 45 ? '△' : '×';
+      h += row(sg.name, `${mark} ${sg.avg}点<br><span class="opt-sub">${sg.n}人・直近3日</span>`, sg.avg < 45 ? 'minus' : '');
+    }
+    h += `<div class="rep-voice">${
+      segs.length < 3 ? `☝ まだ来ていない層がある。設備と料金しだいで客層は増える`
+      : lo.avg < 55 ? `⚠ いちばん冷めているのは<b>${lo.name}</b>（${lo.avg}点）。効くのは ${lo.hint}`
+      : '✨ どの層にも偏らず満足させられている'}</div>`;
+  }
   // ── 経営（金まわり）
   h += sec('📊 経営');
   h += row('手元資金', yen(G.cash));
-  if (G.loanPending > 0) h += row('🏦 信用金庫', `融資 ${yen(G.loanPending)} の振込待ち（${G.loanArrive}日目の朝）`);
-  else if (G.debt > 0) h += row('🏦 信用金庫の残り返済額', `${yen(G.debt)}（毎週水曜 ${yen(CONF.loanWeekly)} ずつ）`, 'minus');
-  if (G.yami && G.yami.debt > 0) h += row('🩸 ヤミ金の残債', `${yen(G.yami.debt)}（利息10%/日・毎日取り立て）`, 'minus');
+  if (G.yami && G.yami.debt > 0)
+    h += row('💳 灰田ファイナンスの残債',
+      `${yen(G.yami.debt)}<br><span class="opt-sub">今週の金利 ${yen(yamiDue())}・集金は毎週水曜（あと ${yen(CONF.sarakinMax - G.yami.debt)} 借りられる）</span>`, 'minus');
   h += row('直近5日の平均収支', `${avg >= 0 ? '+' : ''}${yen(avg)}`, avg < 0 ? 'minus' : '');
   h += row('直近5日の黒字日数', `${hist.filter(p => p > 0).length}日 / ${hist.length}日`);
   h += row('入浴料', `¥${G.opts.fee}` + (hasCat('sauna') ? `（＋サウナ ¥${G.opts.saunaFee}）` : ''));
@@ -6522,41 +6554,24 @@ function renderAds() {
     list.appendChild(div);
   }
 }
-/* 融資メニュー（作者指定の構成）：
-   「銀行から借りる」＝見出し＋説明＋[借りる][一括返済]／「ヤミ金から借りる」＝同じ並び。
+/* 資金繰りメニュー（作者指定）：銀行もヤミ金も廃止し、サラ金「灰田ファイナンス」一本。
+   銀行の欄は「審査が通らない」という断り文句だけを置いてある＝借りられない理由を物語で見せる。
    借りられない時はボタンをグレーにして押せなくする。金額はボタンでなく説明側に出す */
 function renderLoan() {
   $('loanCash').innerHTML = `手持ち資金: <b>${yen(G.cash)}</b>`;
-  // ── 銀行（信用金庫）：申込中／返済中／借りられる の3態
-  const streak = G.profitStreak || 0, need = CONF.loanNeedStreak;
-  const streakOK = streak >= need;
-  let bank;
-  if (G.loanPending > 0) {
-    bank = `申込済み。<b>${G.loanArrive}日目の朝</b>に ${manYen(G.loanPending)} が振り込まれる。`;
-  } else if (G.debt > 0) {
-    bank = `残り返済額 <b>${manYen(G.debt)}</b>。毎週水曜、利子込みで ${manYen(CONF.loanWeekly)} ずつ自動で返済。完済するまで次は借りられない。`;
-  } else {
-    bank = `融資${manYen(CONF.loanAmount)}・返済総額${manYen(CONF.loanTotalRepay)}。<br>` +
-      `受取は申込の3日後。<br>` +
-      `審査条件：連続黒字 <b>${Math.min(streak, need)}/${need}日</b>${streakOK ? '（✅ 通る見込み）' : '（まだ足りない）'}`;
-  }
-  $('loanInfoBank').innerHTML = bank;
-  $('btnBorrow').textContent = '借りる';
-  $('btnBorrow').disabled = G.loanPending > 0 || G.debt > 0 || !streakOK;
-  $('btnRepay').innerHTML = G.debt > 0 ? `一括返済<br>（${manYen(G.debt)}）` : '一括返済';
-  $('btnRepay').disabled = !(G.debt > 0 && G.cash >= G.debt);
-  // ── ヤミ金（灰田金融）：即日・30万刻み。いつでも借りられてしまう（＝そこが怖さ）
   const yDebt = G.yami ? G.yami.debt : 0;
-  const yamiOK = yDebt + CONF.yamiUnit <= CONF.yamiMax;
+  const canBorrow = yDebt + CONF.sarakinUnit <= CONF.sarakinMax;
   $('loanInfoYami').innerHTML =
-    `1回${(CONF.yamiUnit / 10000) | 0}万円まで。即日・利息${Math.round(CONF.yamiInterest * 100)}%/日。<br>` +
-    `毎日取り立てが来る。<br>` +
-    `審査条件：なし` +
-    (yDebt > 0 ? `<br>残債 <b>${manYen(yDebt)}</b>（利息だけでは元本は永遠に減らない）` : '') +
-    (yamiOK ? '' : '<br><b>限度額いっぱい＝これ以上は貸してくれない</b>');
-  $('btnYamiBorrow').textContent = '借りる';
-  $('btnYamiBorrow').disabled = !yamiOK;
-  $('btnYamiRepay').innerHTML = yDebt > 0 ? `一括返済<br>（${manYen(yamiPayoff())}）` : '一括返済';
+    `審査なし・即日。<b>${manYen(CONF.sarakinUnit)}</b>ずつ、<b>${manYen(CONF.sarakinMax)}まで</b>。<br>` +
+    `金利は年${Math.round(CONF.sarakinApr * 100)}%。毎週水曜に集金が来る。<br>` +
+    `集金では「ジャンプ（金利のみ）／10万円返す／全額返済」から選ぶ。` +
+    (yDebt > 0
+      ? `<br>残債 <b>${manYen(yDebt)}</b>（今週の金利 ${yen(yamiDue())}）`
+      : '') +
+    (canBorrow ? '' : '<br><b>限度額いっぱい＝これ以上は貸してくれない</b>');
+  $('btnYamiBorrow').innerHTML = `${manYen(CONF.sarakinUnit)} 借りる`;
+  $('btnYamiBorrow').disabled = !canBorrow;
+  $('btnYamiRepay').innerHTML = yDebt > 0 ? `全額返済<br>（${manYen(yamiPayoff())}）` : '全額返済';
   $('btnYamiRepay').disabled = !(yDebt > 0 && G.cash >= yamiPayoff());
 }
 
