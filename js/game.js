@@ -4018,12 +4018,9 @@ function drawNappa() {
   ctx.fillStyle = '#fff'; ctx.fillRect(0, -2.5, tl, 5);
   ctx.fillStyle = '#cfe0e8'; ctx.fillRect(tl - 3, -2.5, 3, 5);              // 先端の縁
   ctx.restore();
-  // 振り下ろした瞬間の「ブオン！」と、左上（座席の方）へ飛ぶ熱波
-  if (snap) {
-    ctx.fillStyle = '#ffcf6a'; ctx.font = 'bold 9px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('ブオン！', x - 16, y - 22);
-  }
-  ctx.strokeStyle = 'rgba(255,190,110,.45)'; ctx.lineWidth = 1;
+  // 左上（座席の方）へ飛んでいく熱波。振り抜いた瞬間だけ濃くする
+  ctx.strokeStyle = snap ? 'rgba(255,200,130,.75)' : 'rgba(255,190,110,.45)';
+  ctx.lineWidth = snap ? 1.5 : 1;
   for (let i = 0; i < 3; i++) {
     const ph = (t * 1.6 + i / 3) % 1;
     const dx = -6 - ph * 18, dy = -14 - ph * 12;      // 左斜め上へ流す
@@ -4031,6 +4028,25 @@ function drawNappa() {
     ctx.beginPath(); ctx.moveTo(x + dx - 6, y + dy); ctx.quadraticCurveTo(x + dx, y + dy - 4, x + dx + 6, y + dy); ctx.stroke();
   }
   ctx.globalAlpha = 1;
+  /* 振り抜いた瞬間の「ブオン！」（作者指定）。
+     黒フチ付きの黄色＝サウナ室の茶色の上でも読める配色。振り始めに大きく出て、すっと小さくなる。
+     置き場所はサウナ室の中に収める＝隣のマスに文字がはみ出さないよう左右をクランプする */
+  if (snap) {
+    const pop = clamp((p - 0.7) / 0.06, 0, 1);         // 0→1（出た瞬間がいちばん大きい）
+    const size = 15 - pop * 3;
+    ctx.save();
+    ctx.font = `bold ${size}px "DotGothic16",sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    const txt = 'ブオン！';
+    const half = ctx.measureText(txt).width / 2;
+    const x0 = it.x * T, x1 = (it.x + ew(it)) * T;
+    const tx = clamp(x - 18, x0 + half + 3, x1 - half - 3);
+    const ty = Math.max(it.y * T + size + 2, y - 20 - pop * 4);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#2a1a06'; ctx.lineWidth = 4; ctx.strokeText(txt, tx, ty);   // 黒フチで背景から浮かせる
+    ctx.fillStyle = '#ffe14a'; ctx.fillText(txt, tx, ty);
+    ctx.restore();
+  }
 }
 
 function drawFloorAndWalls(rt) {
