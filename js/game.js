@@ -1178,7 +1178,7 @@ const REP_ITEMS = [
   { key: 'datsui', name: '脱衣所サービス',   hint: '脱衣所に備品を置く（6つで満点）' },
   { key: 'rest',   name: 'ととのいスペース', hint: 'イスを増やす・違う種類も置く' },
   { key: 'dosen',  name: '動線',             hint: '客が使う順に設備を近く並べる' },
-  { key: 'omote',  name: 'おもてなし',       hint: '愛想のいいバイト・待たせない' },
+  { key: 'omote',  name: 'おもてなし',       hint: '愛想のいいバイト・アメニティを安く' },
 ];
 
 /* ---- 料金の値ごろ感（作者指定） ----
@@ -1187,6 +1187,48 @@ const REP_ITEMS = [
    その1段でも下げれば「安い」＝満点、超えたら一発で0。入浴料・子供料金・サウナ料の3本立て。 */
 const FEE_FAIR = 2.5, FEE_CHEAP = 3.5;
 function feeScore(price, fair) { return price > fair ? 0 : price > fair - 100 ? FEE_FAIR : FEE_CHEAP; }
+
+/* ---- アメニティ1品ごとの評価（作者指定）＝「おもてなし」の1要素 ----
+   適正値 +1.5 ／ 適正値より安い +2 ／ 適正値より高い 0 ／ なし 0。
+   ドライヤーだけは 無料 +1・有料 +0.5（そもそも取れる額が小さいので幅も小さい）。
+   合計は AMEN_MAX 点満点で、おもてなしの3点ぶんに換算して入る。 */
+const AMEN_CHEAP = 2, AMEN_FAIR = 1.5;
+const AMEN_MAX = 11;
+function amenityParts() {
+  const o = G.opts;
+  const list = [];
+  const add = (name, v, note) => list.push({ name, v, note });
+  // タオル：無料がいちばん安い／¥50 安い／¥100 適正／¥150以上は高い
+  if (o.towel === 'free') add('タオル', AMEN_CHEAP, '無料');
+  else if (o.towel === 'paid')
+    add('タオル', o.towelPrice < 100 ? AMEN_CHEAP : o.towelPrice === 100 ? AMEN_FAIR : 0, `¥${o.towelPrice}`);
+  else add('タオル', 0, 'なし');
+  // シャンプー・ボディソープ（適正は¥100）
+  const soap = (label, price) => {
+    if (o.soapMode === 'free') add(label, AMEN_CHEAP, '無料');
+    else if (o.soapMode === 'sell')
+      add(label, price < 100 ? AMEN_CHEAP : price === 100 ? AMEN_FAIR : 0, `¥${price}`);
+    else add(label, 0, 'なし');
+  };
+  soap('シャンプー', o.shampooPrice);
+  soap('ボディソープ', o.bodysoapPrice);
+  // 化粧水・乳液とドライヤーは、洗面所を置いてはじめて客が使える
+  if (hasWorking('sink')) {
+    add('化粧水・乳液', o.lotionFee === 0 ? AMEN_CHEAP : o.lotionFee <= 50 ? AMEN_FAIR : 0,
+      o.lotionFee ? `¥${o.lotionFee}` : '無料');
+    add('ドライヤー', o.dryerFee ? 0.5 : 1, o.dryerFee ? `¥${o.dryerFee}` : '無料');
+  } else {
+    add('化粧水・乳液', 0, '洗面所がない');
+    add('ドライヤー', 0, '洗面所がない');
+  }
+  /* 手ぶらセット。タオルも石鹸も無料の店は、そもそも手ぶらで来られる＝満点扱い
+     （無料にすると手ぶらセットが売れなくなる＝黙って2点損する、では筋が通らない） */
+  if (o.towel === 'free' && o.soapMode === 'free') add('手ぶらセット', AMEN_CHEAP, '全部無料＝手ぶらで来られる');
+  else if (o.tebura && o.towel !== 'free')
+    add('手ぶらセット', o.teburaPrice < 400 ? AMEN_CHEAP : o.teburaPrice === 400 ? AMEN_FAIR : 0, `¥${o.teburaPrice}`);
+  else add('手ぶらセット', 0, 'なし');
+  return { list, total: list.reduce((a, b) => a + b.v, 0) };
+}
 function cospaParts() {
   const o = G.opts;
   const list = [];
@@ -1306,11 +1348,15 @@ function repDayScores() {
   // 動線：設備の並び順（浴室入口→洗い場→風呂→サウナ→水風呂→イス）の近さ（作者指定）
   s.dosen = clamp(dosenParts().total, 0, 10);
 
-  // おもてなし：満足度6＋バイトの愛想2.5＋番台で待たせない1.5
+  /* おもてなし：満足度4＋バイトの愛想2＋番台で待たせない1＋アメニティ3（作者指定）。
+     アメニティ（タオル・石鹸・化粧水・ドライヤー・手ぶらセット）は
+     1品ごとの合算（amenityParts・満点AMEN_MAX）を3点ぶんに換算して入れる＝
+     設備ではなく「客あしらい」の一部として効く */
   const avgSat = t.satN ? t.satSum / t.satN : 50;
   const aiso = G.roster.length ? G.roster.reduce((x, r) => x + (r.aiso || 3), 0) / G.roster.length : 2.5;
-  s.omote = clamp(clamp((avgSat - 35) / 45, 0, 1) * 6 + clamp((aiso - 1) / 4, 0, 1) * 2.5
-    + clamp(1.5 - ((g.bandai || 0) + (t.gaveUp || 0) * 2) / paid * 6, 0, 1.5), 0, 10);
+  s.omote = clamp(clamp((avgSat - 35) / 45, 0, 1) * 4 + clamp((aiso - 1) / 4, 0, 1) * 2
+    + clamp(1 - ((g.bandai || 0) + (t.gaveUp || 0) * 2) / paid * 4, 0, 1)
+    + amenityParts().total / AMEN_MAX * 3, 0, 10);
 
   return s;
 }
@@ -1330,8 +1376,8 @@ function repPenalties() {
   if (hasCat('sauna') && !hasMat()) add('サウナマットがない', 5, '浴室に置き場を設置する（無料）');
   if (!hasAkasuri()) add('垢すりタオルがない', 5, '浴室に置き場を設置する（無料）');
   /* 「ドライヤー有料 −2」「アメニティが高い −10」はここから外した（作者指定）。
-     タオル・石鹸・ドライヤーの値付けは、客ひとりひとりの満足度に効く形にしてある
-     （高ければその場で文句が出て、それが「おもてなし」の点として返ってくる） */
+     高い＝一発で引かれる、ではなく、1品ごとの評価（amenityParts）が
+     「おもてなし」の3点ぶんとして増減する形にしてある */
   return p;
 }
 
@@ -6788,6 +6834,8 @@ function renderData() {
      コスパは「高い」と言われている料金、動線は「遠い」区間だけ。全部そろっていれば何も出さない */
   const badCospa = cospaParts().list.filter(x => x.v === 0);
   const badDosen = dosenParts().list.filter(x => x.v < 3);
+  const am = amenityParts();
+  const badAmen = am.list.filter(x => x.v < AMEN_CHEAP).sort((a, b) => a.v - b.v);   // いちばん取れていない品を名指しする
   for (const it of sp.items) {
     const mark = it.v >= 8 ? '◎' : it.v >= 6 ? '○' : it.v >= 4 ? '△' : '×';
     let sub = it.v < 6 ? it.hint : '';
@@ -6796,6 +6844,9 @@ function renderData() {
       sub = `高い：${badCospa[0].name} ${badCospa[0].note}` + (badCospa.length > 1 ? ` ほか${badCospa.length - 1}件` : '');
     if (it.key === 'dosen' && badDosen.length)
       sub = `遠い：${badDosen[0].name} ${badDosen[0].note}` + (badDosen.length > 1 ? ` ほか${badDosen.length - 1}件` : '');
+    // おもてなしの3点ぶんはアメニティ。取りこぼしているものを1つだけ名指しする
+    if (it.key === 'omote' && badAmen.length)
+      sub = `アメニティ ${am.total} / ${AMEN_MAX}・伸ばせる：${badAmen[0].name} ${badAmen[0].note}`;
     h += row(`　${mark} ${it.name}${sub ? `<br><span class="opt-sub">　${sub}</span>` : ''}`,
       `${it.v.toFixed(1)} / 10`, it.v < 4 ? 'minus' : '');
   }
