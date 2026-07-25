@@ -211,47 +211,47 @@ const EQ = {
   bath_old:   { room:'bath', cat:'furo',   name:'古い浴槽',            w:2,h:2, price:0,       q:1, run:1250, cap:4, old:true, temp:39, desc:'ヒビだらけ。ぬるい。', descFix:'ヒビは埋めた。だましだましなら、まだ使える。' },
   bath_nuru:  { room:'bath', cat:'furo',   name:'ぬる湯の浴槽',        w:2,h:2, price:300000,  q:2, run:1500, cap:4, temp:38, desc:'ぬるめでじっくり。湯温は38℃。長湯派はこっちを好む。' },
   bath1:      { room:'bath', cat:'furo',   name:'あつ湯の浴槽',        w:2,h:2, price:350000,  q:2, run:1750, cap:4, temp:44, desc:'まっとうな熱い風呂。湯温は44℃。肩まで浸かって十数える、あれができる。' },
-  bath_yuzu:  { room:'bath', cat:'furo',   name:'季節の替わり湯',      w:2,h:1, price:220000,  q:2, run:1200, cap:2, rep:31, temp:42, desc:'ゆず湯・菖蒲湯・しょうぶ湯。若い客には地味だが、古い常連にはこれが効く。' },
-  bath_denki: { room:'bath', cat:'furo',   name:'電気風呂',            w:2,h:1, price:480000,  q:3, run:1600, cap:2, rep:24, temp:41, desc:'ビリビリ効く。腰の痛い常連の定番。' },
-  bath_jet:   { room:'bath', cat:'furo',   name:'ジェットバス',        w:2,h:2, price:800000,  q:4, run:2750, cap:4, rep:37, temp:41, desc:'背中に強烈な水流。「効く」と評判になる。' },
-  bath2:      { room:'bath', cat:'furo',   name:'檜風呂',              w:2,h:2, price:900000,  q:4, run:2500, cap:4, rep:40, temp:43, desc:'木の香り。常連が喜ぶ。' },
-  bath_tansan:{ room:'bath', cat:'furo',   name:'高濃度炭酸泉',        w:2,h:2, price:1200000, q:5, run:3500, cap:4, rep:45, temp:38, desc:'ぬるいのに芯まで温まる。今どきの銭湯の主役。' },
-  bath_ne:    { room:'bath', cat:'furo',   name:'寝湯',                w:3,h:1, price:700000,  q:4, run:2000, cap:3, rep:48, temp:40, desc:'浅く寝そべる湯。うっかり寝てしまう客が続出。' },
-  bath_roten: { room:'bath', cat:'furo',   name:'露天の岩風呂',        w:3,h:2, price:1500000, q:5, run:3750, cap:6, rep:54, temp:42, desc:'外の風に当たりながら。銭湯の格が変わる一台。' },
+  bath_yuzu:  { room:'bath', cat:'furo',   name:'季節の替わり湯',      w:2,h:1, price:220000,  q:2, run:1200, cap:2, rep:57, temp:42, desc:'ゆず湯・菖蒲湯・しょうぶ湯。若い客には地味だが、古い常連にはこれが効く。' },
+  bath_denki: { room:'bath', cat:'furo',   name:'電気風呂',            w:2,h:1, price:480000,  q:3, run:1600, cap:2, rep:46, temp:41, desc:'ビリビリ効く。腰の痛い常連の定番。' },
+  bath_jet:   { room:'bath', cat:'furo',   name:'ジェットバス',        w:2,h:2, price:800000,  q:4, run:2750, cap:4, rep:65, temp:41, desc:'背中に強烈な水流。「効く」と評判になる。' },
+  bath2:      { room:'bath', cat:'furo',   name:'檜風呂',              w:2,h:2, price:900000,  q:4, run:2500, cap:4, rep:68, temp:43, desc:'木の香り。常連が喜ぶ。' },
+  bath_tansan:{ room:'bath', cat:'furo',   name:'高濃度炭酸泉',        w:2,h:2, price:1200000, q:5, run:3500, cap:4, rep:74, temp:38, desc:'ぬるいのに芯まで温まる。今どきの銭湯の主役。' },
+  bath_ne:    { room:'bath', cat:'furo',   name:'寝湯',                w:3,h:1, price:700000,  q:4, run:2000, cap:3, rep:77, temp:40, desc:'浅く寝そべる湯。うっかり寝てしまう客が続出。' },
+  bath_roten: { room:'bath', cat:'furo',   name:'露天の岩風呂',        w:3,h:2, price:1500000, q:5, run:3750, cap:6, rep:82, temp:42, desc:'外の風に当たりながら。銭湯の格が変わる一台。' },
   /* ── サウナ（90℃派と100℃超え派がいる。2室ないと両方の好みは満たせない）
      ドライサウナだけ室温を1℃刻みで調整できる。ミスト・塩は“別ジャンル”なので温度は固定 */
   sauna1:     { room:'bath', cat:'sauna',  name:'遠赤サウナ',          w:2,h:2, price:800000,  q:3, run:3000, cap:8, temp:90,  desc:'俺の夢、その第一歩。室温を10℃刻みで調整可。サウナ料は運営メニューで設定。' },
-  sauna_mist: { room:'bath', cat:'sauna',  name:'ミストサウナ',        w:2,h:2, price:900000,  q:3, run:2500, cap:8, rep:28, temp:60, gentle:true, tag:'ミスト', desc:'湿った蒸気のサウナ。室温は60℃固定。ドライサウナとは別ジャンルで、これを欲しがる客が一定数いる。' },
-  sauna3:     { room:'bath', cat:'sauna',  name:'大型サウナ',          w:3,h:2, price:1500000, q:4, run:4500, cap:18, rep:34, temp:90,  desc:'広い！大人数でも待たせない。室温調整可。サウナ料は運営メニューで設定。' },
-  sauna_shio: { room:'bath', cat:'sauna',  name:'塩サウナ',            w:2,h:2, price:1100000, q:4, run:3250, cap:8, rep:43, temp:55, gentle:true, tag:'塩', desc:'塩を塗ってじっくり。室温は55℃で固定（塩が溶ける湿った熱さ）。肌がつるつるになると評判。これを欲しがる客が一定数いる。' },
+  sauna_mist: { room:'bath', cat:'sauna',  name:'ミストサウナ',        w:2,h:2, price:900000,  q:3, run:2500, cap:8, rep:52, temp:60, gentle:true, tag:'ミスト', desc:'湿った蒸気のサウナ。室温は60℃固定。ドライサウナとは別ジャンルで、これを欲しがる客が一定数いる。' },
+  sauna3:     { room:'bath', cat:'sauna',  name:'大型サウナ',          w:3,h:2, price:1500000, q:4, run:4500, cap:18, rep:61, temp:90,  desc:'広い！大人数でも待たせない。室温調整可。サウナ料は運営メニューで設定。' },
+  sauna_shio: { room:'bath', cat:'sauna',  name:'塩サウナ',            w:2,h:2, price:1100000, q:4, run:3250, cap:8, rep:72, temp:55, gentle:true, tag:'塩', desc:'塩を塗ってじっくり。室温は55℃で固定（塩が溶ける湿った熱さ）。肌がつるつるになると評判。これを欲しがる客が一定数いる。' },
   // rep は玲奈クリア前の評判上限70の内側に置く（75だと投票対決の必須設備が永遠に買えない）
-  sauna2:     { room:'bath', cat:'sauna',  name:'フィンランド式サウナ',w:3,h:2, price:2400000, q:5, run:6500,cap:18, rep:40, temp:100, desc:'本格ロウリュ。高温もいける。サウナーの聖地に。サウナ料は運営メニューで設定。' },
+  sauna2:     { room:'bath', cat:'sauna',  name:'フィンランド式サウナ',w:3,h:2, price:2400000, q:5, run:6500,cap:18, rep:68, temp:100, desc:'本格ロウリュ。高温もいける。サウナーの聖地に。サウナ料は運営メニューで設定。' },
   /* ── 水風呂（水温は固定。15℃／8℃／13℃の三種。一桁を出せるのは【シングルの水風呂】だけ）
      チラー無しで8℃は作れない＝安い水風呂を冷やして代用、ができないようにしてある。
      解放はシングル（評判45）→地下水かけ流し（評判55）の順。8℃はキンキン好きに刺さる代わりに
      ぬるめ好きには冷たすぎるので、あとから来る13℃は「万人に当たりのいい一台」として生きる。
      ただしシングルは電気代が高い（run 4000）＝安く買えても毎日効いてくる */
   mizu1:      { room:'bath', cat:'mizu',   name:'水風呂',              w:2,h:1, price:400000,  q:3, run:1500, cap:2, temp:15, desc:'サウナの相棒。これがないと始まらない。水温は15℃。' },
-  mizu_single:{ room:'bath', cat:'mizu',   name:'シングルの水風呂',    w:2,h:1, price:800000,  q:5, run:4000, cap:2, rep:34, temp:8,  desc:'チラーで一桁℃を保つ。水温は8℃。ガチのサウナーが遠くから通ってくる。冷やし続けるので電気代は重い。' },
-  mizu2:      { room:'bath', cat:'mizu',   name:'地下水かけ流し水風呂',w:2,h:1, price:1000000, q:5, run:2500, cap:2, rep:40, temp:13, desc:'汲み上げた地下水を流しっぱなしにする贅沢。水温は13℃。一桁ほど尖っていないぶん、誰が入っても気持ちいい。' },
+  mizu_single:{ room:'bath', cat:'mizu',   name:'シングルの水風呂',    w:2,h:1, price:800000,  q:5, run:4000, cap:2, rep:61, temp:8,  desc:'チラーで一桁℃を保つ。水温は8℃。ガチのサウナーが遠くから通ってくる。冷やし続けるので電気代は重い。' },
+  mizu2:      { room:'bath', cat:'mizu',   name:'地下水かけ流し水風呂',w:2,h:1, price:1000000, q:5, run:2500, cap:2, rep:68, temp:13, desc:'汲み上げた地下水を流しっぱなしにする贅沢。水温は13℃。一桁ほど尖っていないぶん、誰が入っても気持ちいい。' },
   // ── 洗い場
   wash_old:   { room:'bath', cat:'wash',   name:'古いカラン',          w:1,h:1, price:0,       q:1, run:200,  cap:1, old:true, desc:'錆びてる。お湯の出が悪い。', descFix:'錆は落とした。お湯の出は、まあ許せる程度。' },
   wash1:      { room:'bath', cat:'wash',   name:'普通のカラン',        w:1,h:1, price:60000,   q:2, run:300,  cap:1, desc:'シャワーも快適。' },
-  wash_shower:{ room:'bath', cat:'wash',   name:'立ちシャワー',        w:1,h:1, price:90000,   q:3, run:350,  cap:1, rep:17, desc:'サウナ前後にサッと流せる。回転が良くなる。' },
+  wash_shower:{ room:'bath', cat:'wash',   name:'立ちシャワー',        w:1,h:1, price:90000,   q:3, run:350,  cap:1, rep:34, desc:'サウナ前後にサッと流せる。回転が良くなる。' },
   // 3人ぶんの鏡とカランを2マスに詰め込んだ、省スペースの上位カラン。1台で古いカラン3台ぶんの働きをする
-  wash_triple:{ room:'bath', cat:'wash',   name:'三連カラン',          w:2,h:1, price:280000,  q:4, run:550,  cap:3, rep:24, desc:'鏡とカランを3人ぶん横並びに。狭い浴室でも、これ1台で洗い場の回転がぐっと上がる。' },
+  wash_triple:{ room:'bath', cat:'wash',   name:'三連カラン',          w:2,h:1, price:280000,  q:4, run:550,  cap:3, rep:46, desc:'鏡とカランを3人ぶん横並びに。狭い浴室でも、これ1台で洗い場の回転がぐっと上がる。' },
   // ── ロッカー
   // ロッカーはカタログ上【脱衣所】タブにまとめる（cat は収容人数の計算に使うので 'locker' のまま）
   // lock＝そのロッカー1台が受け入れられる人数（書かなければ CONF.lockerCap＝6人）
   locker_old: { cat:'locker', tab:'datsui', room:'datsui', name:'古いロッカー',   w:1,h:1, price:0,       q:1, run:0,    cap:0, lock:6,  old:true, desc:'扉が閉まらない。', descFix:'建て付けを直した。閉まるようにはなった。' },
   locker1:    { cat:'locker', tab:'datsui', room:'datsui', name:'普通のロッカー', w:1,h:1, price:80000,   q:2, run:0,    cap:0, lock:4,  desc:'鍵付き。4人ぶんの受入が増える。' },
   // 2マスで18人＝1マスあたり9人（普通のロッカーは6人）。狭い脱衣所を有効に使うための設備（作者指定）
-  locker2:    { cat:'locker', tab:'datsui', room:'datsui', name:'12連結ロッカー', w:2,h:1, price:200000,  q:3, run:0,    cap:0, lock:12, rep:21, desc:'2マスで12人ぶん＝同じ床面積で1.5倍の客を受け入れられる。脱衣所が狭いうちほど効く。' },
+  locker2:    { cat:'locker', tab:'datsui', room:'datsui', name:'12連結ロッカー', w:2,h:1, price:200000,  q:3, run:0,    cap:0, lock:12, rep:41, desc:'2マスで12人ぶん＝同じ床面積で1.5倍の客を受け入れられる。脱衣所が狭いうちほど効く。' },
   // ── 休憩（ととのい）
   bench1:     { cat:'rest',   name:'木のベンチ',          w:1,h:1, price:30000,   q:1, run:0,    cap:1, desc:'素朴な休憩所。' },
   chair1:     { cat:'rest',   name:'ととのいイス',        w:1,h:1, price:50000,   q:2, run:0,    cap:1, desc:'サウナ→水風呂→これ。ととのいの定番。' },
-  chair2:     { cat:'rest',   name:'リクライニングチェア',w:1,h:1, price:110000,  q:3, run:0,    cap:1, rep:21, desc:'倒して全身脱力。深いととのい。' },
-  chair_inf:  { cat:'rest',   name:'インフィニティチェア',w:1,h:1, price:190000,  q:4, run:0,    cap:1, rep:43, desc:'無重力の幸福。ここで「ぶっ飛ぶ」客が続出。' },
+  chair2:     { cat:'rest',   name:'リクライニングチェア',w:1,h:1, price:110000,  q:3, run:0,    cap:1, rep:41, desc:'倒して全身脱力。深いととのい。' },
+  chair_inf:  { cat:'rest',   name:'インフィニティチェア',w:1,h:1, price:190000,  q:4, run:0,    cap:1, rep:72, desc:'無重力の幸福。ここで「ぶっ飛ぶ」客が続出。' },
   // ごろ寝マット/熟睡まくら等のマット系ととのいスペースは第2章（新店）で解放予定。銭湯には置かない
   // ── 脱衣所（置くだけで効く。room:'datsui'＝脱衣所にしか置けない）
   /* 洗面所。ドライヤーと化粧水・乳液は「洗面所にあるもの」＝それぞれに1マス使わせない。
@@ -266,10 +266,10 @@ const EQ = {
                 pas:{ sat:1, score:1, likes:['jisan','oyaji'], like:4 }, desc:'色あせた昭和の笑顔。若者は苦笑いするが、爺さん連中には効く。左右の壁に貼れる。' },
   shogi:      { cat:'datsui', name:'将棋台',              w:1,h:1, price:45000,   q:1, run:0,   cap:0, room:'datsui',
                 pas:{ sat:1, score:2, likes:['jisan','oyaji'], like:4 }, desc:'湯上がりの一局。常連の溜まり場になる。' },
-  massage:    { cat:'datsui', name:'マッサージチェア',    w:1,h:1, price:230000,  q:3, run:200, cap:1, rep:24, room:'datsui',
+  massage:    { cat:'datsui', name:'マッサージチェア',    w:1,h:1, price:230000,  q:3, run:200, cap:1, rep:46, room:'datsui',
                 pas:{ sat:2, score:4, likes:['salaryman','oyaji'], like:2 }, desc:'湯上がりの客が¥100を入れて座っていく。売上にもなる。' },
   vend1:      { cat:'datsui', name:'牛乳の自販機',        w:1,h:1, price:150000,  q:1, run:400, cap:1, room:'datsui', desc:'風呂上がりの定番。売上になる。' },
-  vend2:      { cat:'datsui', name:'ドリンクの自販機',    w:1,h:1, price:200000,  q:2, run:500,cap:1, rep:21, room:'datsui', desc:'ポカリにビール。サウナ帰りは喉が渇く。' },
+  vend2:      { cat:'datsui', name:'ドリンクの自販機',    w:1,h:1, price:200000,  q:2, run:500,cap:1, rep:41, room:'datsui', desc:'ポカリにビール。サウナ帰りは喉が渇く。' },
   /* ── 部屋をまたぐもの（カタログの「その他」タブは廃止。tab で行き先のタブを指定する）
      cat は傷みかた（wearPerDay）と絵の描き分けに使うので 'etc' のまま置いてある */
   cooler:     { cat:'etc',    tab:'rest',   name:'冷水機',      w:1,h:1, price:100000,  q:2, run:350, cap:0,
@@ -1241,10 +1241,13 @@ const STORY_REINA_STRATEGY = [
   { art:'kaigi', lines:[
     { narr:true, text:'翌日の夜。閉店後の夕凪湯に、黒田と田所が集まった。番台の前に、湯呑みが三つ。' },
     { sp:'田所', text:'資本とまともに殴り合っても勝てん。前の負けで、骨身に沁みたろう。' },
-    { sp:'黒田', text:'……ひとつ、切り札がある。俺の知り合いに、世界一の熱波師がいる。' },
+    { sp:'俺', text:'……勝ち負けの前に、店だ。夕凪湯を、もっと魅力のある場所に変える。目標は――評判90。' },
+    { sp:'田所', text:'90。あの日の、親父の店と同じ数字だな。' },
+    { sp:'黒田', text:'だったら、ひとつ切り札がある。俺の知り合いに、世界一の熱波師がいる。' },
     { sp:'黒田', text:'蒼天が大金でスカウトして、断られた男だ。あいつが夕凪湯に立てば、“体験の質”で蒼天を上回れる。' },
     { sp:'黒田', text:'ただし、あいつのアウフグースには【フィンランド式サウナ】が要る。……用意できるか？' },
     { sp:'俺', text:'まかせろ。フィンランド式サウナ、必ず用意する。' },
+    { sp:'黒田', text:'あいつが立てば、評判は90に届く。……届いた日が、再戦の日だ。' },
   ]},
 ];
 /* 特別映像③：熱波師、夕凪湯へ（フィンランド式サウナ設置後の夜）。※セリフは叩き台。

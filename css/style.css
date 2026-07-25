@@ -287,6 +287,10 @@ body {
 /* 借入額のボタン（10万円刻み）。1行に収めて折り返さない */
 .loan-amts { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:8px; }
 .loan-amts .opt-btn { flex:1 1 0; min-width:0; white-space:nowrap; font-size:12px; padding:8px 2px; }
+/* 集金画面の「返済する」金額バー（10万円きざみ） */
+.yami-bar { background:#2a2119; border:2px solid #574433; border-radius:6px; padding:8px 10px; margin-bottom:8px; }
+.yami-bar-val { font-size:13px; line-height:1.6; margin-bottom:6px; }
+.yami-bar input[type=range] { width:100%; accent-color:#c9a86a; }
 
 /* 汎用トースト */
 #toast {

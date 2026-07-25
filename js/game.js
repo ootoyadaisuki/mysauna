@@ -65,14 +65,14 @@ function newReina() { return { met: false, stage: 0, resolved: false, ally: fals
 function newSolved() { return { tadokoro: false, yakuza: false, kuroda: false, reina: false, oyaji: false }; }
 // 親父の和解ゲージ（OYAJI_CLEAR_AT / OYAJI_CARE_GAIN）は廃止（作者指定）。態度は評判連動＝STORY_CARE_PAID
 const TADOKORO_HELLO_DAY = 4;                       // 田所の名乗り＝4日目の営業終了後（作者指定。2〜3日目の母の電話と重ねない）
-const TADOKORO_APPEAR_REP = 15;                     // 田所が現れる評判（いちばん最初のライバル）
-const TADOKORO_KESSEN_NAJIMI = 55, TADOKORO_KESSEN_REP = 28, TADOKORO_KYOZON_GAIN = 18;  // 田所が認める条件と、共存の選択で伸びる絆（評判条件は田所クリア前の上限30の内側に）
+const TADOKORO_APPEAR_REP = 30;                     // 田所が現れる評判（いちばん最初のライバル）
+const TADOKORO_KESSEN_NAJIMI = 55, TADOKORO_KESSEN_REP = 52, TADOKORO_KYOZON_GAIN = 18;  // 田所が認める条件と、共存の選択で伸びる絆
 const TADOKORO_DEMAND_CLEAR = 5;                    // 田所の要求をこの回数だけ叶えると、認めさせる資格（作者指定で3→5）
-const KITO_APPEAR_REP = 20;                         // 鬼頭の集金が始まる評判（新評判方式＝繁盛の匂いがし始めた店にヤクザが来る）
-/* 以下の登場しきい値は、店の格を漸近カーブに変えた（＝伸び半減）あとの実測に合わせ直した値。
-   通しシムでは充実度が57〜64で頭打ちになり、評判の実効レンジは30〜50。旧値（45/55/65）には届かなかった。
-   店をもっと大きくできるようになったら（＝設置場所と資金の詰まりを解けたら）、ここは上げ直す */
-const KURODA_APPEAR_REP = 38;                       // 黒田が現れる評判（田所＋鬼頭の一件が片付いてから）
+const KITO_APPEAR_REP = 39;                         // 鬼頭の集金が始まる評判（新評判方式＝繁盛の匂いがし始めた店にヤクザが来る）
+/* 以下の登場しきい値は、店の格のカーブ（GRADE_SCALE）を作者指定で上げ直したのに合わせて再換算した値。
+   換算のしかたは「同じ充実度なら同じ相手が出る」＝旧しきい値を充実度に戻し、新しいカーブで評判に直した。
+   狙い（作者指定）：黒田の決着がつく頃に評判75前後、玲奈への再戦の目標が評判90 */
+const KURODA_APPEAR_REP = 65;                       // 黒田が現れる評判（田所＋鬼頭の一件が片付いてから）
                                                     // 黒田の要求は高価な設備ばかりなので、中盤以降＝買える体力が付いてから現れる
 const KURODA_KEIEI_STAGE = 2;                       // 「数字で示す」を選んだ回数がこの値に達すると決戦の資格
 const KURODA_DEMAND_CLEAR = 2;                      // 黒田の課題をこの回数だけ達成すると決戦へ
@@ -81,7 +81,7 @@ const DEMAND_NAJIMI_GAIN = 12;                      // 田所の要求を叶え�
 const DEMAND_REP_GAIN = 3;                          // 要求を叶えたときの評判の伸び
 const KURODA_CASH_OK = 500000;                      // 健全経営の基準＝手元資金50万（＋資金ショートしていないこと）
 const KURODA_KEIEI_GAIN_NAJIMI = 6;                 // 黒田イベントで「現場」を選んだ時に伸びる常連との絆
-const REINA_APPEAR_REP = 42;                        // 玲奈が現れる評判（黒田の決着が済むまで現れない）
+const REINA_APPEAR_REP = 68;                        // 玲奈が現れる評判（黒田の決着が済むまで現れない）
 const REINA_STAGE = 2;                              // 買収を断り“孤高を貫いた回数”の上限目安（投票の共感票に加算）
 const REINA_BUYOUT = 20000000;                      // 買収額（2,000万）＝受けると売却エンド分岐
 const REINA_PRESSURE = 0.78;                        // 競合圧＝蒼天SPA開業中は集客がこの倍率に落ちる（勝つまで）
@@ -90,12 +90,16 @@ const REINA_POACH_COST = 150000;                    // 引き抜きに対し「�
 const REINA_STAY_NAJIMI = 40;                       // 「本人に任せる」でバイトが忠義で残ってくれる常連絆の下限
 const REINA_EQ_OFF = 0.85;                          // 玲奈が仲間＝設備15%引き（業界の伝手で安く仕入れられる）
 // ── サウナ天下分け目の投票対決（第1章クライマックス）。※数値は叩き台
-const REINA_DUEL_APPEAR_REP = 44;                   // この評判に達すると玲奈が“挑戦状”＝公開投票対決を仕掛けてくる
-                                                    // ※黒田を50に下げた分ここも後ろへ。60のままだと玲奈の初登場直後に挑戦状が来て、
-                                                    //   引き抜き・買収の揺さぶりが丸ごと飛んでしまう
+const REINA_DUEL_APPEAR_REP = 71;                   // この評判に達すると玲奈が“挑戦状”＝公開投票対決を仕掛けてくる
+                                                    // 玲奈の初登場（69）とは少しだけ離す＝引き抜き・買収の揺さぶりを挟む余地を残す
 const REINA_DUEL_PREP_DAYS = 7;                     // 告知から投票日までの準備営業日
-const REINA_REMATCH_REP = 45;                       // フェーズ4：敗北（評判-20）から、この評判まで戻すと再挑戦できる
-const REINA_LOSE_REP = 20;                          // フェーズ4：初戦敗北で失う評判
+const REINA_REMATCH_REP = 70;                       // フェーズ4：敗北（評判-20）から、この評判まで戻すと再挑戦できる
+const REINA_LOSE_REP = 20;
+/* フェーズ4：作戦会議で黒田たちと決めた目標＝この評判に届いた日が再戦の日（作者指定）。
+   フィンランド式サウナ＋世界一の熱波師が揃えば、店の格はここを超える。
+   ただ営業が荒れていると評判が格まで登り切らないので、熱波師が来てからこの日数たったら黒田が背中を押す */
+const REINA_GOAL_REP = 90;
+const REINA_GOAL_GRACE = 30;                          // フェーズ4：初戦敗北で失う評判
 const SOUTEN_DUEL_VOTES = 300;                      // 蒼天SPAの基礎票（規模・話題の壁）＝これを上回れば勝ち
 const DUEL_W_REP = 3.2;                             // 夕凪票：評判の重み
 const DUEL_W_NAJIMI = 2.4;                          // 夕凪票：常連の絆＝「また帰りたい」票の核
@@ -1155,16 +1159,17 @@ function repFacilityParts() {
   }
   const feePen = -feeGripe() * 8;                                            // 設備に見合わない高い料金は格を下げる
   const yakuzaPen = kitoAccepted() ? -KITO_ACCEPT_PEN : 0;                   // 彼らを受け入れた店、という街の評価
-  return { equip: fp.equip, variety: fp.variety, system: fp.system + ban, oldPen, aiso, feePen, yakuzaPen,
-           total: fp.equip + fp.variety + fp.system + ban + oldPen + aiso + feePen + yakuzaPen };
+  const nappa = nappaOn() ? NAPPA_GRADE : 0;                                 // 世界一の熱波師＝再戦の切り札
+  return { equip: fp.equip, variety: fp.variety, system: fp.system + ban, oldPen, aiso, feePen, yakuzaPen, nappa,
+           total: fp.equip + fp.variety + fp.system + ban + oldPen + aiso + feePen + yakuzaPen + nappa };
 }
 function repFacility() { return repFacilityParts().total; }
 /* 充実度（repFacility）を、0〜100の「店の格」に変換する。
-   以前は ×1.2 の素の比例だったが、それだと鬼頭編の途中で格が100に張り付いてしまった（作者報告）。
-   序盤の伸びはそのままに、投資が積み上がる中盤以降だけを圧縮する曲線に変える＝実感としては「伸びが半分」。
-   狙い（作者指定）：黒田ミッションをクリアする頃＝設備がそこそこ揃った時点で、評判60あたり。
-     充実度 10→11 ／ 25→24 ／ 50→43 ／ 90→63 ／ 130→76 ／ 200→89（100には漸近するだけで届かない） */
-const GRADE_SCALE = 90;
+   曲線のかたちはそのまま（伸びるほど1点の効きが薄くなる）で、効きだけを作者指定で上げ直した。
+   狙い（作者指定）：黒田の決着がつく頃に評判75前後、玲奈への再戦の目標が評判90。
+   90だと同じ充実度で格46〜52にしかならず、物語が動く水位に評判が一生届かなかった。
+     充実度 10→22 ／ 25→46 ／ 50→71 ／ 65→80 ／ 80→86 ／ 120→95（100には漸近するだけで届かない） */
+const GRADE_SCALE = 40;
 function gradeFromFacility(total) { return 100 * (1 - Math.exp(-Math.max(0, total) / GRADE_SCALE)); }
 /* 評判の天井。故障や日々の消耗で格がギザギザ動くと評判が理不尽に上下するので、直近5日の平均でならす */
 function repCeiling() {
@@ -2130,6 +2135,9 @@ const KITO_PAYOFF = 5000000;   // 大金で手を切る一括額（500万円）
 /* 「札を下ろして受け入れる」結末を選んだ店に乗る、店の格への固定ペナルティ（作者指定）。
    -30 は「投票対決（評判65）には事実上届かない」重さ＝物語は進むが第1章はクリアできない道 */
 const KITO_ACCEPT_PEN = 30;
+/* 世界一の熱波師が常駐している店、という格（作者指定＝フィンランド式＋熱波師で評判90を超えさせる）。
+   設備ではなく「人」なので充実度の内訳では独立した行にして、何がそこまで効いたのかを見えるようにする */
+const NAPPA_GRADE = 45;
 const KITO_OUT = {
   payoff: {
     title: '💴 金で、縁を切った',
@@ -2756,14 +2764,18 @@ function maybeReinaCinematic() {
       if (!hasWorking('sauna2')) return false;
       G.flags.reinaRematch = 3;
       G.nappa = { hired: true };
+      G.flags.nappaDay = G.day;
       Story.play(STORY_NAPPA_COME, () => {
-        toast('🔥 世界一の熱波師が夕凪湯に！ 明日からアウフグースが始まる');
+        toast(`🔥 世界一の熱波師が夕凪湯に！ 評判${REINA_GOAL_REP}に届いた日が再戦の日だ`);
         log('🔥 熱波師が夕凪湯に加わった。蒼天と同じ土俵に、ようやく立てた');
         saveGame();
       });
       return true;
     }
-    if (step === 3) {   // 土俵が揃った翌日の夜 → 再戦の告知
+    if (step === 3) {   // 評判が目標90に届いた夜 → 再戦の告知（届かないまま日が過ぎたら黒田が背中を押す）
+      const pushed = G.day >= (G.flags.nappaDay || 0) + REINA_GOAL_GRACE;
+      if (G.rep < REINA_GOAL_REP && !pushed) return false;
+      if (pushed && G.rep < REINA_GOAL_REP) log('💼 黒田「90には少し足りん。だが、待っていても蒼天は消えない。行くぞ」');
       G.flags.reinaRematch = 4;
       r.duel = 'announced'; r.duelDay = G.day + REINA_DUEL_PREP_DAYS; r.midDone = false;
       toast(`🗳 玲奈との再戦が告知された！ 投票日はあと${REINA_DUEL_PREP_DAYS}日`);
@@ -3750,24 +3762,54 @@ function showYamiModal(due) {
     b.innerHTML = `${label}<br><span class="opt-sub">${sub}</span>`;
     b.onclick = fn; box.appendChild(b);
   };
-  /* 返し方は3つだけ（作者指定）：ジャンプ（金利のみ）／10万円返す／全額返済。
+  /* 返し方は3つ（作者指定）：ジャンプ（金利のみ）／返済する（金額バーで10万円刻み）／完済する。
      ジャンプを選び続ける限り、元本は1円も減らない＝いつまでも灰田が毎週やって来る */
   const debt = G.yami.debt;
   add(`🔄 ジャンプする（${yen(due)}）`,
     G.cash >= due ? `金利だけ。元本 ${yen(debt)} は1円も減らない` : '🔒 手元の資金が足りない',
     () => payYami(due, 0), false, G.cash < due);
-  if (debt > CONF.sarakinPrincipal) {
-    const p1 = due + CONF.sarakinPrincipal;
-    add(`💴 10万円 返す（${yen(p1)}）`,
-      G.cash >= p1 ? `元本が減って 残り ${yen(debt - CONF.sarakinPrincipal)}` : '🔒 手元の資金が足りない',
-      () => payYami(p1, CONF.sarakinPrincipal), false, G.cash < p1);
-  }
+  // 返せる元本の上限＝手元から今週の金利を引いた残りを10万円刻みに丸めたもの（残債は超えない）
+  const unit = CONF.sarakinPrincipal;
+  const maxPrin = Math.min(debt, Math.floor(Math.max(0, G.cash - due) / unit) * unit);
+  add('💴 返済する', maxPrin >= unit
+    ? `元本を10万円きざみで返す（最大 ${manYen(maxPrin)}）`
+    : '🔒 金利のぶんを引くと、10万円も残らない',
+    () => showYamiRepayBar(due, maxPrin), false, maxPrin < unit);
   const off = yamiPayoff();
-  add(`💰 全額返済（${yen(off)}）`,
+  add(`💰 完済する（${yen(off)}）`,
     G.cash >= off ? '元本＋今週の金利。これで集金は二度と来ない' : '🔒 手元の資金が足りない',
     () => payYami(off, debt), false, G.cash < off);
   add('🙇 待ってくれ…', '金利が元本に乗り、設備を持って行かれる', () => failYami(), true);
   $('yamiModal').classList.remove('hidden');
+}
+/* 「返済する」を選んだあとの金額バー。つまみを動かして返す元本を決める（10万円きざみ）。
+   渡す額は「金利＋選んだ元本」＝ジャンプぶんは必ず乗る。戻れば元の三択に帰れる */
+function showYamiRepayBar(due, maxPrin) {
+  const unit = CONF.sarakinPrincipal;
+  const box = $('yamiChoices');
+  box.innerHTML =
+    `<div class="yami-bar">
+       <div class="yami-bar-val">元本 <b id="yamiPrinVal">${manYen(unit)}</b> ＋ 金利 ${yen(due)}
+         <br><span class="opt-sub">渡す額 <b id="yamiPayVal">${yen(due + unit)}</b>・残り <b id="yamiLeftVal">${yen(G.yami.debt - unit)}</b></span></div>
+       <input type="range" id="yamiPrin" min="${unit}" max="${maxPrin}" step="${unit}" value="${unit}">
+     </div>`;
+  const b1 = document.createElement('button');
+  b1.className = 'big-btn';
+  b1.innerHTML = 'この額で返す<br><span class="opt-sub">灰田に渡す</span>';
+  const b2 = document.createElement('button');
+  b2.className = 'big-btn';
+  b2.innerHTML = '↩ 戻る<br><span class="opt-sub">返し方を選び直す</span>';
+  b2.onclick = () => showYamiModal(due);
+  box.appendChild(b1); box.appendChild(b2);
+  const sl = $('yamiPrin');
+  const sync = () => {
+    const p = +sl.value;
+    $('yamiPrinVal').textContent = manYen(p);
+    $('yamiPayVal').textContent = yen(due + p);
+    $('yamiLeftVal').textContent = yen(G.yami.debt - p);
+  };
+  sl.oninput = sync;
+  b1.onclick = () => { const p = +sl.value; payYami(due + p, p); };
 }
 function closeYamiVisit() {
   $('yamiModal').classList.add('hidden');
@@ -4104,6 +4146,12 @@ function demandHint() {
     const d = demandOf(who);
     if (d) rows.push(`${who === 'tadokoro' ? '🧓 田所' : '💼 黒田'}の要求：<b>${demandLabel(d)}</b>${demandMet(d) ? '（達成！次に来た時に見せよう）' : ''}`);
   }
+  // 作戦会議で決めた目標＝再戦の条件。ここに出しておかないと「次に何をすればいいか」が消える
+  const rm = G.flags && G.flags.reinaRematch;
+  if (rm === 2) rows.push('❄ 再戦の支度：<b>フィンランド式サウナ</b>を用意する（黒田が熱波師を連れてくる）'
+    // 終盤は床が埋まりきっていて3×2マスが空かないことがある＝ここで詰まると物語が止まるので、逃げ道を出す
+    + (canPlaceAnywhere('sauna2') ? '' : '<br><span class="opt-sub">置き場所がない。使っていない設備を売って3×2マスを空けよう</span>'));
+  else if (rm === 3) rows.push(`❄ 再戦の目標：<b>評判${REINA_GOAL_REP}</b>（いま ${Math.round(G.rep)}）。届いた日が再戦の日だ`);
   return rows;
 }
 
@@ -6530,6 +6578,7 @@ function renderData() {
   part('バイトの愛想', rp.aiso);
   part('割高な料金', rp.feePen);
   part('連中を受け入れた店という評判', rp.yakuzaPen);
+  part('世界一の熱波師', rp.nappa);
   // 品揃えの評価は「種類の数」で見る（作者指定）＝1種類△／2種類○／3種類以上◎
   h += row('品揃え', `風呂 ${kindMark('furo')}　サウナ ${kindMark('sauna')}　水風呂 ${kindMark('mizu')}`);
   const lacks = [];
@@ -6581,6 +6630,17 @@ function renderData() {
       `${yen(G.yami.debt)}<br><span class="opt-sub">今週の金利 ${yen(yamiDue())}・集金は毎週水曜（あと ${yen(CONF.sarakinMax - G.yami.debt)} 借りられる）</span>`, 'minus');
   h += row('直近5日の平均収支', `${avg >= 0 ? '+' : ''}${yen(avg)}`, avg < 0 ? 'minus' : '');
   h += row('直近5日の黒字日数', `${hist.filter(p => p > 0).length}日 / ${hist.length}日`);
+  /* 昨日の利益・客単価・常連（作者指定）＝黒田の課題で問われる数字は、この欄で確かめられるようにする。
+     課題は「直近の営業日」で判定するので、ここも同じ G.lastStats を見せて食い違わないようにしてある。
+     今日ぶんは締めるまで確定しないが、途中経過が分かるほうが手を打てるので併記する */
+  const ls = G.lastStats;
+  const tt = G.today || {};
+  const tankaNow = tt.paid ? Math.round(tt.revenue / tt.paid) : 0;
+  h += row('昨日の利益', ls ? `${ls.profit >= 0 ? '+' : ''}${yen(ls.profit)}` : 'まだ営業していない', ls && ls.profit < 0 ? 'minus' : '');
+  h += row('客単価', ls
+    ? `${yen(ls.tanka)}<br><span class="opt-sub">昨日 ${ls.paid}人・${tankaNow ? `今日は ${yen(tankaNow)}` : '今日はまだ0人'}</span>`
+    : 'まだ営業していない');
+  h += row('常連', `${G.regulars || 0}人<br><span class="opt-sub">満足して帰った客が、また来てくれる</span>`);
   h += row('入浴料', `¥${G.opts.fee}` + (hasCat('sauna') ? `（＋サウナ ¥${G.opts.saunaFee}）` : ''));
   h += row('客が受け入れる入浴料', `〜¥${worthFee()}`, G.opts.fee > worthFee() ? 'minus' : '');
   if (hasCat('sauna')) h += row('客が受け入れるサウナ料', `〜¥${worthSaunaFee()}`, G.opts.saunaFee > worthSaunaFee() ? 'minus' : '');
