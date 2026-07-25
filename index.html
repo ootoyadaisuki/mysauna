@@ -97,7 +97,7 @@
           <button id="btnOpen" class="big-btn open-btn">🏮 営業開始</button>
           <button id="btnManage" class="sm-btn">⚙ 運営</button>
           <button id="btnData" class="sm-btn">📊 データ</button>
-          <button id="btnAd" class="sm-btn">📰 広告</button>
+          <button id="btnSenden" class="sm-btn">📰 広告</button>
           <button id="btnLoan" class="sm-btn">🏦 融資</button>
         </div>
       </div>
@@ -157,13 +157,16 @@
     </div>
   </div>
 
-  <!-- 広告 -->
-  <div id="adModal" class="overlay hidden">
+  <!-- 広告（宣伝）。※id/classに ad・advert 等を使わないこと！
+       AdGuard などの広告ブロッカーは「名前が広告っぽい要素」を問答無用で非表示にするため、
+       以前 #adModal だった頃はスマホで画面を開いても何も出なかった（実機で確認）。
+       同じ理由で採用画面の応募者カードも .ad-item → .senden-item に改名してある -->
+  <div id="sendenModal" class="overlay hidden">
     <div class="modal">
       <h2>広告を出す</h2>
       <p class="modal-note">明日の客入りが増える。効果は1日だけ。</p>
-      <div id="adList"></div>
-      <button id="btnAdClose" class="big-btn">とじる</button>
+      <div id="sendenList"></div>
+      <button id="btnSendenClose" class="big-btn">とじる</button>
     </div>
   </div>
 
