@@ -3757,18 +3757,20 @@ function dueReina() {
 function pickTodaysVisitor() {
   if (dueTadokoroConsult()) return 'tadokoroConsult';   // みかじめ2回の翌日、田所が異変を察して来る（最優先）
   if (dueKitoThanks()) return 'kitoThanks';             // お断りを下ろした翌日、鬼頭が礼を言いに来る
-  // 田所編と鬼頭編は並行して進むが、同じ日に二人は来ない＝両方その気なら1日おきに交代（作者指定）。
-  // 例外は「鬼頭との決着3回目」＝主人公・鬼頭・田所が集合する場面なので、必ずそちらを優先する
-  const kitoDue = dueKitoShowdown(), tadoDue = dueTadokoro();
-  if (kitoDue && tadoDue) {
-    const finale = (G.kito.showdowns || 0) >= 2;   // 次に来たら3回目＝田所が乱入する決着
-    const who = finale ? 'kitoShowdown' : (G.flags.lastDuo === 'kitoShowdown' ? 'tadokoro' : 'kitoShowdown');
+  /* 田所編と鬼頭編は並行して進むが、同じ日に二人は来ない＝両方その気なら1日おきに交代（作者指定）。
+     ※鬼頭の来訪（みかじめ＝要求の選択画面）は必ずこの交代に混ぜること。
+       田所は編が始まると「毎日来る」ので、鬼頭を後回しの判定に置くと永久に順番が回らず、
+       ヤクザ編が一度も始まらないまま詰む（通しテストで実際に発生した）。
+     例外は「鬼頭の3回目＝田所が割って入る決着」で、主人公・鬼頭・田所が集合する場面なので必ず優先する */
+  const mikaDue = dueMikajime(), tadoDue = dueTadokoro();
+  if (mikaDue && tadoDue) {
+    const finale = !!(G.kito && !G.kito.resolved && (G.kito.encounters || 0) >= 2);
+    const who = finale ? 'mikajime' : (G.flags.lastDuo === 'mikajime' ? 'tadokoro' : 'mikajime');
     G.flags.lastDuo = who;
     return who;
   }
-  if (kitoDue) { G.flags.lastDuo = 'kitoShowdown'; return 'kitoShowdown'; }
+  if (mikaDue) { G.flags.lastDuo = 'mikajime'; return 'mikajime'; }
   if (tadoDue) { G.flags.lastDuo = 'tadokoro'; return 'tadokoro'; }
-  if (dueMikajime()) return 'mikajime';
   if (dueKuroda()) return 'kuroda';
   if (dueReina()) return 'reina';
   return null;
