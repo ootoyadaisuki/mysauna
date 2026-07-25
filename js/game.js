@@ -1141,8 +1141,7 @@ function facilityParts(condFloor) {
 }
 function facilityScore(condFloor) { return facilityParts(condFloor).total; }   // 目安: 初日10前後 〜 充実で70超
 /* ============ 評判＝「天井＋速度」方式（作者案） ============
-   施設の充実（店の格）が評判の天井を決め、毎晩そこへ向かって
-   営業の質（満足度）に応じた歩幅で近づく。
+   設備の充実と客の満足度の合計が評判の行き先を決め、毎晩そこへ向かって近づく。
    ・投資しない店は天井が低く、評判はそこで頭打ち（放置では上がらない）
    ・設備を買っても評判は即ジャンプせず、数日かけて天井へ登る
    ・汚れは天井に入れない＝満足度（速度）側で既に効いている（二重取り防止） */
@@ -1171,14 +1170,39 @@ function repFacility() { return repFacilityParts().total; }
      充実度 10→22 ／ 25→46 ／ 50→71 ／ 65→80 ／ 80→86 ／ 120→95（100には漸近するだけで届かない） */
 const GRADE_SCALE = 40;
 function gradeFromFacility(total) { return 100 * (1 - Math.exp(-Math.max(0, total) / GRADE_SCALE)); }
-/* 評判の天井。故障や日々の消耗で格がギザギザ動くと評判が理不尽に上下するので、直近5日の平均でならす */
+/* 評判の行き先＝「設備から」＋「おもてなしから」の足し算（作者指定）。
+   以前は設備が天井を決め、満足度は“そこへ登る速さ”でしかなかった。それだと
+   どれだけ客を満足させてもスコアに一切乗らない＝努力させたい所が数字に出なかった。
+   いまは満足度そのものが評判の3割を占める＝掃除も待ち時間も愛想も、直接スコアになる。
+   ※「店の格」という言い方はユーザーには見せない（内部の都合でしかないため・作者指定） */
+const REP_W_EQUIP = 70;                             // 設備・品揃え・サービスで取れる上限
+const REP_W_SAT = 30;                               // 客の満足度で取れる上限
+const REP_SAT_FLOOR = 35, REP_SAT_TOP = 80;         // 満足度この幅が、おもてなし点の0〜満点に対応
+/* おもてなし点のもとになる満足度。直近10日でならす（作者指定）。
+   窓を長く取るほど、設備を入れた翌日にポンと跳ねることがなくなり、
+   「良い営業を続けた店だけが、じわじわ上がっていく」動きになる */
+const REP_SAT_DAYS = 10;
+function recentSat() {
+  const h = Array.isArray(G.satHist) ? G.satHist : [];
+  const t = G.today;
+  const now = (t && t.satN) ? t.satSum / t.satN : null;
+  const all = now == null ? h : h.concat([now]);
+  if (!all.length) return REP_SAT_FLOOR;
+  return all.reduce((a, b) => a + b, 0) / all.length;
+}
+function repTargetParts() {
+  const eq = REP_W_EQUIP * clamp(gradeFromFacility(repFacility()), 3, 100) / 100;
+  const sat = REP_W_SAT * clamp((recentSat() - REP_SAT_FLOOR) / (REP_SAT_TOP - REP_SAT_FLOOR), 0, 1);
+  return { eq, sat, total: eq + sat };
+}
+/* 設備ぶんは故障や消耗でギザギザ動くので、直近5日の平均でならしてから使う */
 function repCeiling() {
   if (!Array.isArray(G.ceilHist)) G.ceilHist = [];
-  G.ceilHist.push(clamp(gradeFromFacility(repFacility()), 3, 100));
+  G.ceilHist.push(repTargetParts().total);
   if (G.ceilHist.length > 5) G.ceilHist.shift();
   return G.ceilHist.reduce((a, b) => a + b, 0) / G.ceilHist.length;
 }
-/* カタログに出す「格+○」＝その設備1台が店の格に足す点数（買い物の指針） */
+/* カタログの⭐の元になる、その設備1台ぶんの充実度（買い物の指針。数字そのものは出さない） */
 function gradePts(id) {
   const d = EQ[id];
   if (d.pas) return d.pas.score || 2;
@@ -2220,7 +2244,7 @@ function openKitoThanks() {
     `「<b>ありがとな。もう悪いことはしねえよ。</b>」<br><br>` +
     `鬼頭は湯気の向こうへ消えていった。みかじめの話は、二度と出なかった。<br><br>` +
     `<span class="mika-note">これで鬼頭とのけじめは付いた。もう札は掲げられない（受け入れると約束したのだから）。` +
-    `代わりに、この店は「そういう店」として街に知られる ——<b>店の格 -${KITO_ACCEPT_PEN}</b></span>`;
+    `代わりに、この店は「そういう店」として街に知られる ——<b>評判 -${KITO_ACCEPT_PEN}</b></span>`;
   const box = $('kitoChoices'); box.innerHTML = '';
   const b = document.createElement('button');
   b.className = 'big-btn';
@@ -2247,7 +2271,7 @@ function resolveKitoByAccept() {
   if (G.solved) G.solved.yakuza = true;
   G.opts.banYakuza = false;
   log('🚬 鬼頭と和解した。もう取り立ては来ない。だが、この店は「そういう店」になった');
-  toast('🚬 けじめは付いた。だが街の目は冷たい（店の格 -30）');
+  toast('🚬 けじめは付いた。だが街の目は冷たい（評判が大きく下がる）');
 }
 // 受け入れる形で決着したか＝格に重い罰が乗り、お断りの札も掲げられなくなる
 function kitoAccepted() { return !!(G.kito && G.kito.endedBy === 'accept'); }
@@ -3222,23 +3246,24 @@ function closeDay() {
   const najimiUp = Math.round((G.najimi - oldNajimi) * 10) / 10;
   // ととのった客の比率が高いほど評判が伸びる（口コミはここから生まれる）
   const totonoiRate = t.satN ? t.totonoi / t.satN : 0;
-  /* フェーズ5：評判＝「天井＋速度」方式（作者案）。
-     店の格（設備・品揃え・システム面）が天井を決め、営業の質（満足度）が登る速さを決める。
-     ・天井までの差の15%ずつ近づく（満足度で0.3〜1.2倍）＋ととのいの口コミ
-     ・天井より上にいる時は差の8%ずつ微減（ボロ店のくせに評判だけ高い状態は続かない）
+  /* 評判＝「設備から」＋「おもてなしから」の行き先へ、噂が広まる速さで近づいていく。
+     満足度は行き先そのものに入っているので、ここで速さに掛け算はしない（二重取りになる）。
+     ・行き先までの差の18%ずつ近づく＋ととのいの口コミ
+     ・行き先より上にいる時は差の8%ずつ微減（中身が伴わない評判は続かない）
      ・その日の不満（客の不満欄）が多いほど口コミが濁って引かれる
      ・街の噂は一晩で±3まで */
+  if (!Array.isArray(G.satHist)) G.satHist = [];
+  if (t.satN) { G.satHist.push(avgSat); if (G.satHist.length > REP_SAT_DAYS) G.satHist.shift(); }
   const ceiling = repCeiling();
-  const eigyo = clamp(0.3 + (avgSat - 40) / 50, 0.3, 1.2);
   const gripeN = t.gripes ? Object.values(t.gripes).reduce((a, b) => a + b, 0) : 0;
   const gripePen = t.paid ? Math.min(gripeN / t.paid, 1) * 0.8 : 0;
   let repD = ceiling >= G.rep
-    ? (ceiling - G.rep) * 0.15 * eigyo + Math.min(totonoiRate * 2, 1) * eigyo
+    ? (ceiling - G.rep) * 0.18 + Math.min(totonoiRate * 2, 1)
     : (ceiling - G.rep) * 0.08;
   repD = clamp(repD - gripePen, -3, 3);
   repD = Math.round(repD * 10) / 10;
   const oldRep = G.rep;
-  // ミッションによる隠し上限は廃止（作者指定）。伸びを止めるのは「店の格＝天井」だけ
+  // ミッションによる隠し上限は廃止（作者指定）。伸びを決めるのは設備とおもてなしの合計だけ
   G.rep = clamp(Math.round((G.rep + repD) * 10) / 10, 0, 100);
 
   const row = (l, v, minus, cls) =>
@@ -6078,7 +6103,7 @@ function saveGame() {
   const data = {
     day: G.day, cash: G.cash, debt: G.debt, rep: G.rep, name: G.name,
     loanPending: G.loanPending, loanArrive: G.loanArrive, loanInToday: G.loanInToday || 0, profitStreak: G.profitStreak,
-    ceilHist: G.ceilHist || [],
+    ceilHist: G.ceilHist || [], satHist: G.satHist || [],
     flags: G.flags, seenEq: G.seenEq, dirts: G.dirts, opts: G.opts, staffCount: G.staffCount, kito: G.kito,
     tadokoro: G.tadokoro, kuroda: G.kuroda, reina: G.reina, yami: G.yami, najimi: G.najimi, oyajiRel: G.oyajiRel,
     recentProfits: G.recentProfits, recentGripes: G.recentGripes, recentSegSat: G.recentSegSat, roughDays: G.roughDays,
@@ -6098,7 +6123,8 @@ function loadGame() {
     Object.assign(G, { day: d.day, cash: d.cash, debt: d.debt, rep: d.rep, name: d.name, flags: d.flags || {}, seenEq: d.seenEq || {}, dirts: d.dirts || [] });
     // 融資の新システム（旧セーブには無い＝振込待ちなし。旧debtはそのまま「残り返済額」として引き継ぐ）
     G.loanPending = d.loanPending || 0; G.loanArrive = d.loanArrive || 0; G.loanInToday = d.loanInToday || 0; G.profitStreak = d.profitStreak || 0;
-    G.ceilHist = Array.isArray(d.ceilHist) ? d.ceilHist : [];   // 評判の天井の直近履歴（旧セーブは空でOK＝初日から積み直す）
+    G.ceilHist = Array.isArray(d.ceilHist) ? d.ceilHist : [];   // 評判の行き先の直近履歴（旧セーブは空でOK＝初日から積み直す）
+    G.satHist = Array.isArray(d.satHist) ? d.satHist : [];      // 直近5日の満足度（おもてなし点のもと）
     G.opts = { ...DEFAULT_OPTS, ...(d.opts || {}) };
     G.staffCount = d.staffCount || 0;
     // フェーズ3：バイトは名簿制。旧セーブ（人数だけ）は、プール先頭から同じ人数を勤続扱いで移行する
@@ -6166,7 +6192,7 @@ function loadGame() {
 function resetState() {
   Object.assign(G, {
     day: 1, cash: CONF.startCash, debt: CONF.startDebt, rep: 10, name: '夕凪湯',
-    loanPending: 0, loanArrive: 0, profitStreak: 0, ceilHist: [],
+    loanPending: 0, loanArrive: 0, profitStreak: 0, ceilHist: [], satHist: [],
     equip: [], dirts: [], flags: {}, seenEq: {}, adBoost: 0, adBought: {},
     opts: { ...DEFAULT_OPTS }, staffCount: 0, staff: [], roster: [], jobAdDay: 0, nappa: null, paused: false,
     customers: [], payQueue: [], placing: null, selected: null,
@@ -6490,7 +6516,7 @@ function renderManage() {
     ${kitoAccepted()
       /* 鬼頭を受け入れる形で決着した店は、もう札を掲げられない（受け入れると約束したのだから）。
          ここを開けておくと「下ろして決着 → すぐ掲げ直す」で罰だけ踏み倒せてしまう */
-      ? `<div class="opt-row locked"><span>刺青・ヤクザお断り<br><span class="opt-sub">🔒 鬼頭と交わした約束がある（店の格 -${KITO_ACCEPT_PEN}）</span></span><button class="opt-btn" disabled>—</button></div>`
+      ? `<div class="opt-row locked"><span>刺青・ヤクザお断り<br><span class="opt-sub">🔒 鬼頭と交わした約束がある（評判 -${KITO_ACCEPT_PEN}）</span></span><button class="opt-btn" disabled>—</button></div>`
       : tog('banYakuza', o.banYakuza, '刺青・ヤクザお断り', '「怖い」不満が消える。ただし連中がみかじめ料を要求しに来る')}`;
   box.querySelectorAll('.opt-btn').forEach(b => b.onclick = () => {
     const act = b.dataset.act, v = b.dataset.v;
@@ -6550,23 +6576,29 @@ function renderData() {
   // ── タスク（判断に迷ったらまずここ。作者指定でトップへ）
   const dm = demandHint();
   if (dm.length) h += sec('📌 タスク') + dm.map(s => `<div class="rep-voice">${s}</div>`).join('');
-  /* ── 評判と店の格（新評判方式の主役）。
-     格＝評判の天井。「あとどれだけ伸びるか」「どこを伸ばせば格が上がるか」をここで見せる。
-     ※ミッションの隠し上限はここには出さない（作者指定＝上限の存在は見せない） */
+  /* ── 評判の内訳（作者指定）。「店の格」という言い方はここでは一切使わない＝内部の都合でしかない。
+     見せるのは「設備でいくつ・おもてなしでいくつ・計いくつ」だけ。
+     いまの評判をその2つの取り分で割って出すので、必ず足して評判ちょうどになる */
   const rp = repFacilityParts();
-  const kaku = Math.round(clamp(gradeFromFacility(rp.total), 3, 100));
-  const nobi = kaku - G.rep;
-  h += sec('🏮 評判と店の格');
-  h += row('評判', `${G.rep} / 100`);
-  h += row('店の格', `${kaku}<br><span class="opt-sub">評判はこの数字に向かって伸びる</span>`);
+  const tp = repTargetParts();
+  const repR = Math.round(G.rep);   // 内訳がぴたり足し算になるよう、この欄は整数でそろえる
+  const eqShown = tp.total > 0 ? Math.round(repR * tp.eq / tp.total) : 0;
+  const satShown = repR - eqShown;
+  h += sec('🏮 評判');
+  h += row('評判', `${repR} / 100`);
+  h += row('　設備から', `${eqShown}<br><span class="opt-sub">設備・品揃え・サービス（満点 ${REP_W_EQUIP}）</span>`);
+  h += row('　おもてなしから', `${satShown}<br><span class="opt-sub">客の満足度（満点 ${REP_W_SAT}）</span>`);
   // 見立ては1行の全幅で（2列だとラベルが縦に潰れる）
-  h += `<div class="rep-voice">${nobi >= 3 ? `☝ 伸びしろ あと${Math.round(nobi)}。評判は格に向かって伸びていく`
-    : nobi <= -3 ? '⚠ 評判が店の格を上回っている。このままでは少しずつ下がる'
-    : '⏸ 評判は格に追いついた＝頭打ち。設備投資で格を上げよう'}</div>`;
-  /* 格の内訳＝どこを伸ばせば格が上がるか。
-     格は充実度をならした曲線（伸びるほど1点の効きが薄くなる）なので、内訳は素の「充実度」の点で見せる。
-     格と同じ物差しに換算して並べると、足し算が合わなくなって逆に分からなくなる */
-  h += row('充実度', `${Math.round(rp.total)}点<br><span class="opt-sub">積むほど格が上がる（上がるほど1点の効きは薄い）</span>`);
+  const satRoom = REP_W_SAT - tp.sat;
+  h += `<div class="rep-voice">${satRoom >= 8
+    ? `☝ おもてなしで あと${Math.round(satRoom)} 伸ばせる。汚れ・待ち時間・愛想を直そう`
+    : tp.eq < REP_W_EQUIP * 0.7
+      ? '☝ 客はよろこんでいる。あとは設備だ。品揃えを増やそう'
+      : '✨ 設備もおもてなしも、ほぼ出し切っている'}</div>`;
+  /* 設備ぶんの内訳＝どこを足せば「設備から」が伸びるか。
+     設備ぶんは充実度をならした曲線（積むほど1点の効きが薄くなる）なので、内訳は素の「充実度」の点で見せる。
+     同じ物差しに換算して並べると、足し算が合わなくなって逆に分からなくなる */
+  h += row('充実度', `${Math.round(rp.total)}点<br><span class="opt-sub">積むほど「設備から」が伸びる（上がるほど1点の効きは薄い）</span>`);
   const part = (l, v, always) => {
     const n = Math.round(v);
     if (n || always) h += row(`<span class="opt-sub">　${l}</span>`, `<span class="opt-sub">${n > 0 ? '+' : ''}${n}</span>`, n < 0 ? 'minus' : '');
@@ -6588,13 +6620,13 @@ function renderData() {
   // ── 直近の営業＝評判が格へ登る「速さ」。満足度が低い日は、いい店でも噂が広がらない
   const satN0 = (G.today && G.today.satN) || 0;
   const avgSat0 = satN0 ? Math.round(G.today.satSum / satN0) : null;
-  h += sec('🌡 直近の営業（噂の広がる速さ）');
+  h += sec('🌡 直近の営業（おもてなし）');
   if (avgSat0 == null) h += row('客の満足度', 'まだ今日の営業データがない');
   else {
-    const eig = clamp(0.3 + (avgSat0 - 40) / 50, 0.3, 1.2);
-    // 「満足度」と「その結果（噂の速さ）」は別の行に分ける＝1行に矢印で詰め込むと意味が取れない（作者指摘）
-    h += row('客の満足度', `${avgSat0}点<br><span class="opt-sub">満足した客ほど、店の噂を広めてくれる</span>`);
-    h += row('噂の広がり', eig >= 1 ? '◎ ぐんぐん広がっている' : eig >= 0.7 ? '○ ふつうに広がっている' : '△ のろのろ（満足度が低い）', eig < 0.7 ? 'minus' : '');
+    // 「満足度」と「その結果（評判への取り分）」は別の行に分ける＝1行に詰め込むと意味が取れない（作者指摘）
+    h += row('客の満足度', `${avgSat0}点<br><span class="opt-sub">${REP_SAT_TOP}点で「おもてなしから」が満点の${REP_W_SAT}になる</span>`);
+    h += row('おもてなしから', `${Math.round(tp.sat)} / ${REP_W_SAT}<br><span class="opt-sub">直近${REP_SAT_DAYS}日の満足度でならした点数</span>`,
+      tp.sat < REP_W_SAT * 0.5 ? 'minus' : '');
   }
   h += row('ととのい率', `${Math.round(totonoiChance() * 100)}%<br><span class="opt-sub">ととのった客の口コミは評判を直接押し上げる</span>`);
   // 設備1台ごとの状態はマップの耐久度バーで見える＝ここでは重複するので出さない（作者指定）
