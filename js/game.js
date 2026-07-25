@@ -2812,7 +2812,7 @@ function returnToTitle() {
   Sfx.bgmStop(); Sfx.engine(false);                // タイトルへ戻ったら音は全部止める
   G.npcs = [];
   deselect(); endPlacing(); G.placing = null;      // 配置や選択の途中で戻っても、次に入った時に持ち越さない
-  ['reinaModal', 'reportModal', 'manageModal', 'dataModal', 'yamiModal', 'menuModal', 'adModal', 'loanModal']
+  ['reinaModal', 'reportModal', 'manageModal', 'dataModal', 'yamiModal', 'menuModal', 'sendenModal', 'loanModal']
     .forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   $('game-ui').classList.add('hidden');
   if (localStorage.getItem(SAVE_KEY)) $('btnContinue').classList.remove('hidden');
@@ -5624,7 +5624,7 @@ function openJobModal() {
   list.innerHTML = '';
   for (const p of pool) {
     const div = document.createElement('div');
-    div.className = 'ad-item';
+    div.className = 'senden-item';
     div.innerHTML = `<span>🧑‍🔧</span><div><b>${p.name}</b>　<span class="shop-price">日給${yen(staffWageOf(p))}</span><br>
       <span class="shop-desc">真面目${'★'.repeat(p.maji)}　スピード${'★'.repeat(p.spd)}　愛想${'★'.repeat(p.aiso)}<br>${p.desc}</span></div>
       <button class="opt-btn">採用</button>`;
@@ -5913,11 +5913,11 @@ function initUI() {
   $('btnDataBiz').onclick = openData;
   $('btnDataClose').onclick = () => $('dataModal').classList.add('hidden');
   // 一覧の組み立てで転んでも画面自体は必ず開く（スマホで「押しても広告画面が出ない」報告への対策）
-  $('btnAd').onclick = () => {
+  $('btnSenden').onclick = () => {
     try { renderAds(); } catch (e) { toast('広告の一覧を出せなかった：' + e.message); }
-    $('adModal').classList.remove('hidden');
+    $('sendenModal').classList.remove('hidden');
   };
-  $('btnAdClose').onclick = () => $('adModal').classList.add('hidden');
+  $('btnSendenClose').onclick = () => $('sendenModal').classList.add('hidden');
   $('btnJobClose').onclick = () => {
     if (!jobHiredThisRound && !confirm('誰も採用しなくていいですか？\n求人広告費が無駄になります')) return;
     $('jobModal').classList.add('hidden');
@@ -6356,11 +6356,11 @@ function renderAds() {
     { key: 'mag', name: '地元ミニコミ誌に掲載', cost: 100000, desc: '明日 +14人・評判+1' },
     { key: 'job', name: '求人広告', cost: 50000, desc: '2日後の朝、応募が3人来る' },
   ];
-  const list = $('adList');
+  const list = $('sendenList');
   list.innerHTML = '';
   for (const ad of ads) {
     const div = document.createElement('div');
-    div.className = 'ad-item' + (G.adBought[ad.key] ? ' done' : '');
+    div.className = 'senden-item' + (G.adBought[ad.key] ? ' done' : '');
     div.innerHTML = `<span>📣</span><div><b>${ad.name}</b><br><span class="shop-desc">${ad.desc}</span></div>
       <span class="shop-price">${G.adBought[ad.key] ? '手配済' : yen(ad.cost)}</span>`;
     div.onclick = () => {

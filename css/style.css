@@ -269,17 +269,17 @@ body {
 #reportModal { padding:6px; }
 #reportModal .big-btn { margin:8px 0 0; padding:10px; }
 
-/* 広告・融資 */
-.ad-item { display:flex; align-items:center; gap:8px; padding:9px; margin:6px 0;
+/* 広告（宣伝）・融資。※クラス名に ad を使わないこと＝広告ブロッカーに消される（index.htmlの注記参照） */
+.senden-item { display:flex; align-items:center; gap:8px; padding:9px; margin:6px 0;
   background:#54402f; border:2px solid #a68656; border-radius:8px; font-size:13px; cursor:pointer; }
-.ad-item.done { opacity:.4; pointer-events:none; }
+.senden-item.done { opacity:.4; pointer-events:none; }
 /* 広告の名前と説明は左詰め（親のモーダルが中央寄せなので、ここで上書きする） */
-.ad-item > div { flex:1; min-width:0; text-align:left; }
+.senden-item > div { flex:1; min-width:0; text-align:left; }
 /* 黒田の口利きで値引き中のアイテムは、カタログで赤く目立たせる */
 /* 黒田割引の値札は「通常○万/今だけ○万（黒田割引）」の横並び1行・他のアイテムと同じ文字サイズ（作者指定） */
 .kuroda-off { color:#ff6a5a; font-weight:bold; }
 .price-was  { color:#9a9088; text-decoration:line-through; }
-.ad-item .shop-price { margin-left:auto; }
+.senden-item .shop-price { margin-left:auto; }
 .loan-actions { display:flex; gap:8px; }
 .loan-actions .big-btn { font-size:14px; }
 
