@@ -249,6 +249,8 @@ body {
 .rep-sec.out { color:#ff9a8a; }
 .rep-row.sub { border-bottom:none; font-weight:bold; padding-top:4px; }
 .rep-row.sub .v { color:#ffe6a8; }
+/* 評判の「＋プラス評価／−マイナス評価」の見出し行（マイナス側は見出しも赤で揃える） */
+.rep-row.sub.minus .v { color:#ff9a8a; }
 /* 設備投資（買い物＝経費ではない）は、支払い欄の下に色を分けて添える */
 .rep-row.capex { border-bottom:none; margin-top:2px; }
 .rep-row.capex .v { color:#c9b0ff; }
