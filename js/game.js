@@ -22,6 +22,8 @@ const G = {
   // 銀行融資は廃止（作者指定）。debt/loanPending/loanArrive は旧セーブの読み込み用に残してあるだけで、もう増えない
   loanPending: 0, loanArrive: 0,
   profitStreak: 0,          // 連続黒字日数（データ画面の表示に使う）
+  repHist: [],              // 直近7日ぶんの「10項目の採点」（新評判システム）
+  repBonus: 0,              // 物語の出来事による評判の加点・減点（10項目とは別枠）
   uidN: 0,
   equip: [],                 // {uid,id,x,y,rot,cond,occ[]}
   dirts: [],                 // {x,y}
@@ -118,7 +120,7 @@ function newToday() {
            towelRev: 0, towelN: 0, akasuriRev: 0, akasuriN: 0, soapRev: 0, soapN: 0,
            teburaRev: 0, teburaN: 0, soapUnits: 0, totonoiTry: 0, gaveUp: 0, mikajime: 0,
            amenRev: 0, amenN: 0, milkRev: 0, autoYami: 0, yamiPaid: 0, repairCost: 0, unpaid: false,
-           care: 0, queueMiss: 0, gripes: {}, satSeg: {} };
+           care: 0, queueMiss: 0, gripes: {}, satSeg: {}, dirtSum: 0, dirtN: 0 };
 }
 
 /* ---- 客層別の満足度（データ画面の診断表示。作者指定＝案3のタイプ別） ----
@@ -1151,121 +1153,162 @@ function facilityParts(condFloor) {
   return { equip, variety, system, sysList, dirt, total: Math.max(0, equip + variety + system + dirt) };
 }
 function facilityScore(condFloor) { return facilityParts(condFloor).total; }   // 目安: 初日10前後 〜 充実で70超
-/* ============ 評判＝「天井＋速度」方式（作者案） ============
-   設備の充実と客の満足度の合計が評判の行き先を決め、毎晩そこへ向かって近づく。
-   ・投資しない店は天井が低く、評判はそこで頭打ち（放置では上がらない）
-   ・設備を買っても評判は即ジャンプせず、数日かけて天井へ登る
-   ・汚れは天井に入れない＝満足度（速度）側で既に効いている（二重取り防止） */
-/* 店の「格」の内訳。facilityParts（充実度）を土台に、評判専用の項目を足し引きする。
-   汚れは格には入れない＝満足度（登る速度）側で効いている（二重取り防止） */
-function repFacilityParts() {
-  const fp = facilityParts(0.5);
-  const oldPen = -G.equip.filter(e => EQ[e.id].old && !e.dead).length * 4;   // 初期のボロ設備は店の格を下げる
-  const ban = G.opts.banYakuza ? 4 : 0;                                      // 怖い客がいない安心感
-  let aiso = 0;
-  if (G.roster.length) {                                                     // バイトの愛想（無愛想な店は格が下がる）
-    const a = G.roster.reduce((x, r) => x + (r.aiso || 3), 0) / G.roster.length;
-    aiso = (a - 2.5) * 2;
-  }
-  const feePen = -feeGripe() * 8;                                            // 設備に見合わない高い料金は格を下げる
-  const yakuzaPen = kitoAccepted() ? -KITO_ACCEPT_PEN : 0;                   // 彼らを受け入れた店、という街の評価
-  const nappa = nappaOn() ? NAPPA_GRADE : 0;                                 // 世界一の熱波師＝再戦の切り札
-  const sysList = ban ? fp.sysList.concat(['お断り看板']) : fp.sysList;   // 「刺青・ヤクザお断り」だと中黒で区切りに見える
-  return { equip: fp.equip, variety: fp.variety, system: fp.system + ban, sysList, oldPen, aiso, feePen, yakuzaPen, nappa,
-           total: fp.equip + fp.variety + fp.system + ban + oldPen + aiso + feePen + yakuzaPen + nappa };
-}
-function repFacility() { return repFacilityParts().total; }
-/* 充実度（repFacility）を、0〜100の「店の格」に変換する。
-   曲線のかたちはそのまま（伸びるほど1点の効きが薄くなる）で、効きだけを作者指定で上げ直した。
-   狙い（作者指定）：黒田の決着がつく頃に評判75前後、玲奈への再戦の目標が評判90。
-   90だと同じ充実度で格46〜52にしかならず、物語が動く水位に評判が一生届かなかった。
-     充実度 10→22 ／ 25→46 ／ 50→71 ／ 65→80 ／ 80→86 ／ 120→95（100には漸近するだけで届かない） */
-const GRADE_SCALE = 40;
-function gradeFromFacility(total) { return 100 * (1 - Math.exp(-Math.max(0, total) / GRADE_SCALE)); }
-/* 評判の行き先＝「設備から」＋「おもてなしから」の足し算（作者指定）。
-   以前は設備が天井を決め、満足度は“そこへ登る速さ”でしかなかった。それだと
-   どれだけ客を満足させてもスコアに一切乗らない＝努力させたい所が数字に出なかった。
-   いまは満足度そのものが評判の3割を占める＝掃除も待ち時間も愛想も、直接スコアになる。
+/* ============ 評判＝10項目の採点方式（作者指定・新評判システム） ============
+   旧方式（設備の充実度＋おもてなし の2本立て）は、設備を積むだけで簡単に高得点になった。
+   新方式は「10項目 × 10点満点 ＝ 100点」。どれか1つを極めても100にはならず、
+   清潔・混雑・値ごろ感・湯とサウナ・脱衣所・動線・接客の全部を同時に立てて初めて高得点になる。
+   ・10項目は毎晩その日ぶんを採点し、直近7日の平均を表に出す＝良い営業を続けた店だけが伸びる
+   ・最初の7日は母数が足りないので「集計中」と表示し、評判は開店時の10のまま据え置く
+   ・【その他】の減点だけは即時反映。直せばその場で消える＝手を打った手応えがすぐ出る
    ※「店の格」という言い方はユーザーには見せない（内部の都合でしかないため・作者指定） */
-const REP_W_EQUIP = 70;                             // 設備・品揃え・サービスで取れる上限
-const REP_W_SAT = 30;                               // 客の満足度で取れる上限
-const REP_SAT_FLOOR = 35, REP_SAT_TOP = 80;         // 満足度この幅が、おもてなし点の0〜満点に対応
-/* おもてなし点のもとになる満足度。直近10日でならす（作者指定）。
-   窓を長く取るほど、設備を入れた翌日にポンと跳ねることがなくなり、
-   「良い営業を続けた店だけが、じわじわ上がっていく」動きになる */
-const REP_SAT_DAYS = 10;
-function recentSat() {
-  const h = Array.isArray(G.satHist) ? G.satHist : [];
-  const t = G.today;
-  const now = (t && t.satN) ? t.satSum / t.satN : null;
-  const all = now == null ? h : h.concat([now]);
-  if (!all.length) return REP_SAT_FLOOR;
-  return all.reduce((a, b) => a + b, 0) / all.length;
-}
-function repTargetParts() {
-  const eq = REP_W_EQUIP * clamp(gradeFromFacility(repFacility()), 3, 100) / 100;
-  const sat = REP_W_SAT * clamp((recentSat() - REP_SAT_FLOOR) / (REP_SAT_TOP - REP_SAT_FLOOR), 0, 1);
-  return { eq, sat, total: eq + sat };
-}
-/* 設備ぶんは故障や消耗でギザギザ動くので、直近5日の平均でならしてから使う */
-function repCeiling() {
-  if (!Array.isArray(G.ceilHist)) G.ceilHist = [];
-  G.ceilHist.push(repTargetParts().total);
-  if (G.ceilHist.length > 5) G.ceilHist.shift();
-  return G.ceilHist.reduce((a, b) => a + b, 0) / G.ceilHist.length;
-}
-/* ============ 評判の「プラス評価・マイナス評価」（データ画面の一覧・作者指定） ============
-   設備もサービス（アメニティ・マット・垢すり・お断りなど）もおもてなしも、
-   ぜんぶ同じ“評判の点”に換算して1本の表にまとめる＝何がどれだけ効いているかが一目で読める。
-   ・設備ぶん … 充実度の内訳を、実際の取り分（最大70）へ按分して並べる。
-       充実度は積むほど1点の効きが薄くなるので、素の点で並べると
-       「⭐を足したのに評判が動かない」の理由が読めなくなる。
-   ・おもてなしぶん … 満点30をいったんプラスに置き、届いていないぶんを
-       直近の不満の構成比でマイナスへ振り分ける＝何に何点そこなっているかが名指しで出る。
-   足し引きの合計＝評判の行き先。いまの評判は、毎晩そこへ少しずつ近づいていく。 */
-function repBreakdown() {
-  const rp = repFacilityParts();
-  const tp = repTargetParts();
-  const plus = [], minus = [];
-  const push = (l, v, sub) => {
-    const n = Math.round(v);
-    if (!n) return;
-    (n > 0 ? plus : minus).push({ l, v: Math.abs(n), sub });
-  };
-  const k = rp.total > 0 ? tp.eq / rp.total : 0;      // 充実度1点あたり、評判に何点乗るか
-  push('設備の質（⭐の合計）', rp.equip * k);
-  push('品揃え（湯・サウナ・水風呂の種類）', rp.variety * k);
-  // 中身の名前も添える（何を入れたぶんの点なのかが分かる）。1行で収めたいので3つまで＋残りは件数で
-  push('サービス・備品', rp.system * k, rp.sysList.length
-    ? rp.sysList.slice(0, 3).join('・') + (rp.sysList.length > 3 ? ` ほか${rp.sysList.length - 3}件` : '')
-    : '');
-  push('バイトの愛想', rp.aiso * k);
-  push('世界一の熱波師', rp.nappa * k);
-  push('古いボロ設備', rp.oldPen * k);
-  push('設備に見合わない料金', rp.feePen * k);
-  push('連中を受け入れた店という評判', rp.yakuzaPen * k);
-  // おもてなしは満点を置いてから、不満のぶんを引く（引かれる理由が名前で出るようにするため）
-  plus.push({ l: 'おもてなし（満点）', v: REP_W_SAT, sub: '客を満足させきれば、まるごと評判になる' });
-  const lost = REP_W_SAT - tp.sat;
-  const g = gripeSummary();
-  if (lost >= 0.5) {
-    if (!g.total) minus.push({ l: 'まだ客を満足させきれていない', v: Math.round(lost), sub: '直近の営業ぶん' });
-    else {
-      let rest = lost, shown = 0;
-      for (const [key, n] of Object.entries(g.sum).sort((a, b) => b[1] - a[1])) {
-        if (!GRIPE_LABEL[key]) continue;
-        const v = Math.round(lost * n / g.total);
-        if (v < 1) continue;
-        minus.push({ l: GRIPE_LABEL[key], v, sub: `不満の声 ${n}件` });
-        rest -= v; shown++;
-      }
-      if (Math.round(rest) >= 1) minus.push({ l: shown ? 'その他の不満' : '小さな不満の積み重ね', v: Math.round(rest) });
-    }
+const REP_DAYS = 7;                                 // 何日ぶんの平均で採点するか
+const REP_WARMUP = 7;                               // この日数までは「集計中」（評判は据え置き）
+const REP_START = 10;                               // 集計中のあいだの評判＝開店時の値
+
+const REP_ITEMS = [
+  { key: 'clean',  name: '清潔度',           hint: 'こまめに掃除する・バイトを増やす' },
+  { key: 'crowd',  name: '混雑度',           hint: '設備の台数と収容力を増やす' },
+  { key: 'cospa',  name: 'コスパ',           hint: '設備に見合った料金にする' },
+  { key: 'sauna',  name: 'サウナ',           hint: 'いいサウナ・温度の違う2台目' },
+  { key: 'furo',   name: 'お風呂',           hint: '浴槽の種類を増やす' },
+  { key: 'mizu',   name: '水風呂',           hint: '水風呂の質と水温の選択肢' },
+  { key: 'datsui', name: '脱衣所サービス',   hint: 'ロッカー・洗面所・備品・タオル・石鹸' },
+  { key: 'rest',   name: 'ととのいスペース', hint: 'ととのいイスを増やす・冷水機' },
+  { key: 'dosen',  name: '動線',             hint: '設備の置き場所を見直す' },
+  { key: 'omote',  name: 'おもてなし',       hint: '愛想のいいバイト・待たせない' },
+];
+
+/* そのカテゴリでいちばん良い設備の質（q）。壊れている台は数えない */
+function bestQ(cat) {
+  let q = 0;
+  for (const e of G.equip) {
+    const d = EQ[e.id];
+    if (d.cat !== cat || e.dead || e.cond <= 0) continue;
+    q = Math.max(q, d.q || 1);
   }
-  const plusSum = plus.reduce((a, b) => a + b.v, 0);
-  const minusSum = minus.reduce((a, b) => a + b.v, 0);
-  return { plus, minus, plusSum, minusSum, dest: plusSum - minusSum, tp, rp };
+  return q;
 }
+function capOf(cat) {
+  return G.equip.filter(e => EQ[e.id].cat === cat && !e.dead && e.cond > 0)
+    .reduce((n, e) => n + (EQ[e.id].cap || 0), 0);
+}
+
+/* ---- その日ぶんの10項目の採点（0〜10点） ----
+   不満の声は「客1人あたり何回出たか」で見る＝客が増えたぶんだけ点が下がる、を防ぐ。
+   設備そのものの点（サウナ・お風呂・水風呂・脱衣所）は日によって動かないが、
+   買った翌日からしか平均に入らないので、7日かけてじわじわ効いてくる。 */
+function repDayScores() {
+  const t = G.today || {};
+  const g = t.gripes || {};
+  const paid = Math.max(t.paid || 0, 1);
+  const rate = k => (g[k] || 0) / paid;
+  const s = {};
+
+  /* 清潔度：その日、床に平均いくつ汚れが転がっていたか（こびり付いた濃い汚れは3倍に重い）。
+     開店から閉店まで測った平均なので、こまめに掃除して回った日はそのまま高得点になる。
+     汚れは営業中どうしても出るので、平均2.5個ぶんまでは満点のまま（＝掃除が追いついている状態）。
+     そこを超えて溜まりはじめたぶんだけ点が落ちる（バイト6人の繁盛店で8点台になる線・シム実測） */
+  const dirtAvg = t.dirtN ? t.dirtSum / t.dirtN : (dirtCounts().thin + dirtCounts().thick * 3);
+  s.clean = clamp(10 - Math.max(dirtAvg - 2.5, 0) * 1.5, 0, 10);
+
+  // 混雑度：待たされた・入れなかった。帰らせてしまった客は2倍に重く見る
+  const crowdN = (g.crowd || 0) + (g.locker || 0) + (g.bandai || 0)
+    + (t.turnedAway || 0) * 2 + (t.gaveUp || 0) * 2 + (t.queueMiss || 0);
+  s.crowd = clamp(10 - Math.max(crowdN / paid - 0.1, 0) / 0.22, 0, 10);
+
+  // コスパ：設備の目安を超えた料金ぶん。¥100の超過で入浴料は3点、サウナ料は2点減る
+  s.cospa = clamp(10 - feeGripe() * 3 - saunaFeeGripe() * 2 - Math.min(rate('price') * 12, 3), 0, 10);
+
+  // 湯の温度が合わない不満は、サウナ・風呂・水風呂で分け合う（同じ声を3回引かない）
+  const tempPen = Math.min(rate('temp') * 4, 1.5);
+  s.sauna = !hasCat('sauna') ? 0 : clamp(
+    3 + bestQ('sauna') + Math.min(tempVariety('sauna') + (hasGentleSauna() ? 1 : 0), 3) * 0.7
+    + (nappaOn() ? 1.5 : 0) - tempPen, 0, 10);
+  s.furo = !hasCat('furo') ? 0 : clamp(
+    3 + bestQ('furo') * 0.9 + Math.min(furoKindCount() - 1, 3) * 0.85 - tempPen, 0, 10);
+  s.mizu = !hasCat('mizu') ? 0 : clamp(
+    3 + bestQ('mizu') + Math.min(tempVariety('mizu'), 3) * 0.8 - tempPen, 0, 10);
+
+  // 脱衣所サービス：ロッカーの余裕2＋洗面所2＋備品2.5＋石鹸1.8＋タオル1.7＝10点
+  const lockerPart = clamp(2 - (t.turnedAway || 0) / paid * 20, 0, 2);
+  const goods = G.equip.filter(e => EQ[e.id].room === 'datsui' && EQ[e.id].cat !== 'locker'
+    && !e.dead && e.cond > 0).length;
+  s.datsui = clamp(lockerPart + (hasWorking('sink') ? 2 : 0) + Math.min(goods * 0.5, 2.5)
+    + (G.opts.soapMode === 'free' ? 1.8 : G.opts.soapMode === 'sell' ? 0.9 : 0)
+    + (G.opts.towel === 'free' ? 1.7 : G.opts.tebura ? 1.1 : G.opts.towel === 'paid' ? 0.5 : 0), 0, 10);
+
+  // ととのいスペース：イスの質＋サウナ定員に対する席の足り具合＋冷水機＋実際にととのえた率
+  const restCap = capOf('rest');
+  const saunaCap = capOf('sauna');
+  s.rest = !restCap ? 0 : clamp(
+    bestQ('rest') * 1.2 + Math.min(restCap / Math.max(saunaCap * 0.5, 2), 1) * 2.8
+    + (hasWorking('cooler') ? 1.5 : 0)
+    + Math.min((t.satN ? t.totonoi / t.satN : 0) * 3, 2.5) - Math.min(rate('totonoi') * 8, 2), 0, 10);
+
+  // 動線：たどり着けないと言われた回数＋道が通っていない“飾り”設備
+  s.dosen = clamp(10 - Math.min(rate('dosen') * 14, 6) - deadEquip().length * 2, 0, 10);
+
+  // おもてなし：満足度6＋バイトの愛想2.5＋番台で待たせない1.5
+  const avgSat = t.satN ? t.satSum / t.satN : 50;
+  const aiso = G.roster.length ? G.roster.reduce((x, r) => x + (r.aiso || 3), 0) / G.roster.length : 2.5;
+  s.omote = clamp(clamp((avgSat - 35) / 45, 0, 1) * 6 + clamp((aiso - 1) / 4, 0, 1) * 2.5
+    + clamp(1.5 - ((g.bandai || 0) + (t.gaveUp || 0) * 2) / paid * 6, 0, 1.5), 0, 10);
+
+  return s;
+}
+
+/* ---- 【その他】直せばその場で消える減点（作者指定・即時反映） ---- */
+function repPenalties() {
+  const p = [];
+  const add = (l, v, sub) => p.push({ l, v, sub });
+  if (!G.opts.banYakuza)
+    add('入墨・ヤクザが入店できる', 30,
+      kitoAccepted() ? '鬼頭と交わした約束がある' : '運営メニューで「お断り」にすれば消える');
+  const olds = G.equip.filter(e => EQ[e.id].old && !e.dead);
+  if (olds.length) add('親父の代からの古い設備', 10,
+    olds.map(e => EQ[e.id].name).slice(0, 2).join('・') + (olds.length > 2 ? ` ほか${olds.length - 2}台` : ''));
+  const broken = G.equip.filter(e => e.cond <= 0);
+  if (broken.length) add('故障したまま放置している設備', 10, `${broken.length}台。修理すれば消える`);
+  if (hasCat('sauna') && !hasMat()) add('サウナマットがない', 5, '浴室に置き場を設置する（無料）');
+  if (!hasAkasuri()) add('垢すりタオルがない', 5, '浴室に置き場を設置する（無料）');
+  if (G.opts.dryerFee > 0) add('ドライヤーが有料', 2, '運営メニューで無料にできる');
+  const pricey = [];
+  if (G.opts.soapMode === 'sell' && Math.max(G.opts.shampooPrice, G.opts.bodysoapPrice) >= 150) pricey.push('石鹸');
+  if (G.opts.towel === 'paid' && G.opts.towelPrice >= 200) pricey.push('タオル');
+  if (G.opts.tebura && G.opts.teburaPrice >= 500) pricey.push('手ぶらセット');
+  if (G.opts.lotionFee >= 100) pricey.push('化粧水');
+  if (pricey.length) add('アメニティが高い', 10, `${pricey.join('・')}の値付けが高すぎる`);
+  return p;
+}
+
+/* ---- 直近7日の平均。今日ぶんは客が入り始めてから混ぜる ---- */
+function repItemAvgs() {
+  const hist = Array.isArray(G.repHist) ? G.repHist : [];
+  const all = (G.today && G.today.satN) ? hist.concat([repDayScores()]) : hist.slice();
+  const use = all.length ? all : [repDayScores()];
+  const out = {};
+  for (const it of REP_ITEMS) out[it.key] = use.reduce((a, d) => a + (d[it.key] || 0), 0) / use.length;
+  return { avgs: out, days: hist.length };
+}
+/* 画面に出す数字がそのまま足し算で合うように、項目は先に小数第1位へ丸めてから合計する */
+function repScoreParts() {
+  const { avgs, days } = repItemAvgs();
+  const items = REP_ITEMS.map(it => ({ ...it, v: Math.round(avgs[it.key] * 10) / 10 }));
+  const base = Math.round(items.reduce((a, b) => a + b.v, 0) * 10) / 10;
+  const pens = repPenalties();
+  const penSum = pens.reduce((a, b) => a + b.v, 0);
+  const bonus = Math.round(G.repBonus || 0);
+  return { items, base, pens, penSum, bonus, days, total: clamp(Math.round(base - penSum + bonus), 0, 100) };
+}
+function repCounting() { return G.day <= REP_WARMUP; }              // 集計中（8日目から数字が出る）
+function repScore() { return repCounting() ? REP_START : repScoreParts().total; }
+/* 評判は10項目＋減点から毎回そのまま計算し直す＝減点を直せばその場で数字が戻る */
+function syncRep() { G.rep = repScore(); }
+
+/* 物語の出来事（要求を叶えた／勝負に負けた／支払いきれなかった）は、
+   10項目とは別の“加点・減点”として持っておく。ここを持たないと、
+   計算し直したときに出来事ぶんが毎回消えてしまう */
+function addRep(d) { G.repBonus = clamp((G.repBonus || 0) + d, -40, 25); syncRep(); }
 
 /* カタログの⭐の元になる、その設備1台ぶんの充実度（買い物の指針。数字そのものは出さない） */
 function gradePts(id) {
@@ -1982,6 +2025,12 @@ function startDay() {
 
 function updateBiz(dt) {
   G.minutes += dt;
+  /* 清潔度の採点用に「その日、床に平均いくつ汚れが転がっていたか」を測り続ける（新評判システム）。
+     不満の声（dirty）の数で測ると、汚れ1つの脇を客が何度も通るだけで数百件に膨れ、
+     満足度95の店が清潔度1点になってしまった（シム実測）。見るべきは、掃除できていたかどうか */
+  const dcNow = dirtCounts();
+  G.today.dirtSum += (dcNow.thin + dcNow.thick * 3) * dt;
+  G.today.dirtN += dt;
   while (G.spawnQueue.length && G.spawnQueue[0] <= G.minutes) {
     G.spawnQueue.shift();
     spawnCustomer();
@@ -3268,7 +3317,7 @@ function closeDay() {
   /* 資金ショート → 頼れるのは灰田だけ（銀行は貸してくれない）。10万刻みで足りるぶんだけ自動で借りる。
      限度は100万＝ここで借り切ってしまうと、次に足りなくなった日は本当に打つ手がない */
   while (G.cash < 0 && G.yami.debt < CONF.sarakinMax) { G.cash += CONF.sarakinUnit; G.yami.debt += CONF.sarakinUnit; t.autoYami += CONF.sarakinUnit; G.yami.met = true; }
-  if (G.cash < 0) { G.cash = 0; t.unpaid = true; G.rep = clamp(G.rep - 2, 0, 100); }   // どこも貸してくれない日は、店の信用が落ちる
+  if (G.cash < 0) { G.cash = 0; t.unpaid = true; addRep(-2); }   // どこも貸してくれない日は、店の信用が落ちる
   // 設備の傷み（1日ぶん）
   const brokeToday = applyDailyWear();
   const profit = bathRev + saunaRev + milkRev + t.amenRev + t.towelRev + t.akasuriRev + t.soapRev + t.teburaRev
@@ -3311,25 +3360,17 @@ function closeDay() {
   const najimiUp = Math.round((G.najimi - oldNajimi) * 10) / 10;
   // ととのった客の比率が高いほど評判が伸びる（口コミはここから生まれる）
   const totonoiRate = t.satN ? t.totonoi / t.satN : 0;
-  /* 評判＝「設備から」＋「おもてなしから」の行き先へ、噂が広まる速さで近づいていく。
-     満足度は行き先そのものに入っているので、ここで速さに掛け算はしない（二重取りになる）。
-     ・行き先までの差の18%ずつ近づく＋ととのいの口コミ
-     ・行き先より上にいる時は差の8%ずつ微減（中身が伴わない評判は続かない）
-     ・その日の不満（客の不満欄）が多いほど口コミが濁って引かれる
-     ・街の噂は一晩で±3まで */
-  if (!Array.isArray(G.satHist)) G.satHist = [];
-  if (t.satN) { G.satHist.push(avgSat); if (G.satHist.length > REP_SAT_DAYS) G.satHist.shift(); }
-  const ceiling = repCeiling();
-  const gripeN = t.gripes ? Object.values(t.gripes).reduce((a, b) => a + b, 0) : 0;
-  const gripePen = t.paid ? Math.min(gripeN / t.paid, 1) * 0.8 : 0;
-  let repD = ceiling >= G.rep
-    ? (ceiling - G.rep) * 0.18 + Math.min(totonoiRate * 2, 1)
-    : (ceiling - G.rep) * 0.08;
-  repD = clamp(repD - gripePen, -3, 3);
-  repD = Math.round(repD * 10) / 10;
+  /* 評判＝10項目の採点（新評判システム・作者指定）。
+     その日ぶんの10項目を採点して直近7日ぶんに積み、その平均から【その他】の減点を引いたものが評判。
+     ・良い日を1日だけ作っても動かない＝7日ならして初めて数字になる
+     ・逆に、荒れた日は7日ぶん尾を引く＝「今日だけ頑張る」が効かない
+     ・最初の7日は母数が足りないので「集計中」（評判は開店時の10のまま据え置き） */
+  if (!Array.isArray(G.repHist)) G.repHist = [];
+  G.repHist.push(repDayScores());
+  if (G.repHist.length > REP_DAYS) G.repHist.shift();
   const oldRep = G.rep;
-  // ミッションによる隠し上限は廃止（作者指定）。伸びを決めるのは設備とおもてなしの合計だけ
-  G.rep = clamp(Math.round((G.rep + repD) * 10) / 10, 0, 100);
+  syncRep();
+  const repD = Math.round((G.rep - oldRep) * 10) / 10;
 
   const row = (l, v, minus, cls) =>
     `<div class="rep-row ${minus ? 'minus' : ''} ${cls || ''}"><span>${l}</span><span class="v">${v}</span></div>`;
@@ -3390,7 +3431,9 @@ function closeDay() {
   html += `<div class="rep-grid">`;
   html += chip('平均満足度', `${Math.round(avgSat)}/100`);
   if (t.totonoiTry) html += chip('ととのい', `${t.totonoi}人`);
-  html += chip('評判', `${G.rep}（${repD >= 0 ? '+' : ''}${repD}）`, repD < 0 ? 'minus' : '');
+  html += repCounting()
+    ? chip('評判', `集計中（あと${REP_WARMUP - G.day + 1}日）`)
+    : chip('評判', `${G.rep}（${repD >= 0 ? '+' : ''}${repD}）`, repD < 0 ? 'minus' : '');
   html += `</div>`;
 
   // 警告・事件系（起きた日だけ出す）
@@ -3919,7 +3962,7 @@ function payYami(pay, principal) {
 function failYami() {
   G.yami.missed++;
   G.yami.debt += yamiDue();                                     // 払えなければ今週の金利が元本に乗る
-  G.rep = clamp(G.rep - 2, 0, 100);
+  addRep(-2);
   log('💳 今週ぶんを払えなかった。灰田は笑って若い衆を呼んだ');
   $('yamiModal').classList.add('hidden');
   const h = G.npcs.find(v => v.npc === 'haida');
@@ -4242,6 +4285,12 @@ function demandHint() {
     // 終盤は床が埋まりきっていて3×2マスが空かないことがある＝ここで詰まると物語が止まるので、逃げ道を出す
     + (canPlaceAnywhere('sauna2') ? '' : '<br><span class="opt-sub">置き場所がない。使っていない設備を売って3×2マスを空けよう</span>'));
   else if (rm === 3) rows.push(`❄ 再戦の目標：<b>評判${REINA_GOAL_REP}</b>（いま ${Math.round(G.rep)}）。届いた日が再戦の日だ`);
+  /* 【その他】の減点は直せばその場で消える＝いちばん割のいい一手なので、タスクの先頭に出す（作者指定）。
+     とくに「お断り看板」「マット置き場」「垢すり置き場」「ドライヤー無料」はタダで直せる */
+  const pen = repPenalties();
+  if (pen.length) rows.unshift(`😠 評判の減点 <b>−${pen.reduce((a, b) => a + b.v, 0)}点</b>：`
+    + pen.slice(0, 3).map(x => `${x.l}（−${x.v}）`).join('・') + (pen.length > 3 ? ` ほか${pen.length - 3}件` : '')
+    + '<br><span class="opt-sub">直せばその日のうちに数字が戻る（データ画面に直し方）</span>');
   return rows;
 }
 
@@ -5703,7 +5752,8 @@ function updateTopbar() {
   // 借金の表示はサラ金の残債（銀行融資は廃止）
   const sDebt = G.yami ? G.yami.debt : 0;
   $('uiCash').textContent = yen(G.cash) + (sDebt ? ` (借金${(sDebt / 10000) | 0}万)` : '');
-  $('uiRep').textContent = `評判 ${G.rep}`;
+  syncRep();   // 減点は即時反映＝運営メニューで直したその場で数字が戻る
+  $('uiRep').textContent = repCounting() ? '評判 集計中' : `評判 ${G.rep}`;
 }
 
 /* ============ ショップ・準備UI ============ */
@@ -6168,7 +6218,7 @@ function saveGame() {
   const data = {
     day: G.day, cash: G.cash, debt: G.debt, rep: G.rep, name: G.name,
     loanPending: G.loanPending, loanArrive: G.loanArrive, loanInToday: G.loanInToday || 0, profitStreak: G.profitStreak,
-    ceilHist: G.ceilHist || [], satHist: G.satHist || [],
+    ceilHist: G.ceilHist || [], satHist: G.satHist || [], repHist: G.repHist || [], repBonus: G.repBonus || 0,
     flags: G.flags, seenEq: G.seenEq, dirts: G.dirts, opts: G.opts, staffCount: G.staffCount, kito: G.kito,
     tadokoro: G.tadokoro, kuroda: G.kuroda, reina: G.reina, yami: G.yami, najimi: G.najimi, oyajiRel: G.oyajiRel,
     recentProfits: G.recentProfits, recentGripes: G.recentGripes, recentSegSat: G.recentSegSat, roughDays: G.roughDays,
@@ -6190,6 +6240,10 @@ function loadGame() {
     G.loanPending = d.loanPending || 0; G.loanArrive = d.loanArrive || 0; G.loanInToday = d.loanInToday || 0; G.profitStreak = d.profitStreak || 0;
     G.ceilHist = Array.isArray(d.ceilHist) ? d.ceilHist : [];   // 評判の行き先の直近履歴（旧セーブは空でOK＝初日から積み直す）
     G.satHist = Array.isArray(d.satHist) ? d.satHist : [];      // 直近5日の満足度（おもてなし点のもと）
+    // 新評判システム：直近7日ぶんの10項目の採点と、物語の出来事ぶんの加減点
+    // （旧セーブには無い＝空から積み直す。8日目以降なら、その日の営業が1日ぶん入った時点で数字が出そろう）
+    G.repHist = Array.isArray(d.repHist) ? d.repHist : [];
+    G.repBonus = d.repBonus || 0;
     G.opts = { ...DEFAULT_OPTS, ...(d.opts || {}) };
     G.staffCount = d.staffCount || 0;
     // フェーズ3：バイトは名簿制。旧セーブ（人数だけ）は、プール先頭から同じ人数を勤続扱いで移行する
@@ -6257,7 +6311,7 @@ function loadGame() {
 function resetState() {
   Object.assign(G, {
     day: 1, cash: CONF.startCash, debt: CONF.startDebt, rep: 10, name: '夕凪湯',
-    loanPending: 0, loanArrive: 0, profitStreak: 0, ceilHist: [], satHist: [],
+    loanPending: 0, loanArrive: 0, profitStreak: 0, ceilHist: [], satHist: [], repHist: [], repBonus: 0,
     equip: [], dirts: [], flags: {}, seenEq: {}, adBoost: 0, adBought: {},
     opts: { ...DEFAULT_OPTS }, staffCount: 0, staff: [], roster: [], jobAdDay: 0, nappa: null, paused: false,
     customers: [], payQueue: [], placing: null, selected: null,
@@ -6641,45 +6695,49 @@ function renderData() {
   // ── タスク（判断に迷ったらまずここ。作者指定でトップへ）
   const dm = demandHint();
   if (dm.length) h += sec('📌 タスク') + dm.map(s => `<div class="rep-voice">${s}</div>`).join('');
-  /* ── 評判の内訳（作者指定）。設備もシステム（アメニティ・マット・垢すり・お断り）もおもてなしも、
-     ぜんぶ同じ“評判の点”に直して、プラス評価とマイナス評価の一覧にする。
+  /* ── 評判の内訳（新評判システム・作者指定）。10項目×10点満点＝100点を、
+     プラス評価（項目ごとの取れ高）とマイナス評価（その他の減点）の一覧で見せる。
+     設備もシステム（アメニティ・マット・垢すり・お断り）もおもてなしも、ぜんぶここに入っている。
      ※「店の格」という言い方はここでは一切使わない＝内部の都合でしかない */
-  const bd = repBreakdown();
-  const tp = bd.tp;
+  syncRep();
+  const sp = repScoreParts();
   h += sec('🏮 評判');
-  h += row('いまの評判', `${Math.round(G.rep)} / 100`);
-  h += row('評判の行き先', `${bd.dest} / 100<br><span class="opt-sub">下の足し引きの合計。毎晩ここへ少しずつ近づく</span>`);
-  const item = (it, sign) => row(
-    `　${it.l}${it.sub ? `<br><span class="opt-sub">　${it.sub}</span>` : ''}`,
-    `${sign}${it.v}`, sign === '−' ? 'minus' : '');
-  h += `<div class="rep-row sub"><span>＋ プラス評価</span><span class="v">+${bd.plusSum}</span></div>`;
-  for (const it of bd.plus) h += item(it, '+');
-  h += `<div class="rep-row sub minus"><span>− マイナス評価</span><span class="v">−${bd.minusSum}</span></div>`;
-  if (bd.minus.length) for (const it of bd.minus) h += item(it, '−');
+  h += repCounting()
+    ? row('総合スコア', `集計中<br><span class="opt-sub">開店から7日ぶんの営業がそろう8日目に出る（あと${REP_WARMUP - G.day + 1}日）</span>`)
+    : row('総合スコア', `${G.rep} / 100<br><span class="opt-sub">下の足し引きの合計。直近${Math.min(sp.days, REP_DAYS)}日の営業をならした点</span>`);
+  const lo = sp.items.reduce((a, b) => (b.v < a.v ? b : a));
+  h += `<div class="rep-row sub"><span>＋ プラス評価</span><span class="v">+${sp.base.toFixed(1)}</span></div>`;
+  for (const it of sp.items) {
+    const mark = it.v >= 8 ? '◎' : it.v >= 6 ? '○' : it.v >= 4 ? '△' : '×';
+    h += row(`　${mark} ${it.name}${it.v < 6 ? `<br><span class="opt-sub">　${it.hint}</span>` : ''}`,
+      `${it.v.toFixed(1)} / 10`, it.v < 4 ? 'minus' : '');
+  }
+  h += `<div class="rep-row sub minus"><span>− マイナス評価</span><span class="v">${sp.penSum ? '−' + sp.penSum : '0'}</span></div>`;
+  if (sp.pens.length) for (const it of sp.pens)
+    h += row(`　${it.l}${it.sub ? `<br><span class="opt-sub">　${it.sub}</span>` : ''}`, `−${it.v}`, 'minus');
   else h += row('　<span class="opt-sub">引かれているものはない</span>', '<span class="opt-sub">0</span>');
+  if (sp.bonus) h += row(sp.bonus > 0 ? '　街での出来事（加点）' : '　街での出来事（減点）',
+    `${sp.bonus > 0 ? '+' : ''}${sp.bonus}`, sp.bonus < 0 ? 'minus' : '');
   // 見立ては1行の全幅で（2列だとラベルが縦に潰れる）
-  const satRoom = REP_W_SAT - tp.sat;
-  h += `<div class="rep-voice">${satRoom >= 8
-    ? `☝ おもてなしで あと${Math.round(satRoom)} 取り戻せる。汚れと待ち時間を直そう`
-    : tp.eq < REP_W_EQUIP * 0.7
-      ? '☝ 客はよろこんでいる。あとは設備だ。品揃えを増やそう'
-      : '✨ 設備もおもてなしも、ほぼ出し切っている'}<br>設備ぶんは満点${REP_W_EQUIP}・おもてなしぶんは満点${REP_W_SAT}。設備は積むほど1点の効きが薄くなる</div>`;
+  h += `<div class="rep-voice">${sp.penSum >= 10
+    ? `⚠ 減点が${sp.penSum}点ある。直せばその日のうちに数字が戻る`
+    : lo.v < 6 ? `☝ いちばん低いのは<b>${lo.name}</b>（${lo.v.toFixed(1)}点）。効くのは ${lo.hint}`
+      : '✨ どの項目もよく取れている'}<br>10項目×10点満点。7日ぶんの営業をならして採点するので、直した効きは数日かけて出る</div>`;
   // 品揃えの評価は「種類の数」で見る（作者指定）＝1種類△／2種類○／3種類以上◎
   h += row('品揃え', `風呂 ${kindMark('furo')}　サウナ ${kindMark('sauna')}　水風呂 ${kindMark('mizu')}`);
   const lacks = [];
   if (!hasWorking('cooler')) lacks.push('冷水機');
   if (!hasWorking('sink')) lacks.push('洗面所（ドライヤー・化粧水）');
   if (lacks.length) h += row('客が欲しがっているもの', lacks.join('・'), 'minus');
-  // ── 直近の営業＝評判が格へ登る「速さ」。満足度が低い日は、いい店でも噂が広がらない
+  // ── 今日の営業＝これがそのまま今夜、10項目の1日ぶんとして採点される
   const satN0 = (G.today && G.today.satN) || 0;
   const avgSat0 = satN0 ? Math.round(G.today.satSum / satN0) : null;
-  h += sec('🌡 直近の営業（おもてなし）');
+  h += sec('🌡 今日の営業');
   if (avgSat0 == null) h += row('客の満足度', 'まだ今日の営業データがない');
   else {
     // 「満足度」と「その結果（評判への取り分）」は別の行に分ける＝1行に詰め込むと意味が取れない（作者指摘）
-    h += row('客の満足度', `${avgSat0}点<br><span class="opt-sub">${REP_SAT_TOP}点まで上げれば、おもてなしぶんは満点の${REP_W_SAT}</span>`);
-    h += row('いま取れている おもてなし', `${Math.round(tp.sat)} / ${REP_W_SAT}<br><span class="opt-sub">直近${REP_SAT_DAYS}日の満足度でならした点数</span>`,
-      tp.sat < REP_W_SAT * 0.5 ? 'minus' : '');
+    h += row('客の満足度', `${avgSat0}点<br><span class="opt-sub">80点まで上げれば「おもてなし」は満点に近づく</span>`,
+      avgSat0 < 50 ? 'minus' : '');
   }
   h += row('ととのい率', `${Math.round(totonoiChance() * 100)}%<br><span class="opt-sub">ととのった客の口コミは評判を直接押し上げる</span>`);
   // 設備1台ごとの状態はマップの耐久度バーで見える＝ここでは重複するので出さない（作者指定）
