@@ -250,7 +250,7 @@ const EQ = {
   // ── 休憩（ととのい）
   bench1:     { cat:'rest',   name:'木のベンチ',          w:1,h:1, price:30000,   q:1, run:0,    cap:1, desc:'素朴な休憩所。' },
   chair1:     { cat:'rest',   name:'ととのいイス',        w:1,h:1, price:50000,   q:2, run:0,    cap:1, desc:'サウナ→水風呂→これ。ととのいの定番。' },
-  chair2:     { cat:'rest',   name:'リクライニングチェア',w:1,h:1, price:110000,  q:3, run:0,    cap:1, rep:41, desc:'倒して全身脱力。深いととのい。' },
+  chair2:     { cat:'rest',   name:'リラックスチェア',    w:1,h:1, price:110000,  q:3, run:0,    cap:1, rep:41, desc:'しっかりととのえる。' },
   chair_inf:  { cat:'rest',   name:'インフィニティチェア',w:1,h:1, price:190000,  q:4, run:0,    cap:1, rep:72, desc:'無重力の幸福。ここで「ぶっ飛ぶ」客が続出。' },
   // ごろ寝マット/熟睡まくら等のマット系ととのいスペースは第2章（新店）で解放予定。銭湯には置かない
   // ── 脱衣所（置くだけで効く。room:'datsui'＝脱衣所にしか置けない）
@@ -323,7 +323,7 @@ const EQ_NOTE = {
   // 休憩
   bench1:      '素朴。とりあえず座れる',
   chair1:      'ととのいの定番はこれ',
-  chair2:      '倒せば全身が溶けていく',
+  chair2:      'ぐっと倒してしっかり整う',
   chair_inf:   '無重力。ぶっ飛ぶ客続出',
   cooler:      'サウナ中の給水はここで',
   // 脱衣所
