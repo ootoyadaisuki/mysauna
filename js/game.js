@@ -2160,6 +2160,30 @@ function updatePlayer(p, dt) {
 /* 開店前に、主人公ひとりで拭いて回れる汚れの数（作者指定）。
    準備中は時間が無限に使えるので、ここに上限が無いと毎朝ぴかぴかになってしまう */
 const PREP_CLEAN_MAX = 5;
+/* 拭ける数を使い切って、番台まで戻ってきた夜＝そこで力尽きて寝ている（作者指定）。
+   汚れが残っていようが、今日はもう動けない。掃除はバイトの仕事だと、絵で伝える */
+function playerAsleep() {
+  const p = G.player;
+  if (G.phase !== 'prep' || !p || p.task) return false;
+  if ((G.prepCleaned || 0) < PREP_CLEAN_MAX) return false;
+  const t = tileOf(p), h = playerSpot();
+  return t.x === h.x && t.y === h.y;
+}
+// 番台でうとうとしている印。💤 がゆっくり浮かんで消える
+function drawSleep(p, rt) {
+  const x = p.px, y = p.py - 26;
+  for (let i = 0; i < 2; i++) {
+    const ph = ((rt * 0.45 + i * 0.5) % 1);
+    ctx.globalAlpha = (1 - ph) * 0.9;
+    ctx.font = `${8 + ph * 5}px "DotGothic16",sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 2.4; ctx.strokeStyle = 'rgba(255,255,255,.95)';
+    ctx.strokeText('💤', x + 6 + ph * 7, y - ph * 12);
+    ctx.fillStyle = '#6a8fb8';
+    ctx.fillText('💤', x + 6 + ph * 7, y - ph * 12);
+  }
+  ctx.globalAlpha = 1;
+}
 
 /* ---- スタッフ（アルバイト） ---- */
 function makeStaff(i) {
@@ -4869,6 +4893,7 @@ function render(rt) {
   const ents = [...G.customers, ...G.staff.filter(s => !(s.lateT > 0)), ...G.npcs, ...(G.player ? [G.player] : [])].sort((a, b) => a.py - b.py);
   for (const e of ents) drawChar(e, rt);
   if (G.phase === 'biz' && nappaOn()) drawNappa();   // 熱波師は営業中だけサウナ室の前に立つ（夜は帰る）
+  if (playerAsleep()) drawSleep(G.player, rt);      // 拭ける数を使い切った夜は、番台で寝てしまう
   for (const e of ents) if (e.bub) drawBubble(e);
   drawEffects();
   drawEntryLimit(rt);
