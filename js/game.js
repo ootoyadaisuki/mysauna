@@ -1013,10 +1013,12 @@ function goWaitFor(c, cat, dur) {
      イスは目の前にあるのに、たまにしか出ない＝並ぶ順番によって当たり外れがあったのが理由 */
   const t0 = tileOf(c);
   const spots = approachTiles(it).map(sp => ({ sp, path: findPath(t0.x, t0.y, sp.x, sp.y) })).filter(o => o.path);
-  if (!spots.length) { stuckAt(c, EQ[it.id].name); c.path = []; return; }
-  // 先に並んでいる人数ぶん位置をずらして、行列に見えるようにする
+  /* 行列に並ぶのは「そこまで歩けるマス」だけ。順番だけで手前のマスを割り当てていた頃は、
+     設備に囲まれて孤立した1マスが混ざっていると、2人目の客が「たどり着けない」と言い出していた。
+     どの手前マスにも道が無い時も、ここでは黙ってその場で待たせる＝待ち時間は【混雑】として数える（作者指定）。
+     配置がほんとうに悪い（誰も使えない）設備は、準備画面の「使えない設備」で別に知らせている */
   const ahead = G.customers.filter(o => o !== c && o.state === 'waitEquip' && o.waitItem === it).length;
-  c.path = spots[ahead % spots.length].path;
+  c.path = spots.length ? spots[ahead % spots.length].path : [];
 }
 
 /* 洗い場なら垢すりタオル、サウナならサウナマットを手に持って向かう。
