@@ -1204,7 +1204,9 @@ const AMEN_MAX = 11;
 function amenityParts() {
   const o = G.opts;
   const list = [];
-  const add = (name, v, note) => list.push({ name, v, note });
+  /* max＝その品で取れる満点。ドライヤーだけは満点が1点しかないので、
+     「無料にしてあるのに、まだ伸ばせます」と言われないよう品ごとに持たせる */
+  const add = (name, v, note, max) => list.push({ name, v, note, max: max ?? AMEN_CHEAP });
   // タオル：無料がいちばん安い／¥50 安い／¥100 適正／¥150以上は高い
   if (o.towel === 'free') add('タオル', AMEN_CHEAP, '無料');
   else if (o.towel === 'paid')
@@ -1223,10 +1225,10 @@ function amenityParts() {
   if (hasWorking('sink')) {
     add('化粧水・乳液', o.lotionFee === 0 ? AMEN_CHEAP : o.lotionFee <= 50 ? AMEN_FAIR : 0,
       o.lotionFee ? `¥${o.lotionFee}` : '無料');
-    add('ドライヤー', o.dryerFee ? 0.5 : 1, o.dryerFee ? `¥${o.dryerFee}` : '無料');
+    add('ドライヤー', o.dryerFee ? 0.5 : 1, o.dryerFee ? `¥${o.dryerFee}` : '無料', 1);
   } else {
     add('化粧水・乳液', 0, '洗面所がない');
-    add('ドライヤー', 0, '洗面所がない');
+    add('ドライヤー', 0, '洗面所がない', 1);
   }
   /* 手ぶらセット。タオルも石鹸も無料の店は、そもそも手ぶらで来られる＝満点扱い
      （無料にすると手ぶらセットが売れなくなる＝黙って2点損する、では筋が通らない） */
@@ -7016,7 +7018,7 @@ function renderData() {
   const badCospa = cospaParts().list.filter(x => x.v === 0);
   const badDosen = dosenParts().list.filter(x => x.v < 3);
   const am = amenityParts();
-  const badAmen = am.list.filter(x => x.v < AMEN_CHEAP).sort((a, b) => a.v - b.v);   // いちばん取れていない品を名指しする
+  const badAmen = am.list.filter(x => x.v < x.max).sort((a, b) => (a.v / a.max) - (b.v / b.max));   // いちばん取りこぼしている品を名指しする
   for (const it of sp.items) {
     const mark = it.v >= 8 ? '◎' : it.v >= 6 ? '○' : it.v >= 4 ? '△' : '×';
     /* △（6点未満）と×（4点未満）にだけ、黄色い文字で「次にやること」を出す（作者指定）。
