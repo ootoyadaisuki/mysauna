@@ -605,12 +605,11 @@ function stuckBubble(e, text) {
 function stuckAt(e, name) { stuckBubble(e, `${name}にたどり着けない`); }
 
 /* ---- 客 ---- */
-/* 子供料金の許容ライン＝大人料金と連動（作者指定で厳しく）。
-   大人¥600なら¥100・¥700なら¥200・¥800なら¥300まで。これを超えると家族連れが来なくなる */
-/* 子供料金の上限は「大人料金の目安（worthFee）」に連動させる（作者指定）。
-   自分で付けた大人料金に連動させると「大人を高くすれば子供も高くできる」という抜け道になる。
-   施設が充実して目安が上がったぶんだけ、子供料金も上げられる、が正しい */
-function kidFeeCap() { return clamp(worthFee() - 500, KID_FEES[0], KID_FEES[KID_FEES.length - 1]); }
+/* 子ども向けの備品（ガチャガチャ・絵本の棚）。置いた数で子供料金の上限が決まる（作者指定）。
+   大人料金との連動はやめた＝「大人を高くすれば子どもも高くできる」より、
+   「子どもから金を取るなら、子どもが喜ぶものを置け」のほうが素直で、置き場所の選択にもなる */
+function kidsGoods() { return G.equip.filter(e => EQ[e.id].kids && e.cond > 0 && usable(e)); }
+function kidFeeCap() { return KID_FEES[clamp(kidsGoods().length, 0, KID_FEES.length - 1)]; }
 function kidFeeOK() { return (G.opts.kidFee || KID_FEES[0]) <= kidFeeCap(); }
 let custId = 0;
 /* forceKey を渡すと、その客タイプで1人だけ湧かせる（親のあとに続く子ども用） */
@@ -1326,6 +1325,8 @@ function repAdvice(key) {
       if (d.thick) return G.roster.length ? `濃い汚れが${d.thick}つ。タップして拭く`
         : `濃い汚れが${d.thick}つ。バイトを雇うと拭く`;
       if (d.thin >= CONF.dirtThinN) return `薄い汚れが${d.thin}つ。濃くなる前に拭く`;
+      // 満点には観葉植物が要る（作者指定）＝床が綺麗なだけでは10点にならない
+      if (!G.equip.some(e => e.id === 'plant1' && e.cond > 0 && usable(e))) return '観葉植物を置くと満点に届く';
       return '汚れの無い日を7日続ければ満点';
     }
     case 'crowd': {
@@ -1396,6 +1397,9 @@ function repDayScores() {
      平均1つで7.6点・2つで4.4点・3つで0.4点 */
   const dirtAvg = t.dirtN ? t.dirtSum / t.dirtN : dirtCounts().thick;
   s.clean = clamp(10 - dirtAvg * 2 - dirtAvg * dirtAvg * 0.4, 0, 10);
+  /* 満点には観葉植物が要る（作者指定）。床が磨いてあるだけの脱衣所は「清潔」ではあっても
+     「気持ちのいい店」ではない＝最後の2点は、緑を置いて初めて埋まる */
+  if (!G.equip.some(e => e.id === 'plant1' && e.cond > 0 && usable(e))) s.clean = Math.min(s.clean, 8);
 
   // 混雑度：待たされた・入れなかった。帰らせてしまった客は2倍に重く見る
   const crowdN = (g.crowd || 0) + (g.locker || 0) + (g.bandai || 0)
@@ -7042,10 +7046,13 @@ function renderManage() {
     }</span></div>` : '');
   /* 子供料金（作者指定）。「刺青・ヤクザお断り」を掲げると子連れの家族が来るようになる＝
      そこで初めて効いてくる料金なので、掲げていない間はその旨を添えておく */
-  // 目安＝大人料金と連動（大人¥600→¥100、¥700→¥200…）。これを超えると家族連れが来ない（作者指定）
-  const kidGuide = kidFeeCap();
+  // 上限＝ガチャガチャ・絵本の棚を置いた数（0個なら¥100まで）。超えると家族連れが来ない（作者指定）
+  const kidGuide = kidFeeCap(), kidN = kidsGoods().length;
   const kidFeeRow =
-    `<div class="opt-row"><span>子供料金<br><span class="opt-sub">目安¥${kidGuide}　「怖い客」がいると来ない</span></span><span>${KID_FEES.map(pp =>
+    `<div class="opt-row"><span>子供料金<br><span class="opt-sub">${
+      kidN >= KID_FEES.length - 1 ? `上限¥${kidGuide}　子ども向けの備品${kidN}個`
+      : `上限¥${kidGuide}（子ども向けの備品${kidN}個）　あと1個で¥${KID_FEES[kidN + 1]}`
+    }</span></span><span>${KID_FEES.map(pp =>
       `<button class="opt-btn ${o.kidFee === pp ? 'on' : ''}" data-act="kidFee" data-v="${pp}">¥${pp}</button>`).join('')}</span></div>`;
   const priceRow = (act, label, cur) =>
     `<div class="opt-row"><span>${label}</span><span>${AMENITY_PRICES.map(pp =>
