@@ -2191,6 +2191,12 @@ function maintain(w, dt, home) {
   if (!w.task) {
     // 主人公が開店前に拭ける数には限りがある（それ以上は番台で待つ＝バイトの仕事）
     const tired = w.kind === 'player' && (G.prepCleaned || 0) >= PREP_CLEAN_MAX;
+    // 拭ける数を使い切ったのに、まだ汚れが残っている＝そこで音を上げる（1晩に1回だけ）
+    if (tired && G.dirts.length && !G.tiredSaid) {
+      G.tiredSaid = true;
+      bubble(w, pick(LINES.prepTired), 5.0);
+      log(`🧹 ${PREP_CLEAN_MAX}つ拭いたところで手が止まった。残り${G.dirts.length}つはバイトの仕事だ`);
+    }
     const avail = tired ? [] : G.dirts.filter(d => !claimedBy(d, w));
     if (avail.length) {
       const t0 = tileOf(w);
@@ -4040,6 +4046,7 @@ function enterPrep() {
   G.customers = []; G.payQueue = [];
   G.player = makePlayer();         // 準備中の主人公は掃除して回る（1日に拭ける数は PREP_CLEAN_MAX まで）
   G.prepCleaned = 0;               // 今夜これから拭いた数
+  G.tiredSaid = false;             // 「もう動けない」の独り言は1晩に1回
   // 銀行融資は廃止（作者指定）。サラ金はその場で現金が出るので、振込待ちという状態はもう無い
   G.staff = [];                    // バイトは準備中いなくなる。営業開始で戻る（作者指定）
   const careLine = careBubbleText();
