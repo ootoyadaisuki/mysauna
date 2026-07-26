@@ -65,7 +65,8 @@ const StoryArt = {
     p(150, 44, 60, 12, '#2a5aa8');                    // 屋上のサイン
     p(78, 118, 204, 20, 'rgba(20,30,60,.9)');         // 下部テロップ
     ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('駅前に「蒼天SPA」グランドオープン！', 180, 132);
+    // テロップは場面ごとに差し替える（開業のニュースか、投票対決の開始か）
+    ctx.fillText(this.tvTicker || '駅前に「蒼天SPA」グランドオープン！', 180, 132);
     p(140, 168, 80, 8, '#5a4632');                    // ちゃぶ台
     p(172, 161, 10, 7, '#cfd8d4');                    // 湯呑み
   },
