@@ -7162,14 +7162,14 @@ function renderData() {
   h += row('常連', `${G.regulars || 0}人<br><span class="opt-sub">満足して帰った客が、また来てくれる</span>`);
   /* 水道光熱費（作者指定）＝直近5日の平均額と、それが売上の何%を食っているか。
      光熱費は固定・水道代は客数ぶんの従量なので、「客が増えたのに比率が下がらない」＝湯を使いすぎ、と読める。
-     目安は20%。それを超えたら設備の持ちすぎか、客足に対して湯船が大きすぎる */
+     目安は30%（実在の銭湯もこのくらい）。それを超えたら設備の持ちすぎか、客足に対して湯船が大きすぎる */
   const uh = Array.isArray(G.recentUtil) ? G.recentUtil : [];
   if (uh.length) {
     const uAvg = Math.round(uh.reduce((a, b) => a + b.util + b.water, 0) / uh.length);
     const rSum = uh.reduce((a, b) => a + b.revenue, 0);
     const pct = rSum ? Math.round(uh.reduce((a, b) => a + b.util + b.water, 0) / rSum * 100) : 0;
-    h += row('水道光熱費', `${yen(uAvg)}/日<br><span class="opt-sub">直近${uh.length}日の平均・売上の${pct}%（目安は20%まで）</span>`,
-      pct > 30 ? 'minus' : '');
+    h += row('水道光熱費', `${yen(uAvg)}/日<br><span class="opt-sub">直近${uh.length}日の平均・売上の${pct}%（目安は30%まで）</span>`,
+      pct > 40 ? 'minus' : '');
   } else h += row('水道光熱費', 'まだ営業していない');
   h += row('入浴料', `¥${G.opts.fee}` + (hasCat('sauna') ? `（＋サウナ ¥${G.opts.saunaFee}）` : ''));
   h += row('客が受け入れる入浴料', `〜¥${worthFee()}`, G.opts.fee > worthFee() ? 'minus' : '');
