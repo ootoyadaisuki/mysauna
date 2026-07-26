@@ -884,13 +884,14 @@ function finishUse(c) {
     }
     // サウナに給水（冷水機）がないと、いいサウナでも満足しきれない
     if (!hasWorking('cooler')) c.sat -= 2;
+    /* 熱波師のアウフグース。決戦仕様の一台に限り満足度が上乗せ。
+       ※以前はマッサージチェアの分岐の中に書かれていて、一度も発動していなかった */
+    if (item.id === 'sauna_sp' && nappaOn()) { c.sat += 3; if (!c.bub && Math.random() < .3) bubble(c, pick(LINES.aufguss)); }
   } else if (item.id === 'massage') {
     // マッサージチェア＝¥100を入れて座る。売上はここで立つ（座った客からだけ取る）
     c.sat += 5;
     G.cash += 100; G.today.amenRev += 100; G.today.amenN++; G.today.revenue += 100;
     c.massaged = true;
-    // フェーズ3：熱波師のアウフグース。決戦仕様の一台に限り満足度が上乗せ ※数値は叩き台
-    if (item.id === 'sauna_sp' && nappaOn()) { c.sat += 3; if (!c.bub && Math.random() < .3) bubble(c, pick(LINES.aufguss)); }
   }
   /* 周辺の汚れ。薄い汚れは数えない（作者指定）＝薄いうちはプレイヤーに掃除する手がなく、
      見えた瞬間に怒られるのは理不尽だった。こびり付いた濃い汚れだけが客の目に入る */
@@ -926,7 +927,12 @@ function finishUse(c) {
       else if (c.tempReact === 'hot') { gripe('temp'); gripeBubble(c, pick(LINES.furoHot), 'temp'); }
       else if (c.tempReact === 'nuru') { gripe('temp'); gripeBubble(c, pick(LINES.furoNuru), 'temp'); }
       else if (item.id === 'bath2') bubble(c, pick(LINES.bathHinoki));
-      else bubble(c, pick(LINES.furoAtsu));
+      else if (item.id === 'bath_tansan') bubble(c, pick(LINES.furoTansan));
+      /* 湯温で言い分けする（作者指摘）。40℃以下の湯で「あ〜熱い！最高！」と言うと、
+         入っている湯船と噛み合わない。42℃前後はふつうの「いい湯だ」 */
+      else if ((def.temp ?? 42) <= 40) bubble(c, pick(LINES.furoNuruYoi));
+      else if ((def.temp ?? 42) >= 43) bubble(c, pick(LINES.furoAtsu));
+      else bubble(c, pick(LINES.bathGood));
     }
     else if (cat === 'sauna') {
       // ミスト・塩は低温多湿の“別ジャンル”＝「熱すぎ」「カリカリ」系は出さず、専用のセリフで（作者指定）
@@ -1626,6 +1632,14 @@ function pickHintKey() {
   if (!hasWorking('sink')) cands.push([Math.random() < 0.65 ? 'hintDryer' : 'hintLotion', 1.6]);
   if (hasCat('sauna') && !hasWorking('cooler')) cands.push(['hintCooler', 2.0]);
   if (!hasCat('rest')) cands.push(['hintRest', 1.6]);
+  /* 脱衣所の備品が無い（作者指定）。「牛乳ないの？」のように名指しで言わせる＝
+     何を置けばいいのかが、そのままカタログへの案内になる */
+  if (!hasWorking('vend1')) cands.push(['hintMilk', 1.5]);
+  if (!hasWorking('fan_bath')) cands.push(['hintFan', 1.1]);
+  if (!hasWorking('scale')) cands.push(['hintScale', 0.7]);
+  if (!hasWorking('tv')) cands.push(['hintTv', 0.7]);
+  if (hasWorking('vend1') && !hasWorking('vend2')) cands.push(['hintDrink', 0.8]);
+  if (!hasWorking('massage')) cands.push(['hintMassage', 0.6]);
   // 品揃え＝好みの違う客を取りこぼしている。風呂は「種類」、サウナ・水風呂は「温度の幅」で見る
   const ft = furoTemps();
   if (ft.length) {
@@ -6205,8 +6219,11 @@ function shopTabOf(id) { return EQ[id].tab || EQ[id].cat; }
 /* 決戦仕様の一台は、熱波師が提案するまで一覧に出さない（作者指定）。
    鍵付きで並べておくと、始めたばかりの店にも「◯◯スペシャル」が見えてしまい、物語の先が割れる */
 function shopIds(cat) {
+  /* 並び順は「解放される評判」→「値段」の昇順（作者指定）。
+     上から順に鍵が外れ、下へ行くほど高くなる＝いま買えるものが必ず上に集まる */
   return Object.keys(EQ).filter(id => shopTabOf(id) === cat && !EQ[id].old && id !== 'bandai'
-    && !(id === DUEL_ONLY_EQ && !duelEqReady()));
+    && !(id === DUEL_ONLY_EQ && !duelEqReady()))
+    .sort((a, b) => (EQ[a].rep || 0) - (EQ[b].rep || 0) || EQ[a].price - EQ[b].price);
 }
 // 「評判で解放されたのに、まだ見ていない」設備があるか
 function isNewItem(id) { const d = EQ[id]; return !!d.rep && G.rep >= d.rep && !G.seenEq[id]; }
@@ -6256,17 +6273,13 @@ function renderShop(markSeen) {
       : (def.rep && G.rep < def.rep && !isDemandedEquip(id));
     const isNew = isNewItem(id);
     const capTxt = CAP_CATS.includes(def.cat) && def.cap > 0 ? ` <span class="cap-chip">収容${def.cap}人</span>` : '';
-    // ⭐＝店の格への貢献（1〜5）。数字で「評判+○」と書くと即効性があると誤解されるので、星でそれとなく伝える
-    const stars = Math.min(5, Math.ceil(gradePts(id) / 2));
-    /* ⭐は行の幅を食うので、鍵の掛かった決戦仕様では出さない
-       （名前＋収容＋⭐＋🔒決戦仕様 の4つは1行に収まらず、鍵のほうが見切れてしまう） */
-    const starTxt = stars > 0 && !(locked && id === DUEL_ONLY_EQ) ? ` <span class="grade-chip">${'⭐'.repeat(stars)}</span>` : '';
+    // ⭐（店の格への貢献）は廃止した（作者指定）。名前・収容・値段・鍵だけを1行に置く
     const div = document.createElement('div');
     div.className = 'shop-item' + (locked ? ' locked' : '') + (isNew ? ' is-new' : '');
     // 名前の下に一行だけ短い説明（EQ_NOTE）。長い説明は設備をタップした時の詳細に置いてある
-    const note = EQ_NOTE[id] ? `<div class="shop-note">${EQ_NOTE[id]}</div>` : '';
+    const note = EQ_NOTE[id] ? `<div class="shop-note">${EQ_NOTE[id].replace('{店名}', G.name)}</div>` : '';
     div.innerHTML = `<img class="shop-icon" src="${iconFor(id)}">
-      <div class="shop-body"><div class="shop-name">${isNew ? '<b class="new-tag">NEW</b> ' : ''}${def.name}${capTxt}${starTxt}${locked ? (id === DUEL_ONLY_EQ ? ' <span class="lock-chip">🔒決戦仕様</span>' : ` <span class="lock-chip">🔒評判${def.rep}</span>`) : ''}</div>${note}</div>
+      <div class="shop-body"><div class="shop-name">${isNew ? '<b class="new-tag">NEW</b> ' : ''}${def.name}${capTxt}${locked ? (id === DUEL_ONLY_EQ ? ' <span class="lock-chip">🔒決戦仕様</span>' : ` <span class="lock-chip">🔒評判${def.rep}</span>`) : ''}</div>${note}</div>
       <div class="shop-price">${
         // 黒田割引中は「定価を消して、赤で割引後の額」。定価のほうを赤で出すと、どちらを払うのか分からなくなる
         kurodaDiscountId() === id
