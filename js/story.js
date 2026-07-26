@@ -930,11 +930,14 @@ const StoryArt = {
   },
 
   /* ── 熱波師、夕凪湯へ（特別映像③）：夜の脱衣所に黒田と熱波師 */
+  /* 熱波師との対面。田所も同席する（杉と砕石場の話をするのは田所）＝
+     しゃべる人間が絵の中にいないと、誰の声か分からなくなる */
   nappaCome(ctx) {
     this.datsuiNight(ctx);
-    this.figStand(ctx, 96, 168, 'hero', 1);
-    this.figStand(ctx, 200, 166, 'nappa', -1);
-    this.figStand(ctx, 286, 168, 'kuroda', -1);
+    this.figStand(ctx, 58, 170, 'tadokoro', 1);
+    this.figStand(ctx, 132, 168, 'hero', 1);
+    this.figStand(ctx, 224, 166, 'nappa', -1);
+    this.figStand(ctx, 302, 168, 'kuroda', -1);
   },
 
   // 投票対決：夕凪湯（あたたかい・小）vs 蒼天SPA（冷たいガラス・大）。報道バナー・群衆・綱引き票バー。
