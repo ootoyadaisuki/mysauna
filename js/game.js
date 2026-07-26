@@ -66,7 +66,7 @@ const G = {
 function newKito() { return { met: false, encounters: 0, paid: 0, paidTotal: 0, refused: 0, destroyed: 0, resolved: false, outcome: null, ally: false, nextShowdownDay: 0, lastAllyDay: 0, showdowns: 0 }; }
 function newTadokoro() { return { hello: false, met: false, stage: 0, resolved: false, ally: false, nextDay: 0, demand: null, done: 0, doneKeys: [], holdCount: 0 }; }
 function newKuroda() { return { met: false, stage: 0, resolved: false, ally: false, nextDay: 0, demand: null, done: 0, doneKeys: [], lastKey: null, discountKey: null, discountDay: 0 }; }
-function newReina() { return { met: false, stage: 0, resolved: false, ally: false, nextDay: 0, poachDone: false, duel: 'none', duelDay: 0, lost: 0 }; }
+function newReina() { return { met: false, metDay: 0, stage: 0, resolved: false, ally: false, nextDay: 0, poachDone: false, duel: 'none', duelDay: 0, lost: 0 }; }
 function newSolved() { return { tadokoro: false, yakuza: false, kuroda: false, reina: false, oyaji: false }; }
 // 親父の和解ゲージ（OYAJI_CLEAR_AT / OYAJI_CARE_GAIN）は廃止（作者指定）。態度は評判連動＝STORY_CARE_PAID
 const TADOKORO_HELLO_DAY = 4;                       // 田所の名乗り＝4日目の営業終了後（作者指定。2〜3日目の母の電話と重ねない）
@@ -89,16 +89,18 @@ const KURODA_KEIEI_GAIN_NAJIMI = 6;                 // 黒田イベントで「�
 const REINA_APPEAR_REP = 68;                        // 玲奈が現れる評判（黒田の決着が済むまで現れない）
 const REINA_STAGE = 2;                              // 買収を断り“孤高を貫いた回数”の上限目安（投票の共感票に加算）
 const REINA_BUYOUT = 20000000;                      // 買収額（2,000万）＝受けると売却エンド分岐
-const REINA_PRESSURE = 0.78;                        // 競合圧＝蒼天SPA開業中は集客がこの倍率に落ちる（勝つまで）
-const REINA_PRESSURE_DUEL = 0.68;                   // 準備期間中は競合圧が最高潮（さらに客足が落ちる）
+const REINA_PRESSURE = 0.70;                        // 買収提案を断ってから初戦までの競合圧（客数3割減・作者指定）
+const REINA_PRESSURE_SHOCK = 0.50;                  // 玲奈との出会いから3日間（客数半減・作者指定）
+const REINA_PRESSURE_LOST = 0.50;                   // 初戦に敗れてから、フィンランド式サウナを入れるまで（半減）
+const REINA_BUYOUT_DAY = 3;                         // 出会いから何日後に買収提案が来るか（＝4日目）
 const REINA_POACH_COST = 150000;                    // 引き抜きに対し「待遇を上げて引き留める」費用
 const REINA_STAY_NAJIMI = 40;                       // 「本人に任せる」でバイトが忠義で残ってくれる常連絆の下限
 const REINA_EQ_OFF = 0.85;                          // 玲奈が仲間＝設備15%引き（業界の伝手で安く仕入れられる）
 // ── サウナ天下分け目の投票対決（第1章クライマックス）。※数値は叩き台
 const REINA_DUEL_APPEAR_REP = 71;                   // この評判に達すると玲奈が“挑戦状”＝公開投票対決を仕掛けてくる
                                                     // 玲奈の初登場（69）とは少しだけ離す＝引き抜き・買収の揺さぶりを挟む余地を残す
-const REINA_DUEL_PREP_DAYS = 7;                     // 告知から投票日までの準備営業日
-const REINA_REMATCH_REP = 70;                       // フェーズ4：敗北（評判-20）から、この評判まで戻すと再挑戦できる
+const REINA_DUEL_PREP_DAYS = 5;                     // テレビ放送から投票日までの5日間（作者指定・再戦も同じ）
+const REINA_REMATCH_REP = 80;                       // フェーズ4：敗北（評判-20）から、この評判まで戻すと再挑戦できる
 const REINA_LOSE_REP = 20;
 /* フェーズ4：作戦会議で黒田たちと決めた目標＝この評判に届いた日が再戦の日（作者指定）。
    フィンランド式サウナ＋世界一の熱波師が揃えば、店の格はここを超える。
@@ -2177,7 +2179,7 @@ function startDay() {
   if (tadokoroAllyOn()) n += 4;   // 田所が仲間＝地元の常連を呼び込んでくれる
   if (reinaAllyOn()) n += 5;      // 玲奈が仲間＝業界の伝手で集客を回してくれる
   if (hasCat('sauna')) n += (worthSaunaFee() - G.opts.saunaFee) / 100 * 1.5;   // サウナ料が目安より高いとサウナ客が減る
-  if (soutenPressureOn()) n *= (G.reina.duel === 'announced' ? REINA_PRESSURE_DUEL : REINA_PRESSURE);   // 競合圧＝蒼天SPAに客を吸われる（投票準備期間は最高潮／勝つまで続く）
+  n *= soutenPressureMul();   // 競合圧＝蒼天SPAに客を吸われる（段階制・作者指定）
   // フェーズ2：入浴料が「この設備なら納得できる額」を超えた分だけ、客足が目に見えて細る（¥100超過ごとに-25%、最大-70%）
   const gripe = feeGripe();
   if (gripe > 0) n *= clamp(1 - gripe * 0.5, 0.3, 1);
@@ -3033,6 +3035,18 @@ function oyajiNag(kind, delaySec) {
 function reinaAllyOn() { return !!(G.reina && G.reina.ally); }
 // 蒼天SPAの競合圧＝玲奈と出会って以降、仲間にする（resolved）まで客足が落ちる
 function soutenPressureOn() { return !!(G.reina && G.reina.met && !G.reina.resolved); }
+/* 蒼天SPAに客を吸われる強さ（作者指定の段階制）。
+   出会いから3日間は半減＝「駅前に化け物ができた」衝撃をそのまま客足で見せる。
+   4日目の買収提案を断ってからは3割減に緩み、初戦に負けるとまた半減する。
+   フィンランド式サウナを入れた時点で客足は戻る＝勝てる土俵に立ったことが数字で分かる */
+function soutenPressureMul() {
+  const r = G.reina;
+  if (!r || !r.met || r.resolved) return 1;
+  if (hasWorking('sauna2')) return 1;                              // フィンランド式サウナで完全復帰
+  if ((r.lost || 0) >= 1) return REINA_PRESSURE_LOST;              // 初戦敗北後は再び半減
+  if (G.day - (r.metDay || 0) < 3) return REINA_PRESSURE_SHOCK;    // 出会いから3日間
+  return REINA_PRESSURE;                                            // 以降、初戦の敗北までは3割減
+}
 // 玲奈が認める“個性ある設備”＝本格サウナ＋水風呂に、資本店に負けない一級の設えが1つ以上
 function reinaHasCharacter() {
   const has = id => G.equip.some(e => e.id === id && e.cond > 0);
@@ -3070,10 +3084,52 @@ function maybeReinaCinematic() {
     }
     return false;
   }
+  /* ── 買収を断ってからの導線（作者指定）。2日後に挑戦状、その翌日にテレビ放送＝勝負開始 */
+  if (G.flags.reinaChallengeDay && r.duel !== 'announced' && r.duel !== 'done' && !(r.lost > 0)) {
+    if (!G.flags.reinaChallenged && G.day >= G.flags.reinaChallengeDay) {
+      G.flags.reinaChallenged = true;
+      Story.play(STORY_REINA_CHALLENGE, () => {
+        toast('❄ 玲奈から挑戦状が届いた……明日、テレビが動く');
+        log('❄ 蒼天SPAから「サウナ天下分け目 公開投票対決」の申し入れ書が届いた');
+        saveGame();
+      });
+      return true;
+    }
+    if (G.flags.reinaChallenged && !G.flags.reinaTVDuel && G.day > G.flags.reinaChallengeDay) {
+      G.flags.reinaTVDuel = true;
+      startReinaDuelPeriod();
+      // テレビのテロップを対決用に差し替える（開業ニュースの使い回しに見えないように）
+      StoryArt.tvTicker = `サウナ天下分け目 投票対決　勝負は${REINA_DUEL_PREP_DAYS}日間！`;
+      Story.play(STORY_DUEL_TV, () => {
+        StoryArt.tvTicker = null;
+        toast(`🗳 投票対決が始まった！ 勝負は5日間・投票日はあと${Math.max(0, r.duelDay - G.day)}日`);
+        log(`❄ テレビが投票対決の開始を伝えた。勝負は5日間。投票日は${r.duelDay}日目`);
+        saveGame();
+      });
+      return true;
+    }
+  }
+  /* ── 勝負の5日間。毎晩ひとつずつ場面が入る（作者指定＝空っぽの日を作らない）。
+     残り4日＝田所の激励／3日＝中間発表／2日＝田所の叱咤／1日＝結果発表の前夜／0日＝開票 */
   if (r.duel === 'announced') {
-    if (G.day >= r.duelDay) { openReinaDuel(); return true; }
-    // 中間発表：準備期間の折り返しで、票の競り合いをテレビが伝える
-    if (!r.midDone && (r.duelDay - G.day) <= Math.ceil(REINA_DUEL_PREP_DAYS / 2)) { openDuelMid(); return true; }
+    const left = r.duelDay - G.day;
+    if (left <= 0) { openReinaDuel(); return true; }
+    if (left === 4 && !G.flags.duelD4) {
+      G.flags.duelD4 = true;
+      Story.play(STORY_DUEL_D4, () => { log('🧓 田所「お前なら大丈夫だ。自分を信じろ」'); saveGame(); });
+      return true;
+    }
+    if (left === 3 && !r.midDone) { openDuelMid(); return true; }
+    if (left === 2 && !G.flags.duelD2) {
+      G.flags.duelD2 = true;
+      Story.play(STORY_DUEL_D2, () => { log('🧓 田所「お前が諦めてどうする！ 頭を振り絞れ！」'); saveGame(); });
+      return true;
+    }
+    if (left === 1 && !G.flags.duelEve) {
+      G.flags.duelEve = true;
+      Story.play(STORY_DUEL_EVE, () => { toast('🗳 明日、結果発表'); saveGame(); });
+      return true;
+    }
     return false;
   }
   // ── フェーズ4：敗北後の再挑戦チェーン（評判80→承諾①→作戦会議②→フィンランド式＋熱波師③→決戦告知）
@@ -3109,8 +3165,8 @@ function maybeReinaCinematic() {
       if (G.rep < REINA_GOAL_REP && !pushed) return false;
       if (pushed && G.rep < REINA_GOAL_REP) log('💼 黒田「90には少し足りん。だが、待っていても蒼天は消えない。行くぞ」');
       G.flags.reinaRematch = 4;
-      r.duel = 'announced'; r.duelDay = G.day + REINA_DUEL_PREP_DAYS; r.midDone = false;
-      toast(`🗳 玲奈との再戦が告知された！ 投票日はあと${REINA_DUEL_PREP_DAYS}日`);
+      startReinaDuelPeriod();   // 再戦も同じ5日間（作者指定）
+      toast(`🗳 玲奈との再戦が告知された！ 勝負は${REINA_DUEL_PREP_DAYS}日間`);
       log('❄ 蒼天SPAとの再戦が告知された。今度は、勝てる土俵がある');
       saveGame();
       return false;   // 告知はトーストのみ＝夜の進行は止めない
@@ -3147,9 +3203,9 @@ function openRematchPrompt() {
 }
 /* 玲奈が店まで来る揺さぶり（引き抜き→買収→挑戦状）。歩いて入ってくる */
 function openReinaVisit2() {
-  const r = G.reina;
-  if (G.rep >= REINA_DUEL_APPEAR_REP) { openReina('duel'); return; }
-  if (G.roster.length > 0 && !r.poachDone) { openReina('poach'); return; }
+  /* 作者指定の流れ：出会いの4日目に玲奈が店へ来て、買収を持ちかける。それ一度きり。
+     受ければゲーム終了（売却エンド）、断れば2日後に挑戦状が届いて勝負が始まる。
+     引き抜き（poach）・挑戦状モーダル（duel）は、この直列の流れからは外した */
   openReina('buyout');
 }
 /* 中間発表：いまの見込み票をもとに、僅差に見える“途中経過”を出す */
@@ -3170,7 +3226,8 @@ function openDuelMid() {
 function openReinaVisit() {
   const r = G.reina;
   Story.play(STORY_SOUTEN_VISIT, () => {
-    r.met = true; G.flags.reinaMet = true; r.nextDay = G.day + 5;
+    r.met = true; G.flags.reinaMet = true;
+    r.metDay = G.day; r.nextDay = G.day + REINA_BUYOUT_DAY;   // 出会いの4日目に買収提案（作者指定）
     toast('❄ 蒼天SPAの開業で、しばらく客足が鈍りそうだ…');
     updateTopbar(); saveGame();
   });
@@ -3199,21 +3256,26 @@ function openReina(kind) {
   }
   $('reinaModal').classList.remove('hidden');
 }
-// 投票対決を受けて立つ＝準備期間へ（告知から数営業日後が投票日。その間は競合圧が最高潮）
-function acceptReinaDuel() {
+/* 勝負の5日間を始める（テレビ放送の夜＝初戦／再戦の告知＝再戦、どちらもここを通る）。
+   毎晩の場面のフラグをここで一度クリアする＝再戦でも同じ5日間の流れがそのまま走る */
+function startReinaDuelPeriod() {
   const r = G.reina;
-  $('reinaModal').classList.add('hidden');
   r.duel = 'announced'; r.duelDay = G.day + REINA_DUEL_PREP_DAYS; r.midDone = false;
+  G.flags.duelD4 = false; G.flags.duelD2 = false; G.flags.duelEve = false;
   /* 【フィンランド式サウナは、この勝負まで取っておく（作者指定）】
-     受けて立った瞬間にカタログで解放され、黒田と商店街の口利きで大幅割引が入る。
-     「勝つための一手が、ここで初めて手が届く値段になる」＝決戦の準備期間そのものが山場になる */
+     勝負が始まった瞬間にカタログで解放され、黒田と商店街の口利きで大幅割引が入る。
+     「勝つための一手が、ここで初めて手が届く値段になる」＝5日間そのものが山場になる */
   G.flags.duelBoost = true;
-  toast(`🗳 投票対決を受けて立った！ 投票日はあと${r.duelDay - G.day}日`);
-  log('❄ サウナ天下分け目の投票対決を受けて立った。テレビ・新聞も注目。設備と常連の絆を磨いて投票日に備えろ');
+  log('❄ サウナ天下分け目の投票対決が始まった。設備と常連の絆を磨いて投票日に備えろ');
   toast(`💼 黒田と商店街が動いた——【${EQ.sauna2.name}】が${Math.round(DUEL_DISCOUNT * 100)}%オフ（${yen(eqPrice('sauna2'))}）！`);
   log(`💼 黒田「業者に話は通した。${EQ.sauna2.name}、${Math.round(DUEL_DISCOUNT * 100)}%引きだ。……勝ってこい」`);
-  dismissVisitor();
   updateTopbar(); saveGame();
+}
+// （旧）挑戦状のモーダルから受けて立つ導線。いまは挑戦状→テレビ放送で自動的に始まるので使われない
+function acceptReinaDuel() {
+  $('reinaModal').classList.add('hidden');
+  startReinaDuelPeriod();
+  dismissVisitor();
 }
 // 投票日：両施設に通った客が一人一票。夕凪票が蒼天票以上なら勝ち（同数は挑戦者＝夕凪湯の勝ち）
 // フェーズ4：初戦は必敗（資本の壁）。フィンランド式＋熱波師が揃わない限り、何度やっても勝てない（作者指定）
@@ -3276,8 +3338,10 @@ function resolveReina(kind, choice) {
   addRep(2);
   toast('「夕凪湯は売らない」と突っぱねた（孤高を貫いた）');
   log('❄ 玲奈の買収を断った。夕凪湯は、売らない');
-  r.nextDay = G.day + 4;
-  startMissionCooldown();   // 玲奈の揺さぶりもミッション扱い＝次まで10日空ける（作者指定）
+  /* 断った2日後に挑戦状が届く（作者指定）。以後、玲奈が店に揺さぶりに来ることはない＝
+     ここから先は「挑戦状 → テレビ放送 → 5日間の勝負」の一本道 */
+  G.flags.reinaChallengeDay = G.day + 2;
+  r.nextDay = 99999;
   dismissVisitor();
   updateTopbar(); saveGame();
 }
@@ -4265,8 +4329,10 @@ function dueKuroda() {
 }
 function dueReina() {
   const r = G.reina; if (!r || r.resolved || !r.met) return false;
-  if (r.duel === 'announced') return false;                    // 準備期間中は揺さぶらない
-  return G.day >= (r.nextDay || 0) && missionCoolOK();
+  if (r.duel === 'announced') return false;                    // 勝負の5日間は揺さぶらない
+  /* 買収提案は「出会いの4日目」ちょうどに来る（作者指定）＝ミッションのクールダウンでは遅らせない。
+     ここを空けてしまうと、客足が半減したまま何日も何も起きない時間ができる */
+  return G.day >= (r.nextDay || 0);
 }
 function pickTodaysVisitor() {
   if (dueTadokoroConsult()) return 'tadokoroConsult';   // みかじめ2回の翌日、田所が異変を察して来る（最優先）
@@ -4665,25 +4731,9 @@ function drawNappa() {
     ctx.beginPath(); ctx.moveTo(x + dx - 6, y + dy); ctx.quadraticCurveTo(x + dx, y + dy - 4, x + dx + 6, y + dy); ctx.stroke();
   }
   ctx.globalAlpha = 1;
-  /* 振り抜いた瞬間の「ブオン！」（作者指定）。
-     黒フチ付きの黄色＝サウナ室の茶色の上でも読める配色。振り始めに大きく出て、すっと小さくなる。
-     置き場所はサウナ室の中に収める＝隣のマスに文字がはみ出さないよう左右をクランプする */
-  if (snap) {
-    const pop = clamp((p - 0.7) / 0.06, 0, 1);         // 0→1（出た瞬間がいちばん大きい）
-    const size = 15 - pop * 3;
-    ctx.save();
-    ctx.font = `bold ${size}px "DotGothic16",sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    const txt = 'ブオン！';
-    const half = ctx.measureText(txt).width / 2;
-    const x0 = it.x * T, x1 = (it.x + ew(it)) * T;
-    const tx = clamp(x - 18, x0 + half + 3, x1 - half - 3);
-    const ty = Math.max(it.y * T + size + 2, y - 20 - pop * 4);
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#2a1a06'; ctx.lineWidth = 4; ctx.strokeText(txt, tx, ty);   // 黒フチで背景から浮かせる
-    ctx.fillStyle = '#ffe14a'; ctx.fillText(txt, tx, ty);
-    ctx.restore();
-  }
+  /* 「ブオン！」の文字は削除した（作者指定）。
+     風の弧（上のストローク）とタオルの動きだけで振り抜きを見せる＝
+     文字が入ると、狭いサウナ室の絵がそれに食われてしまう */
 }
 
 function drawFloorAndWalls(rt) {
