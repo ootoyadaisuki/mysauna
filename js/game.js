@@ -104,11 +104,8 @@ const REINA_DUEL_APPEAR_REP = 71;                   // この評判に達する�
 const REINA_DUEL_PREP_DAYS = 5;                     // 初戦：テレビ放送から投票日までの5日間（作者指定）
 const REINA_REMATCH_DUEL_DAYS = 3;                  // 再戦：テレビ放送から投票日までの3日間（作者指定）
 const REINA_LOSE_REP = 20;
-/* フェーズ4：作戦会議で黒田たちと決めた目標＝この評判に届いた日が再戦の日（作者指定）。
-   フィンランド式サウナ＋世界一の熱波師が揃えば、店の格はここを超える。
-   ただ営業が荒れていると評判が格まで登り切らないので、熱波師が来てからこの日数たったら黒田が背中を押す */
-const REINA_GOAL_REP = 90;
-const REINA_GOAL_GRACE = 30;                          // フェーズ4：初戦敗北で失う評判
+/* 再挑戦の条件は「決戦仕様の一台を組み上げること」だけ（作者指定で評判90の縛りは撤廃）。
+   評判で足止めすると、勝つ手が揃っているのに待たされる＝物語が止まって見えるため */
 const SOUTEN_DUEL_VOTES = 300;                      // 蒼天SPAの基礎票（規模・話題の壁）＝これを上回れば勝ち
 const DUEL_W_REP = 3.2;                             // 夕凪票：評判の重み
 const DUEL_W_NAJIMI = 2.4;                          // 夕凪票：常連の絆＝「また帰りたい」票の核
@@ -118,7 +115,7 @@ const DUEL_NAPPA_V = 70;                            // 夕凪票：世界一の�
 const DUEL_STAFF_V = 8;                             // 夕凪票：バイト1人あたり（本人と家族の票）
 const DUEL_TOWN_V = 20;                             // 夕凪票：店に関わってきた人たち（修理業者・牛乳屋…）
 const DUEL_TADOKORO_V = 20;                         // 夕凪票：田所が仲間＝地元票のあと押し
-const REINA_PREMIUM_EQ = ['bath2', 'sauna3', 'sauna2', 'mizu2', 'chair2']; // 一級品（個性ある設備）
+const REINA_PREMIUM_EQ = ['bath2', 'sauna3', 'sauna2', 'sauna_sp', 'mizu2', 'chair2']; // 一級品（個性ある設備）
 
 function newToday() {
   return { paid: 0, sauna: 0, milk: 0, revenue: 0, satSum: 0, satN: 0,
@@ -451,8 +448,9 @@ function hasCat(cat) { return G.equip.some(e => EQ[e.id].cat === cat && (EQ[e.id
 function hasEquip(id) { return G.equip.some(e => e.id === id); }
 /* 故障していない現物があるか（置くだけで効く設備＝pas はこれで判定する） */
 function hasWorking(id) { return G.equip.some(e => e.id === id && e.cond > 0); }
-/* 熱波師が店にいるか（フェーズ3：フィンランド式サウナ設置＋黒田クリアで黒田が紹介。獲得処理はバッチ4で実装） */
-function nappaOn() { return !!(G.nappa && G.nappa.hired); }
+/* 熱波師が店にいるか（フェーズ4：決戦仕様のサウナを組むと、黒田が連れてくる） */
+/* 熱波師が“いま振れる”か。台（決戦仕様の一台）が据わるまでは、来ていても振れない＝効果も出ない */
+function nappaOn() { return !!(G.nappa && G.nappa.hired) && hasWorking('sauna_sp'); }
 /* 置くだけで効く設備（洗面所・体重計・テレビ・冷水機…）を種類ごとに1つだけ数える */
 /* 小綺麗に見せる備品（観葉植物など）は、汚れの出かたを少し抑える。
    置いた台数ぶん効くが、効きすぎると掃除が要らなくなるので5割で打ち止め */
@@ -779,10 +777,15 @@ function findFreeEquip(cat, c) {
 /* ---- サウナの座席（作者指定：客は絵に描いてある座布団の上に座る） ----
    座布団の並びは drawEquipArt の case 'sauna' とまったく同じ式で出している。
    片方だけ直すと「誰も座っていない座布団があるのに満席」になるので、必ず両方そろえて直すこと。
-   遠赤・ミスト・塩（2×2）＝2段×4枚＝8人／大型・フィンランド式（3×2）＝3段×6枚＝18人 */
-function saunaTiers(id) { return (id === 'sauna2' || id === 'sauna3') ? 3 : 2; }
-function saunaCushions(def) { return Math.max(1, Math.round((def.w * T - 12) / 13)); }
+   遠赤・ミスト・塩・フィンランド式（2×2）＝2段×3枚＝6人／大型（3×2）＝3段×6枚＝18人。
+   スペシャル（3×2）だけは階段ベンチではなく、中央のサウナストーンを囲むコの字の6席（作者指定） */
+function saunaTiers(id) { return id === 'sauna3' ? 3 : 2; }
+function saunaCushions(def) { return def.w >= 3 ? 6 : 3; }
+/* スペシャルの座席（局所座標・足元）。左2・奥2・右2でストーンを囲む。
+   手前中央は開けておく＝そこがドアであり、熱波師の立ち位置 */
+const SP_SEATS = [{ lx: 30, ly: 24 }, { lx: 66, ly: 24 }, { lx: 15, ly: 36 }, { lx: 15, ly: 52 }, { lx: 81, ly: 36 }, { lx: 81, ly: 52 }];
 function saunaSeatLocal(id, idx) {
+  if (id === 'sauna_sp') return SP_SEATS[Math.min(idx, SP_SEATS.length - 1)];
   const def = EQ[id], w = def.w * T, h = def.h * T;
   const tiers = saunaTiers(id), n = saunaCushions(def);
   const i = Math.min(Math.floor(idx / n), tiers - 1), k = idx % n;
@@ -886,8 +889,8 @@ function finishUse(c) {
     c.sat += 5;
     G.cash += 100; G.today.amenRev += 100; G.today.amenN++; G.today.revenue += 100;
     c.massaged = true;
-    // フェーズ3：熱波師のアウフグース。フィンランド式に限り満足度が上乗せ ※数値は叩き台
-    if (item.id === 'sauna2' && nappaOn()) { c.sat += 3; if (!c.bub && Math.random() < .3) bubble(c, pick(LINES.aufguss)); }
+    // フェーズ3：熱波師のアウフグース。決戦仕様の一台に限り満足度が上乗せ ※数値は叩き台
+    if (item.id === 'sauna_sp' && nappaOn()) { c.sat += 3; if (!c.bub && Math.random() < .3) bubble(c, pick(LINES.aufguss)); }
   }
   /* 周辺の汚れ。薄い汚れは数えない（作者指定）＝薄いうちはプレイヤーに掃除する手がなく、
      見えた瞬間に怒られるのは理不尽だった。こびり付いた濃い汚れだけが客の目に入る */
@@ -928,7 +931,7 @@ function finishUse(c) {
     else if (cat === 'sauna') {
       // ミスト・塩は低温多湿の“別ジャンル”＝「熱すぎ」「カリカリ」系は出さず、専用のセリフで（作者指定）
       if (def.gentle) bubble(c, pick(item.id === 'sauna_shio' ? LINES.saunaShio : LINES.saunaMist));
-      else if (item.id === 'sauna2' && (item.temp ?? def.temp) >= 100 && c.tempReact !== 'atsusa') bubble(c, pick(LINES.saunaSuper));
+      else if ((item.id === 'sauna2' || item.id === 'sauna_sp') && (item.temp ?? def.temp) >= 100 && c.tempReact !== 'atsusa') bubble(c, pick(LINES.saunaSuper));
       else if (c.tempReact === 'gekinetsu') bubble(c, pick(LINES.saunaHot));
       else if (c.tempReact === 'atsusa') { gripe('temp'); gripeBubble(c, pick(LINES.saunaTooHot), 'temp'); }
       else if (c.tempReact === 'nurusa') { gripe('temp'); gripeBubble(c, pick(LINES.saunaNuru), 'temp'); }
@@ -2171,6 +2174,7 @@ function startDay() {
   if (G.equip.some(e => e.id === 'sauna1' && e.cond > 0)) n += 3;
   if (G.equip.some(e => e.id === 'sauna3' && e.cond > 0)) n += 5;
   if (G.equip.some(e => e.id === 'sauna2' && e.cond > 0)) n += 7;
+  if (G.equip.some(e => e.id === 'sauna_sp' && e.cond > 0)) n += 7;   // 決戦仕様＝この店にしかない一台
   // 運営メニューの集客補正
   n += (FEE_BASE - G.opts.fee) / 100 * 2;   // 安いほど客が増える（基準は定額ボタンの真ん中¥700）
   if (G.opts.towel === 'free') n += 3;
@@ -2488,7 +2492,7 @@ const KITO_PAYOFF = 5000000;   // 大金で手を切る一括額（500万円）
 /* 「札を下ろして受け入れる」結末を選んだ店に乗る、店の格への固定ペナルティ（作者指定）。
    -30 は「投票対決（評判65）には事実上届かない」重さ＝物語は進むが第1章はクリアできない道 */
 const KITO_ACCEPT_PEN = 30;
-/* 世界一の熱波師が常駐している店、という格（作者指定＝フィンランド式＋熱波師で評判90を超えさせる）。
+/* 世界一の熱波師が常駐している店、という格（作者指定＝決戦仕様の一台＋熱波師で評判90を超えさせる）。
    設備ではなく「人」なので充実度の内訳では独立した行にして、何がそこまで効いたのかを見えるようにする */
 const NAPPA_GRADE = 45;
 const KITO_OUT = {
@@ -2804,7 +2808,7 @@ function resolveTadokoro(kind, arg) {
     t.resolved = true; t.ally = true;
     if (G.solved) G.solved.tadokoro = true;
     startMissionCooldown();   // 田所編クリア→次のミッションまで10日空ける（作者指定）
-    log('🧓 田所が夕凪湯を認めた。常連の心が戻り、田所が店の力になってくれる');
+    log(`🧓 田所が${G.name}を認めた。常連の心が戻り、田所が店の力になってくれる`);
     toast('田所が仲間に！ 地元客↑・満足度↑・維持/修理費↓');
   } else if (kind === 'accept') {
     // フェーズ2：要求→翌日チェック→…のサイクルにする（頻度アップ、作者指定で1日ごとに）
@@ -2968,7 +2972,7 @@ function resolveKuroda(kind, arg) {
     k.resolved = true; k.ally = true;
     if (G.solved) G.solved.kuroda = true;
     startMissionCooldown();   // 黒田編クリア→次のミッションまで10日空ける（作者指定）
-    log('💼 黒田が夕凪湯の経営を認めた。数字の目線で店の力になってくれる');
+    log(`💼 黒田が${G.name}の経営を認めた。数字の目線で店の力になってくれる`);
     toast('黒田が仲間に！ 人件費・経費↓／会社員客↑');
   } else if (kind === 'accept') {
     k.demand = arg.key; k.lastKey = arg.key;
@@ -3057,11 +3061,11 @@ function soutenPressureOn() { return !!(G.reina && G.reina.met && !G.reina.resol
 /* 蒼天SPAに吸われて、その日この店に来られる客数の上限（作者指定の段階制）。
    出会いから3日間は30人＝「駅前に化け物ができた」衝撃を、いきなり客数で突きつける。
    4日目の買収提案を断ると50人まで戻り、初戦に負けるとまた30人まで落ちる。
-   フィンランド式サウナを据えた時点で上限は消える＝勝てる土俵に立ったことが客足で分かる */
+   決戦仕様の一台（◯◯スペシャル）を据えた時点で上限は消える＝勝てる土俵に立ったことが客足で分かる */
 function soutenGuestCap() {
   const r = G.reina;
   if (!r || !r.met || r.resolved) return Infinity;
-  if (hasWorking('sauna2')) return Infinity;                       // フィンランド式サウナで完全復帰
+  if (hasWorking('sauna_sp')) return Infinity;                     // 決戦仕様の一台が据わったら完全復帰
   if ((r.lost || 0) >= 1) return REINA_CAP_SHOCK;                  // 初戦敗北後は再び30人
   if (G.day - (r.metDay || 0) < 3) return REINA_CAP_SHOCK;         // 出会いから3日間
   return REINA_CAP_DUEL;                                            // 以降、初戦の敗北までは50人
@@ -3157,7 +3161,7 @@ function maybeReinaCinematic() {
       StoryArt.tvTicker = '夕凪湯に世界一の熱波師！　連日の大行列';
       Story.play(STORY_DUEL_TV2B, () => {
         StoryArt.tvTicker = null;
-        log('📺 テレビがフィンランド式サウナと世界一の熱波師を特集。夕凪湯の盛況が街に流れた');
+        log(`📺 テレビが【${EQ.sauna_sp.name}】と世界一の熱波師を特集。店の盛況が街に流れた`);
         saveGame();
       });
       return true;
@@ -3187,40 +3191,60 @@ function maybeReinaCinematic() {
     return false;
   }
   /* ── フェーズ4：敗北後の再挑戦チェーン（作者指定の順番）。
-     負ける → ①作戦会議でフィンランド式サウナを決める（ここで初めて割引が入る）
-     → ②据え付けた夜に熱波師が来る → ③評判が目標に届いたら再挑戦を挑む
-     → ④その翌日にテレビが再戦を告知（3日間の勝負が始まる） */
+     負ける → ①黒田と話し合う（「世界一の熱波師に会わせてやる」）
+     → ②翌日、黒田と熱波師に会う。熱波師が【屋号スペシャル】を提案＝ここでカタログに並ぶ
+     → ③（足りなければ常連のカンパ）→ 組み上げた夜に火入れ → そのまま再挑戦を挑める
+     → ④申し込みの翌日にテレビが再戦を告知（3日間の勝負） */
   if ((r.lost || 0) >= 1 && !r.resolved) {
     const step = G.flags.reinaRematch || 0;
     if (step === 0) {   // 敗戦の夜が明けたら、黒田と田所が集まる（特別映像②）
       G.flags.reinaRematch = 1;
       Story.play(STORY_REINA_STRATEGY, () => {
-        startDuelDiscount();   // 黒田の提案を受けて、ここで初めてフィンランド式が手に届く値段になる
-        toast('💼 切り札は世界一の熱波師。まず【フィンランド式サウナ】を用意しよう');
-        log('💼 作戦会議：フィンランド式サウナを用意すれば、黒田が世界一の熱波師を連れてくる');
+        toast('💼 黒田が世界一の熱波師を連れてくる。明日の夜だ');
+        log('💼 作戦会議：黒田が、蒼天のスカウトを断った世界一の熱波師に会わせてくれる');
         saveGame();
       });
       return true;
     }
-    if (step === 1) {   // フィンランド式が動いた夜 → 熱波師が来る（特別映像③）
-      if (!hasWorking('sauna2')) return false;
+    if (step === 1) {   // その翌日の夜、熱波師と会う。ここで専用サウナが提案される（特別映像③）
       G.flags.reinaRematch = 2;
-      G.nappa = { hired: true };
+      G.nappa = { hired: true };            // ※台が据わるまでは振れない（nappaOn は設備も見る）
       G.flags.nappaDay = G.day;
-      Story.play(STORY_NAPPA_COME, () => {
-        toast(`🔥 世界一の熱波師が夕凪湯に！ 評判${REINA_GOAL_REP}に届いた日が、再挑戦の日だ`);
-        log('🔥 熱波師が夕凪湯に加わった。蒼天と同じ土俵に、ようやく立てた');
+      Story.play(STORY_NAPPA_MEET, () => {
+        openSpecialCatalog();
         saveGame();
       });
       return true;
     }
-    if (step === 2) {   // 評判が目標90に届いた夜 → 再挑戦を挑む（届かないまま日が過ぎたら黒田が背中を押す）
-      const pushed = G.day >= (G.flags.nappaDay || 0) + REINA_GOAL_GRACE;
-      if (G.rep < REINA_GOAL_REP && !pushed) return false;
-      if (G.day < (G.flags.rematchAskDay || 0)) return false;
-      if (pushed && G.rep < REINA_GOAL_REP) log('💼 黒田「90には少し足りん。だが、待っていても蒼天は消えない。行くぞ」');
-      openRematchPrompt();
-      return true;
+    if (step === 2) {
+      if (!hasWorking('sauna_sp')) {
+        /* 常連たちのカンパ（作者指定）。自力で百万まで積んだ夜にだけ起きて、二百万に足りない分を街が埋める。
+           ＝「資本の力ではない、この店の戦い方」を、玲奈の2,000万と対にして見せる場面 */
+        if (!G.flags.kampaDone && G.cash >= KAMPA_TRIGGER && G.cash < EQ.sauna_sp.price) {
+          G.flags.kampaDone = true;
+          const gift = Math.min(EQ.sauna_sp.price - G.cash, KAMPA_MAX);
+          G.cash += gift;
+          Story.play(STORY_KAMPA, () => {
+            toast(`🤝 常連たちのカンパ ${yen(gift)}！ これで【${EQ.sauna_sp.name}】が組める`);
+            log(`🤝 常連たちが${yen(gift)}のカンパを持ってきた。田所「借りじゃねえ。湯銭の前払いだ」`);
+            G.najimi = clamp(G.najimi + 5, 0, 100);
+            updateTopbar(); saveGame();
+          });
+          return true;
+        }
+        return false;
+      }
+      if (!G.flags.spFired) {   // 組み上がった夜＝火入れ。そのまま「再挑戦するか」を聞く
+        G.flags.spFired = true;
+        Story.play(STORY_NAPPA_FIRE, () => {
+          log(`🔥 【${EQ.sauna_sp.name}】に火が入った。熱波師が中央に立ち、六つの席へ左右に風を送る`);
+          saveGame();
+          openRematchPrompt();
+        });
+        return true;
+      }
+      if (G.day >= (G.flags.rematchAskDay || 0)) { openRematchPrompt(); return true; }
+      return false;
     }
     if (step === 3) {   // 申し込みの翌日の夜 → テレビが再戦を告知（勝負は3日間）
       G.flags.reinaRematch = 4;
@@ -3237,12 +3261,12 @@ function maybeReinaCinematic() {
   }
   return false;
 }
-/* フィンランド式サウナと熱波師が揃い、評判が目標に届いた夜の「玲奈に再チャレンジしますか？」（作者指定）。
+/* 決戦仕様の一台に火が入った夜の「玲奈に再チャレンジしますか？」（作者指定）。
    承諾＝特別映像①（蒼天ビル前で申し込む）→翌日夜のテレビで再戦の告知 */
 function openRematchPrompt() {
   $('reinaTitle').textContent = '❄ 再挑戦';
   $('reinaInfo').innerHTML =
-    `フィンランド式サウナが湯気を上げ、世界一の熱波師がタオルを振っている。評判も、敗北の前より高い。<br><br>` +
+    `【${EQ.sauna_sp.name}】が湯気を上げ、世界一の熱波師が中央でタオルを振っている。<br><br>` +
     `……蒼天SPAに、<b>再チャレンジ</b>しますか？`;
   const box = $('reinaChoices'); box.innerHTML = '';
   const b1 = document.createElement('button');
@@ -3329,16 +3353,19 @@ function startReinaDuelPeriod(days) {
   log(`❄ サウナ天下分け目の投票対決が始まった。勝負は${span}日間。設備と常連の絆を磨いて投票日に備えろ`);
   updateTopbar(); saveGame();
 }
-/* 【フィンランド式サウナは、初戦に負けたあとまで取っておく（作者指定）】
-   作戦会議で黒田が「切り札は熱波師、そのためにフィンランド式が要る」と言った、その場で解放され、
-   商店街の口利きで大幅割引が入る。＝負けたあとに初めて、勝つための一手が手の届く値段になる */
-function startDuelDiscount() {
+/* 【決戦仕様の一台＝「◯◯スペシャル」は、初戦に負けたあとまで取っておく（作者指定）】
+   カタログで金を出せば買えるサウナでは、資本の店に勝つ理由にならない。
+   熱波師本人が「あんたの店専用に組ませてくれ」と言った、その夜からカタログに並ぶ。値引きはしない＝自分で稼ぐ */
+function openSpecialCatalog() {
   if (G.flags.duelBoost) return;
   G.flags.duelBoost = true;
-  toast(`💼 黒田と商店街が動いた——【${EQ.sauna2.name}】が${Math.round(DUEL_DISCOUNT * 100)}%オフ（${yen(eqPrice('sauna2'))}）！`);
-  log(`💼 黒田「業者に話は通した。${EQ.sauna2.name}、${Math.round(DUEL_DISCOUNT * 100)}%引きだ。……勝ってこい」`);
+  toast(`🔥 【${EQ.sauna_sp.name}】が組めるようになった（${yen(EQ.sauna_sp.price)}）`);
+  log(`🔥 熱波師「部屋の真ん中に石を据えて、六人で囲む。${EQ.sauna_sp.name}だ。……${yen(EQ.sauna_sp.price)}、稼いでみせろ」`);
   updateTopbar(); saveGame();
 }
+/* 常連たちのカンパ（作者指定）。自力でここまで積んだら、足りない分を街が出してくれる */
+const KAMPA_TRIGGER = 1000000;
+const KAMPA_MAX = 1000000;
 // （旧）挑戦状のモーダルから受けて立つ導線。いまは挑戦状→テレビ放送で自動的に始まるので使われない
 function acceptReinaDuel() {
   $('reinaModal').classList.add('hidden');
@@ -3346,8 +3373,8 @@ function acceptReinaDuel() {
   dismissVisitor();
 }
 // 投票日：両施設に通った客が一人一票。夕凪票が蒼天票以上なら勝ち（同数は挑戦者＝夕凪湯の勝ち）
-// フェーズ4：初戦は必敗（資本の壁）。フィンランド式＋熱波師が揃わない限り、何度やっても勝てない（作者指定）
-function stageReadyForReina() { return hasWorking('sauna2') && nappaOn(); }
+// フェーズ4：初戦は必敗（資本の壁）。決戦仕様の一台＋熱波師が揃わない限り、何度やっても勝てない（作者指定）
+function stageReadyForReina() { return hasWorking('sauna_sp') && nappaOn(); }
 function openReinaDuel() {
   const first = !(G.reina.lost > 0);
   const yu = computeYuVotes();
@@ -3389,7 +3416,7 @@ function resolveReina(kind, choice) {
     } else if (G.najimi >= REINA_STAY_NAJIMI) {
       addRep(2);
       toast('バイトは「この店で働きたい」と残ってくれた');
-      log('❄ バイトは高待遇を蹴って夕凪湯に残った。この店には、金より大事なものがある');
+      log(`❄ バイトは高待遇を蹴って${G.name}に残った。この店には、金より大事なものがある`);
     } else if (G.roster.length > 0) {
       const gone = G.roster.splice(irand(0, G.roster.length - 1), 1)[0];
       G.staff = G.staff.filter(s => s.emp !== gone);
@@ -3404,8 +3431,8 @@ function resolveReina(kind, choice) {
   // buyout: 断る＝孤高を貫く（確認ゲートで思い直した場合もここに来る）
   r.stage = (r.stage || 0) + 1;
   addRep(2);
-  toast('「夕凪湯は売らない」と突っぱねた（孤高を貫いた）');
-  log('❄ 玲奈の買収を断った。夕凪湯は、売らない');
+  toast(`「${G.name}は売らない」と突っぱねた（孤高を貫いた）`);
+  log(`❄ 玲奈の買収を断った。${G.name}は、売らない`);
   /* 断った2日後に挑戦状が届く（作者指定）。以後、玲奈が店に揺さぶりに来ることはない＝
      ここから先は「挑戦状 → テレビ放送 → 5日間の勝負」の一本道 */
   G.flags.reinaChallengeDay = G.day + 2;
@@ -3886,7 +3913,7 @@ function checkGrandEnding() {
   Story.play(STORY_ENDING, () => {
     // クリア後はタイトルに戻さず、そのまま自由に営業を続けられる（フェーズ4・作者指定）
     G.flags.freePlay = true;
-    toast('🎉 第1章クリア！ このまま夕凪湯を自由に営業できる');
+    toast(`🎉 第1章クリア！ このまま${G.name}を自由に営業できる`);
     enterPrep(); saveGame();       // enterPrep が夜の曲に戻す
   });
   Sfx.bgm('ending');               // ストーリー用の曲より、こちらを優先してかける
@@ -3949,7 +3976,7 @@ function enterPrep() {
   updateTopbar();
   // 閉店後の人事イベント＝賃上げ相談。
   // ※旧「熱波師の紹介」（黒田クリア＋サウナ設置で自動加入）はフェーズ4で廃止。
-  //   熱波師は玲奈への再挑戦チェーン（作戦会議→フィンランド式→特別映像③）でだけ加入する（作者指定）
+  //   熱波師は玲奈への再挑戦チェーン（作戦会議→決戦仕様のサウナ→特別映像③）でだけ加入する（作者指定）
   maybeStaffRaise();
 }
 
@@ -4631,10 +4658,11 @@ function demandHint() {
   }
   // 作戦会議で決めた目標＝再戦の条件。ここに出しておかないと「次に何をすればいいか」が消える
   const rm = G.flags && G.flags.reinaRematch;
-  if (rm === 1) rows.push('❄ 再戦の支度：<b>フィンランド式サウナ</b>を用意する（黒田が熱波師を連れてくる）'
-    // 終盤は床が埋まりきっていて3×2マスが空かないことがある＝ここで詰まると物語が止まるので、逃げ道を出す
-    + (canPlaceAnywhere('sauna2') ? '' : '<br><span class="opt-sub">置き場所がない。使っていない設備を売って3×2マスを空けよう</span>'));
-  else if (rm === 2) rows.push(`❄ 再戦の目標：<b>評判${REINA_GOAL_REP}</b>（いま ${Math.round(G.rep)}）。届いた日が、再挑戦の日だ`);
+  if (rm === 1) rows.push('❄ 今夜、黒田が世界一の熱波師を連れてくる');
+  else if (rm === 2 && !hasWorking('sauna_sp'))
+    rows.push(`❄ 再戦の支度：<b>${EQ.sauna_sp.name}</b>を組む（${yen(EQ.sauna_sp.price)}・据わった日に再挑戦できる）`
+      // 終盤は床が埋まりきっていることがある＝ここで詰まると物語が止まるので、逃げ道を出す
+      + (canPlaceAnywhere('sauna_sp') ? '' : '<br><span class="opt-sub">置き場所がない。古いサウナを売れば、その跡地に置ける</span>'));
   /* 【その他】の減点は直せばその場で消える＝いちばん割のいい一手なので、タスクの先頭に出す（作者指定）。
      とくに「お断り看板」「マット置き場」「垢すり置き場」「ドライヤー無料」はタダで直せる */
   const pen = repPenalties();
@@ -4749,58 +4777,64 @@ function drawEntryLimit(rt) {
   ctx.fillText('入場制限中', cx, y + h - 5);
 }
 
-/* フェーズ3：熱波師。フィンランド式サウナの中＝サウナストーンの横に立ち、
+/* フェーズ4：熱波師。決戦仕様のサウナの中＝サウナストーンの横に立ち、
    左斜め上（座席の方）を向いて、1枚のタオルを両手で頭上からブオン！と振り下ろす（作者指定）。
    営業中だけ描く（夜は帰る） */
 function drawNappa() {
-  const it = G.equip.find(e => e.id === 'sauna2' && e.cond > 0);
+  const it = G.equip.find(e => e.id === 'sauna_sp' && e.cond > 0);
   if (!it) return;
-  // サウナストーンは部屋の右下隅（drawEquipArt）。その左隣に立たせる
-  const x = (it.x + ew(it)) * T - 24;
-  const y = (it.y + eh(it)) * T - 12;
+  /* 立ち位置は、部屋の真ん中のサウナストーンの手前（作者指定）。
+     客は左・奥・右の三方から囲んでいるので、ここに立って右へ左へ振ると、全員に風が当たる */
+  const x = (it.x + ew(it) / 2) * T;
+  const y = (it.y + eh(it)) * T - 14;
   const t = Date.now() / 1000;
-  /* 振りのリズム：ゆっくり頭上に構えて（0〜0.7）、一気に振り下ろす（0.7〜0.85）、余韻（〜1）。
-     ang はタオルの角度＝上（構え）〜左下（振り抜き）。左斜め上を向いているので左へ振る */
-  const p = (t * 0.9) % 1;
-  const UP = -1.9, DOWN = -3.4;   // ラジアン（-1.9=頭上やや右、-3.4=左下へ振り抜き）
+  /* 振りのリズム：構えて（0〜0.7）→一気に振り抜く（0.7〜0.85）→余韻。
+     1周ごとに右・左と向きを変える＝右へ左へ、順番に風を送る */
+  const cyc = t * 0.9, p = cyc % 1;
+  const dir = Math.floor(cyc) % 2 ? -1 : 1;          // +1=右へ振る／-1=左へ振る
+  const UP = -Math.PI / 2 - 0.35 * dir;              // 頭上やや後ろ
+  const DOWN = dir > 0 ? -0.25 : Math.PI + 0.25;     // 振り抜き（右下／左下）
   const ease = p < 0.7 ? p / 0.7 : p < 0.85 ? 1 - (p - 0.7) / 0.15 * 1.9 : -0.9 + (p - 0.85) / 0.15 * 0.9;
-  const ang = UP + (DOWN - UP) * clamp(1 - ease, 0, 1);
-  const snap = p >= 0.7 && p < 0.9;                  // 振り下ろした瞬間
+  let d = DOWN - UP;                                  // 角度は近い方向に回す（一周してしまうのを防ぐ）
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  const ang = UP + d * clamp(1 - ease, 0, 1);
+  const snap = p >= 0.7 && p < 0.9;                  // 振り抜いた瞬間
   // 影
   ctx.fillStyle = 'rgba(0,0,0,.18)';
   ctx.beginPath(); ctx.ellipse(x, y + 10, 8, 3, 0, 0, Math.PI * 2); ctx.fill();
   // 体（熱波師の法被＝橙）
   ctx.fillStyle = '#c9502a'; ctx.fillRect(x - 5, y - 4, 10, 13);
   ctx.fillStyle = '#7a2a12'; ctx.fillRect(x - 5, y - 4, 2, 13); ctx.fillRect(x + 3, y - 4, 2, 13);
-  // 頭＋白い鉢巻。左斜め上を向いている＝顔（目）を左上寄りに描く
+  // 頭＋白い鉢巻。振っている方を向く
   ctx.fillStyle = '#e8b890'; ctx.fillRect(x - 4, y - 13, 8, 9);
   ctx.fillStyle = '#f4f0e6'; ctx.fillRect(x - 4, y - 13, 8, 3);            // 鉢巻
   ctx.fillStyle = '#2a2a2a';
-  ctx.fillRect(x - 3, y - 9, 2, 2); ctx.fillRect(x + 1, y - 9, 2, 2);      // 目（やや上目づかい）
-  // 両腕＋タオル：両手で1枚のタオルの端を握り、頭上→左下へ振り下ろす
-  const grip = 10;                                    // 肩からグリップまで
+  ctx.fillRect(x - 3 + dir, y - 9, 2, 2); ctx.fillRect(x + 1 + dir, y - 9, 2, 2);
+  // 両腕＋タオル：両手で1枚のタオルの端を握り、頭上から左右へ振り抜く
+  const grip = 10;
   const gx = x + Math.cos(ang) * grip, gy = (y - 8) + Math.sin(ang) * grip;
   ctx.strokeStyle = '#e8b890'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(x - 3, y - 5); ctx.lineTo(gx, gy); ctx.stroke();   // 左腕
-  ctx.beginPath(); ctx.moveTo(x + 3, y - 5); ctx.lineTo(gx, gy); ctx.stroke();   // 右腕
-  // タオル本体＝グリップの先にひらめく（振りの速い瞬間はしなって長く見せる）
+  ctx.beginPath(); ctx.moveTo(x - 3, y - 5); ctx.lineTo(gx, gy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 3, y - 5); ctx.lineTo(gx, gy); ctx.stroke();
+  // タオル本体（振りの速い瞬間はしなって長く見せる）
   ctx.save(); ctx.translate(gx, gy); ctx.rotate(ang);
-  const tl = snap ? 15 : 12;                          // タオルの長さ
+  const tl = snap ? 15 : 12;
   ctx.fillStyle = '#fff'; ctx.fillRect(0, -2.5, tl, 5);
-  ctx.fillStyle = '#cfe0e8'; ctx.fillRect(tl - 3, -2.5, 3, 5);              // 先端の縁
+  ctx.fillStyle = '#cfe0e8'; ctx.fillRect(tl - 3, -2.5, 3, 5);
   ctx.restore();
-  // 左上（座席の方）へ飛んでいく熱波。振り抜いた瞬間だけ濃くする
+  // 振った側へ飛んでいく熱波の弧。振り抜いた瞬間だけ濃く、遠くまで届く
   ctx.strokeStyle = snap ? 'rgba(255,200,130,.75)' : 'rgba(255,190,110,.45)';
   ctx.lineWidth = snap ? 1.5 : 1;
   for (let i = 0; i < 3; i++) {
     const ph = (t * 1.6 + i / 3) % 1;
-    const dx = -6 - ph * 18, dy = -14 - ph * 12;      // 左斜め上へ流す
+    const dx = dir * (10 + ph * 26), dy = -6 - ph * 10;
     ctx.globalAlpha = 1 - ph;
     ctx.beginPath(); ctx.moveTo(x + dx - 6, y + dy); ctx.quadraticCurveTo(x + dx, y + dy - 4, x + dx + 6, y + dy); ctx.stroke();
   }
   ctx.globalAlpha = 1;
   /* 「ブオン！」の文字は削除した（作者指定）。
-     風の弧（上のストローク）とタオルの動きだけで振り抜きを見せる＝
+     風の弧（左右のストローク）とタオルの動きだけで振り抜きを見せる＝
      文字が入ると、狭いサウナ室の絵がそれに食われてしまう */
 }
 
@@ -5143,9 +5177,62 @@ function drawEquipArt(c2, it, def, x, y, w, h, rt, broken) {
       break;
     }
     case 'sauna': {                                    // 中が見える断面図（階段状ベンチ）
+      const sp = it.id === 'sauna_sp';                 // 決戦仕様＝熱波師のために組んだ特注の一台
+      /* ── スペシャルだけは造りがまったく違う（作者指定）。
+         部屋の真ん中にサウナストーンを据え、六つの席がそれを囲む（左2・奥2・右2）。
+         手前の中央は空けてある＝そこがドアであり、熱波師が立って左右へ風を送る場所 */
+      if (sp) {
+        const sb2 = saunaBand(it.temp ?? def.temp ?? 100);
+        c2.fillStyle = '#4a2c18'; c2.fillRect(x, y, w, h);                        // 外枠（濃い木）
+        c2.fillStyle = broken ? '#8a8078' : '#b5824a'; c2.fillRect(x + 3, y + 3, w - 6, h - 6);
+        c2.strokeStyle = 'rgba(80,48,20,.28)'; c2.lineWidth = 1;                  // 縦板の目地
+        for (let vx = x + 9; vx < x + w - 4; vx += 8) { c2.beginPath(); c2.moveTo(vx, y + 3); c2.lineTo(vx, y + h - 4); c2.stroke(); }
+        const bench = broken ? '#9a9088' : '#c69457';
+        c2.fillStyle = bench;
+        c2.fillRect(x + 6, y + 6, w - 12, 14);                                    // 奥ベンチ
+        c2.fillRect(x + 6, y + 20, 16, h - 34);                                   // 左ベンチ
+        c2.fillRect(x + w - 22, y + 20, 16, h - 34);                              // 右ベンチ
+        c2.fillStyle = 'rgba(55,32,14,.4)';                                       // 座面の影
+        c2.fillRect(x + 6, y + 18, w - 12, 2); c2.fillRect(x + 20, y + 20, 2, h - 34); c2.fillRect(x + w - 22, y + 20, 2, h - 34);
+        if (!broken) {                                                            // 座布団6枚（座席と同じ位置）
+          c2.fillStyle = '#e8d29a';
+          c2.fillRect(x + 20, y + 7, 20, 11); c2.fillRect(x + 56, y + 7, 20, 11);  // 奥2
+          c2.fillRect(x + 7, y + 24, 14, 11); c2.fillRect(x + 7, y + 40, 14, 11);  // 左2
+          c2.fillRect(x + w - 21, y + 24, 14, 11); c2.fillRect(x + w - 21, y + 40, 14, 11); // 右2
+        }
+        // 中央のサウナストーン（この台の主役）。石を山盛りにした炉
+        c2.fillStyle = '#26221e'; c2.fillRect(x + 37, y + 28, 22, 15);
+        c2.fillStyle = '#15120f'; c2.fillRect(x + 37, y + 28, 22, 3);
+        for (let i = 0; i < 7; i++) {
+          const sx2 = x + 40 + (i % 4) * 5, sy2 = y + 30 + (i > 3 ? 4 : 0);
+          c2.fillStyle = broken ? '#666' : (i % 2 ? '#8d8d90' : '#77777c');
+          c2.beginPath(); c2.arc(sx2, sy2 + 2, 2.6, 0, Math.PI * 2); c2.fill();
+        }
+        if (!broken) {                                                            // 石の間の熾き火
+          const gl = 0.45 + 0.35 * (0.5 + 0.5 * Math.sin(rt * 3 + it.x));
+          c2.fillStyle = `rgba(255,90,26,${gl.toFixed(2)})`;
+          c2.fillRect(x + 42, y + 35, 3, 2); c2.fillRect(x + 50, y + 34, 3, 2);
+          c2.fillStyle = 'rgba(255,150,60,.18)';
+          c2.beginPath(); c2.arc(x + 48, y + 35, 13, 0, Math.PI * 2); c2.fill();
+        }
+        c2.fillStyle = '#7a4a26'; c2.fillRect(x + 62, y + 36, 7, 6);              // ロウリュの木桶
+        c2.fillStyle = '#3a6a7a'; c2.fillRect(x + 63, y + 37, 5, 1);
+        if (!broken) {                                                            // 積んだ薪（左手前）
+          c2.fillStyle = '#8a5f33';
+          for (let i = 0; i < 3; i++) c2.fillRect(x + 7, y + h - 13 + i * 3, 12, 2);
+          c2.fillStyle = 'rgba(255,235,190,.55)';
+          for (let i = 0; i < 3; i++) c2.fillRect(x + 7, y + h - 13 + i * 3, 2, 2);
+        }
+        c2.fillStyle = '#2f1f12'; c2.fillRect(x + w / 2 - 9, y + h - 6, 18, 6);   // ガラスドア
+        c2.fillStyle = 'rgba(185,222,235,.4)'; c2.fillRect(x + w / 2 - 7, y + h - 5, 14, 4);
+        c2.fillStyle = '#1f4e78'; c2.fillRect(x + w / 2 - 10, y + h - 7, 20, 4);  // 屋号の小暖簾
+        c2.fillStyle = '#e8eef4'; c2.fillRect(x + w / 2 - 1, y + h - 6, 2, 2);
+        if (!broken) drawSteam(c2, x + 48, y + 24, rt + it.y, `rgba(255,200,120,${(0.3 + sb2.heat * 0.3).toFixed(2)})`);
+        break;
+      }
       const fin = it.id === 'sauna2';
       const mist = it.id === 'sauna_mist', shio = it.id === 'sauna_shio';
-      const tiers = fin ? 3 : (it.id === 'sauna3' ? 3 : 2);
+      const tiers = saunaTiers(it.id);
       const sb = saunaBand(it.temp ?? def.temp ?? 90);   // 室温で光・湯気の強さが変わる
       // 外枠（ミストはタイル張りの水色系＝木の小屋ではなく浴室の一角に見せる）
       c2.fillStyle = mist ? '#4a6a72' : fin ? '#4a2c18' : '#5f3a20'; c2.fillRect(x, y, w, h);
@@ -5168,7 +5255,7 @@ function drawEquipArt(c2, it, def, x, y, w, h, rt, broken) {
         c2.fillRect(x + 4, by, w - 8, step - 2);
         c2.fillStyle = 'rgba(55,32,14,.4)'; c2.fillRect(x + 4, by + step - 3, w - 8, 2); // 段差の影
         if (!broken) {                                                          // 座布団マット
-          const n = Math.max(1, Math.round((w - 12) / 13)), cw = (w - 12) / n - 3;
+          const n = saunaCushions(def), cw = (w - 12) / n - 3;
           c2.fillStyle = '#e8d29a';
           for (let k = 0; k < n; k++) c2.fillRect(x + 7 + k * ((w - 12) / n), by + 1, cw, Math.max(step - 5, 3));
         }
@@ -6076,6 +6163,7 @@ function frame(ts) {
 }
 
 function updateTopbar() {
+  syncSpecialName();   // 決戦仕様の名前は屋号から作る（ログやトーストにも屋号で出す）
   // クリア後はゲームクリアの証（⭐）を日数の隣に出す（フェーズ4・自由営業中）
   $('uiDay').textContent = `${G.day}日目（${dayLabel()}）` + (G.flags && G.flags.freePlay ? ' ⭐' : '');
   if (G.phase === 'biz') {
@@ -6123,10 +6211,7 @@ function newInCat(cat) { return shopIds(cat).some(isNewItem); }
    （田所側や、今後この形の課題を足す時のため）。
    ※以前は「引き受けた翌朝まで」で、240万の設備が貯まる頃には定価に戻っていた＝死んだ選択肢だった */
 const KURODA_DISCOUNT = 0.30;
-/* 投票対決を受けて立つと、フィンランド式サウナだけ大幅割引になる（作者指定）。
-   黒田の口利き＋商店街の後押し＝「街ぐるみで勝ちにいく」という場面を、値段で見せる */
-const DUEL_DISCOUNT = 0.50;
-const DUEL_ONLY_EQ = 'sauna2';
+const DUEL_ONLY_EQ = 'sauna_sp';
 // 決戦仕様の設備は、投票対決を受けて立つまでカタログに並ばない（評判では解放されない）
 function duelEqReady() { return !!(G.flags && G.flags.duelBoost); }
 function kurodaDiscountId() {
@@ -6136,11 +6221,14 @@ function kurodaDiscountId() {
 }
 function eqPrice(id) {
   let p = EQ[id].price * (reinaAllyOn() ? REINA_EQ_OFF : 1);
-  if (id === DUEL_ONLY_EQ && duelEqReady()) p *= (1 - DUEL_DISCOUNT);
   if (kurodaDiscountId() === id) p *= (1 - KURODA_DISCOUNT);
   return Math.round(p);
 }
+/* 決戦仕様の名前は屋号から作る（作者指定）＝「夕凪湯スペシャル」。
+   店の名前はプレイヤーが決めるので、カタログに並べる直前にここで名乗らせる */
+function syncSpecialName() { EQ.sauna_sp.name = `${G.name || '夕凪湯'}スペシャル`; }
 function renderShop(markSeen) {
+  syncSpecialName();
   const tabs = $('shopTabs');
   tabs.innerHTML = '';
   for (const [key, label] of CATS) {
@@ -6174,8 +6262,6 @@ function renderShop(markSeen) {
         // 黒田割引中は「定価を消して、赤で割引後の額」。定価のほうを赤で出すと、どちらを払うのか分からなくなる
         kurodaDiscountId() === id
           ? `<span class="price-was">通常${yenShort(def.price)}</span>/<span class="kuroda-off">今だけ${yenShort(price)}（黒田割引）</span>`
-          : (id === DUEL_ONLY_EQ && duelEqReady())
-          ? `<span class="price-was">通常${yenShort(def.price)}</span>/<span class="kuroda-off">今だけ${yenShort(price)}（決戦割引）</span>`
           : yenShort(price) + (discounted ? '<br><span style="font-size:10px;color:#37a">玲奈割15%引き</span>' : '')}</div>`;
     div.onclick = () => {
       if (locked) {
