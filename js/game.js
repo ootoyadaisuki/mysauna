@@ -2347,7 +2347,9 @@ function startMikajime() {
      割って入るのは【田所が主人公を「認めた」あと】＝それまでは、みかじめを何回払っても助けは来ない。
      認められていないうちは若い衆が7日ごとに集金に来続ける（作者指定）。
      500万の手切れ金はいつ選んでもいい（選択画面に常に並ぶ） */
-  if (k && !k.resolved && (k.encounters || 0) >= 2 && tadokoroAllyOn()) {
+  /* 数えるのは「みかじめ料を払った回数」（作者指定）。集金に来た回数（encounters）で数えると、
+     突っぱねて設備を壊された回まで頭数に入り、1回しか払っていないのに田所が助けに来てしまう */
+  if (k && !k.resolved && (k.paid || 0) >= 2 && tadokoroAllyOn()) {
     G.flags.lastMikaDay = G.day;
     log('🚗 黒塗りのベンツが乗りつけてきた…3度目の集金だ');
     startBenz({ hold: true, thugs: true, onPark: () => startKitoRescue() });
@@ -2450,7 +2452,7 @@ function payMikajime() {
   if (G.kito) {
     G.kito.paid++; G.kito.encounters++; G.kito.paidTotal += amount;
     // 新フロー：2回目の要求が済んだら、翌日に田所が異変を察して声をかけてくる（打ち明け→3回目で田所が動く）
-    if (G.kito.encounters >= 2 && !G.kito.resolved && !G.flags.tadokoroConsulted) G.flags.tadokoroConsultDay = G.day + 1;
+    if (G.kito.paid >= 2 && !G.kito.resolved && !G.flags.tadokoroConsulted) G.flags.tadokoroConsultDay = G.day + 1;
   }
   log(`💸 みかじめ料 ${yen(amount)}を払った。連中は満足げに帰っていった`);
   toast(`みかじめ料 ${yen(amount)}を払った…`);
@@ -2473,7 +2475,7 @@ function refuseMikajime() {
   if (G.kito) {
     G.kito.refused++; G.kito.encounters++; G.kito.destroyed += targets.length;
     // 断っても回数は進む＝2回目のあと田所が声をかけ、3回目は田所が割って入る（新フロー）
-    if (G.kito.encounters >= 2 && !G.kito.resolved && !G.flags.tadokoroConsulted) G.flags.tadokoroConsultDay = G.day + 1;
+    if (G.kito.paid >= 2 && !G.kito.resolved && !G.flags.tadokoroConsulted) G.flags.tadokoroConsultDay = G.day + 1;
   }
   if (targets.length) {
     log('💢 みかじめを断った。若い衆がバットを持って降りてきた…');
@@ -4439,7 +4441,7 @@ function pickTodaysVisitor() {
      例外は「鬼頭の3回目＝田所が割って入る決着」で、主人公・鬼頭・田所が集合する場面なので必ず優先する */
   const mikaDue = dueMikajime(), tadoDue = dueTadokoro();
   if (mikaDue && tadoDue) {
-    const finale = !!(G.kito && !G.kito.resolved && (G.kito.encounters || 0) >= 2);
+    const finale = !!(G.kito && !G.kito.resolved && (G.kito.paid || 0) >= 2 && tadokoroAllyOn());
     const who = finale ? 'mikajime' : (G.flags.lastDuo === 'mikajime' ? 'tadokoro' : 'mikajime');
     G.flags.lastDuo = who;
     return who;
@@ -6200,7 +6202,12 @@ function iconFor(id) {
 const CAP_CATS = ['furo', 'sauna', 'mizu', 'wash'];
 /* カタログのタブ。tab を持つ設備はそちらに並べる（ロッカー＝【脱衣所】タブ） */
 function shopTabOf(id) { return EQ[id].tab || EQ[id].cat; }
-function shopIds(cat) { return Object.keys(EQ).filter(id => shopTabOf(id) === cat && !EQ[id].old && id !== 'bandai'); }
+/* 決戦仕様の一台は、熱波師が提案するまで一覧に出さない（作者指定）。
+   鍵付きで並べておくと、始めたばかりの店にも「◯◯スペシャル」が見えてしまい、物語の先が割れる */
+function shopIds(cat) {
+  return Object.keys(EQ).filter(id => shopTabOf(id) === cat && !EQ[id].old && id !== 'bandai'
+    && !(id === DUEL_ONLY_EQ && !duelEqReady()));
+}
 // 「評判で解放されたのに、まだ見ていない」設備があるか
 function isNewItem(id) { const d = EQ[id]; return !!d.rep && G.rep >= d.rep && !G.seenEq[id]; }
 function newInCat(cat) { return shopIds(cat).some(isNewItem); }
