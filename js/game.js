@@ -1194,14 +1194,14 @@ const REP_WARMUP = 7;                               // この日数までは「�
 const REP_START = 10;                               // 集計中のあいだの評判＝開店時の値
 
 const REP_ITEMS = [
-  { key: 'clean',  name: '清潔度',           hint: 'こまめに掃除する・バイトを増やす' },
-  { key: 'crowd',  name: '混雑度',           hint: '設備の台数と収容力を増やす' },
-  { key: 'cospa',  name: 'コスパ',           hint: '入浴料・子供料金・サウナ料を下げる' },
-  { key: 'sauna',  name: 'サウナ',           hint: 'いいサウナ・温度の違う2台目' },
-  { key: 'furo',   name: 'お風呂',           hint: '浴槽の種類を増やす' },
-  { key: 'mizu',   name: '水風呂',           hint: '水風呂の質と水温の選択肢' },
-  { key: 'datsui', name: '脱衣所サービス',   hint: '脱衣所に備品を置く（6つで満点）' },
-  { key: 'rest',   name: 'ととのいスペース', hint: 'イスを増やす・違う種類も置く' },
+  { key: 'clean',  name: '清潔度',           hint: '汚れを残さない・バイトを増やす' },
+  { key: 'crowd',  name: '混雑度',           hint: '待たせない・ロッカーを増やす' },
+  { key: 'cospa',  name: 'コスパ',           hint: '料金を目安より安く・それでも黒字に' },
+  { key: 'sauna',  name: 'サウナ',           hint: 'いい台・席数・温度の違う2台目' },
+  { key: 'furo',   name: 'お風呂',           hint: 'いい湯船・種類・湯船の大きさ' },
+  { key: 'mizu',   name: '水風呂',           hint: 'いい水風呂・水温の選択肢・槽の数' },
+  { key: 'datsui', name: '脱衣所サービス',   hint: '備品・洗面所・ロッカーの余裕' },
+  { key: 'rest',   name: 'ととのいスペース', hint: 'いいイス・脚数・種類' },
   { key: 'dosen',  name: '動線',             hint: '客が使う順に設備を近く並べる' },
   { key: 'omote',  name: 'おもてなし',       hint: '愛想のいいバイト・アメニティを安く' },
 ];
@@ -1210,7 +1210,7 @@ const REP_ITEMS = [
    適正値 +2.5 ／ 適正値より安い +3.5 ／ 適正値より高い 0。
    「適正値」＝客が受け入れる上限（worthFee など）と同じ¥100の段。
    その1段でも下げれば「安い」＝満点、超えたら一発で0。入浴料・子供料金・サウナ料の3本立て。 */
-const FEE_FAIR = 2.5, FEE_CHEAP = 3.5;
+const FEE_FAIR = 2.0, FEE_CHEAP = 3.0;   // 3本とも「適正より安い」で9点。残り1点は黒字経営（作者指定）
 function feeScore(price, fair) { return price > fair ? 0 : price > fair - 100 ? FEE_FAIR : FEE_CHEAP; }
 
 /* ---- アメニティ1品ごとの評価（作者指定）＝「おもてなし」の1要素 ----
@@ -1307,7 +1307,8 @@ function dosenParts() {
     { name: '水風呂 → イス', d: catDist('mizu', 'rest') },
   ];
   for (const l of legs) {
-    l.v = l.d == null ? 0 : l.d <= 3 ? 3 : l.d <= 4 ? 1 : 0;
+    // 4本すべて3マス以内で10点ちょうど。1本でも遠いと満点は取れない（作者指定でシビアに）
+    l.v = l.d == null ? 0 : l.d <= 3 ? 2.5 : l.d <= 4 ? 1.2 : 0;
     l.note = l.d == null ? 'どちらかが無い' : `${l.d}マス`;
   }
   return { list: legs, total: legs.reduce((a, b) => a + b.v, 0) };
@@ -1335,6 +1336,8 @@ function repAdvice(key) {
       if (d.thin >= CONF.dirtThinN) return `薄い汚れが${d.thin}つ。濃くなる前に拭く`;
       // 満点には観葉植物が要る（作者指定）＝床が綺麗なだけでは10点にならない
       if (!G.equip.some(e => e.id === 'plant1' && e.cond > 0 && usable(e))) return '観葉植物を置くと満点に届く';
+      // 掃除の手（バイト）が客数に足りていないと、3点ぶんが埋まらない
+      if (G.roster.length < Math.ceil((t.paid || 0) / 25)) return `客${t.paid || 0}人なら、バイトはあと1人ほしい`;
       return '汚れの無い日を7日続ければ満点';
     }
     case 'crowd': {
@@ -1344,24 +1347,48 @@ function repAdvice(key) {
       if (g.crowd) return `「待たされた」が${g.crowd}件。台数を増やす`;
       const w = Math.round((t.waitSum || 0) / Math.max(t.paid || 0, 1));
       if (w >= 3) return `平均${w}分待たせている。もう1台置く`;
+      const lc = lockerCapacity(), need = Math.round((t.paid || 0) * 0.35);
+      if (lc < need) return `ロッカー${lc}人ぶん。あと${need - lc}人ぶん増やす`;
       return '設備の台数と収容力を増やす';
     }
-    case 'sauna': return !hasCat('sauna') ? 'サウナがまだ1台もない。まず1台'
-      : kinds('sauna') < 2 ? '温度のちがうサウナ2台目で伸びる' : upgrade('sauna');
-    case 'furo': return !hasCat('furo') ? '浴槽がまだ1台もない'
-      : furoKindCount() < 3 ? 'あつ湯とぬる湯を揃えると伸びる' : upgrade('furo');
-    case 'mizu': return !hasCat('mizu') ? '水風呂がまだ1台もない'
-      : kinds('mizu') < 2 ? '水温のちがう水風呂2台目で伸びる' : upgrade('mizu');
+    /* 設備の項目は「質・規模・幅」の3軸（作者指定）。足りていない軸を1つだけ名指しする＝
+       いちばん点が伸びる一手を出す。※1行に収める（折り返すと読めない） */
+    case 'sauna': {
+      if (!hasCat('sauna')) return 'サウナがまだ1台もない。まず1台';
+      const sc = scaleNote('sauna', Math.max(t.sauna || 0, Math.round((t.paid || 0) * 0.5)), 4);
+      if (sc.r > sc.per) return `席${sc.cap}に対し${sc.want}人。もう1台で伸びる`;
+      if (bestQ('sauna') < 4) return upgrade('sauna');
+      return kinds('sauna') < 2 ? '温度のちがうサウナ2台目で伸びる' : 'ミストか塩サウナで幅が出る';
+    }
+    case 'furo': {
+      if (!hasCat('furo')) return '浴槽がまだ1台もない';
+      if (furoKindCount() < 3) return 'あつ湯とぬる湯を揃えると伸びる';
+      const sc = scaleNote('furo', t.paid || 0, 5);
+      if (sc.r > sc.per) return `湯船が${sc.cap}人ぶん。客${sc.want}人には狭い`;
+      return bestQ('furo') < 4 ? upgrade('furo') : '種類をもう1つ増やすと満点';
+    }
+    case 'mizu': {
+      if (!hasCat('mizu')) return '水風呂がまだ1台もない';
+      const sc = scaleNote('mizu', Math.max(t.sauna || 0, Math.round((t.paid || 0) * 0.5)), 12);
+      if (sc.r > sc.per) return `水風呂が${sc.cap}人ぶん。もう1槽で伸びる`;
+      if (kinds('mizu') < 2) return '水温のちがう水風呂2台目で伸びる';
+      return bestQ('mizu') < 4 ? upgrade('mizu') : '水温の選択肢をもう1つ';
+    }
     case 'datsui': {
       const n = datsuiGoods().length;
-      return n >= 6 ? '備品はもう十分' : `脱衣所の備品あと${6 - n}個で満点`;
+      const lc = lockerCapacity(), need = Math.round((t.paid || 0) * 0.35);
+      if (lc < need) return `ロッカー${lc}人ぶん。客${t.paid || 0}人には足りない`;
+      if (!hasWorking('sink')) return '洗面所を置くと大きく伸びる';
+      if (n < 6) return `脱衣所の備品あと${6 - n}個で満点`;
+      return hasWorking('massage') ? '脱衣所はもう十分' : 'マッサージチェアで満点に届く';
     }
     case 'rest': {
       const ch = liveOf('rest'), k = new Set(ch.map(e => e.id)).size;
-      const need = [];
-      if (ch.length < 5) need.push(`イスあと${5 - ch.length}脚`);
-      if (k < 3) need.push(`種類あと${3 - k}つ`);
-      return need.length ? need.join('・') + 'で満点' : 'ととのいスペースは十分';
+      if (!ch.length) return 'ととのいイスがまだ1脚もない';
+      if (bestQ('rest') < 3) return upgrade('rest');
+      const sc = scaleNote('rest', Math.max(t.sauna || 0, Math.round((t.paid || 0) * 0.5)), 6);
+      if (sc.r > sc.per) return `イス${ch.length}脚では足りない。増やす`;
+      return k < 3 ? `種類あと${3 - k}つで満点` : 'ととのいスペースは十分';
     }
     case 'omote': {
       const aiso = G.roster.length ? G.roster.reduce((x, r) => x + (r.aiso || 3), 0) / G.roster.length : 0;
@@ -1392,63 +1419,94 @@ function capOf(cat) {
    不満の声は「客1人あたり何回出たか」で見る＝客が増えたぶんだけ点が下がる、を防ぐ。
    設備そのものの点（サウナ・お風呂・水風呂・脱衣所）は日によって動かないが、
    買った翌日からしか平均に入らないので、7日かけてじわじわ効いてくる。 */
+/* 規模＝その日の客数に対して、その設備が足りているか（作者指定）。
+   「1台置けば◯点」の下駄を外し、席数が客数に追いついているかで測る＝
+   評判が上がって客が増えるほど足りなくなり、次の投資が要る、という循環をつくる。
+   per＝1席で1日に何人まで無理なく捌けるか（滞在時間の長い設備ほど小さい） */
+function scaleScore(cat, want, per, max) {
+  const cap = liveOf(cat).reduce((a, e) => a + (EQ[e.id].cap || 0), 0);
+  if (!cap) return 0;
+  const r = want / cap;                                   // 1席あたりの人数
+  return clamp((per * 2 - r) / per, 0, 1) * max;          // r<=per で満点、r>=per*2 で0点
+}
+// 収容の内訳（データ画面の▶に出す）
+function scaleNote(cat, want, per) {
+  const cap = liveOf(cat).reduce((a, e) => a + (EQ[e.id].cap || 0), 0);
+  return { cap, want, r: cap ? want / cap : Infinity, per };
+}
 function repDayScores() {
   const t = G.today || {};
   const g = t.gripes || {};
   const paid = Math.max(t.paid || 0, 1);
   const rate = k => (g[k] || 0) / paid;
   const s = {};
+  const wantSauna = Math.max(t.sauna || 0, Math.round(paid * 0.5));   // サウナに入りたかった人数
 
-  /* 清潔度：その日、床に平均いくつ汚れが転がっていたか（こびり付いた濃い汚れは3倍に重い）。
-     数えるのは「濃い汚れ」だけ（作者指定）。薄いうちは掃除する手がないのでセーフ、
-     こびり付いたらアウト、濃いのが増えるほど加速して落ちる＝大不満になる。
-     平均1つで7.6点・2つで4.4点・3つで0.4点 */
+  /* ── 清潔度：汚れ7点＋人手3点（作者指定でシビアに）。
+     床が綺麗なだけでは満点にならない。客が増えたら掃除の手も要る＝バイトが要る。
+     さらに満点には観葉植物（緑がないと「気持ちのいい店」にはならない） */
   const dirtAvg = t.dirtN ? t.dirtSum / t.dirtN : dirtCounts().thick;
-  s.clean = clamp(10 - dirtAvg * 2 - dirtAvg * dirtAvg * 0.4, 0, 10);
-  /* 満点には観葉植物が要る（作者指定）。床が磨いてあるだけの脱衣所は「清潔」ではあっても
-     「気持ちのいい店」ではない＝最後の2点は、緑を置いて初めて埋まる */
+  s.clean = clamp(7 - dirtAvg * 2.4 - dirtAvg * dirtAvg * 0.5, 0, 7)
+    + clamp(G.roster.length / Math.max(paid / 25, 1), 0, 1) * 3;
   if (!G.equip.some(e => e.id === 'plant1' && e.cond > 0 && usable(e))) s.clean = Math.min(s.clean, 8);
 
-  // 混雑度：待たされた・入れなかった。帰らせてしまった客は2倍に重く見る
+  /* ── 混雑度：待たせなかったか6点＋ロッカーの余裕2点＋番台の捌け2点（作者指定）。
+     客が少ない日は待ちが出ないので、以前はそれだけで満点だった＝
+     受け入れる器（ロッカー）と、入口の捌けも見る */
   const crowdN = (g.crowd || 0) + (g.locker || 0) + (g.bandai || 0)
     + (t.turnedAway || 0) * 2 + (t.gaveUp || 0) * 2 + (t.queueMiss || 0);
-  /* 声（crowdN）だけだと、30分待たされて黙っていた客が1人も数に入らず、
-     「風呂もサウナも行列なのに混雑度が満点」になっていた（作者指摘）。
-     待たされた時間そのものを、客1人あたりの平均で引く＝平均3分待ちで−1・15分で−5 */
   const waitPer = (t.waitSum || 0) / paid;
-  s.crowd = clamp(10 - Math.max(crowdN / paid - 0.1, 0) / 0.22 - waitPer / 3, 0, 10);
+  s.crowd = clamp(6 - Math.max(crowdN / paid - 0.1, 0) / 0.22 - waitPer / 2, 0, 6)
+    + clamp((lockerCapacity() / Math.max(paid * 0.35, 1)), 0, 1) * 2
+    + clamp(1 - ((g.bandai || 0) + (t.turnedAway || 0) * 2) / paid * 5, 0, 1) * 2;
 
-  // コスパ：入浴料・子供料金・サウナ料の3本を、それぞれ適正値と見くらべる（作者指定）
-  s.cospa = clamp(cospaParts().total, 0, 10);
+  /* ── コスパ：3本の料金で9点＋「それでも黒字」で1点（作者指定）。
+     安くするだけなら誰でもできる＝安くしたうえで店が回っていることまで見る */
+  const cp = cospaParts();
+  const profitable = (G.recentProfits || []).length ? (G.recentProfits || []).slice(-5).every(v => v > 0) : false;
+  s.cospa = clamp(cp.total + (profitable ? 1 : 0), 0, 10);
 
   // 湯の温度が合わない不満は、サウナ・風呂・水風呂で分け合う（同じ声を3回引かない）
   const tempPen = Math.min(rate('temp') * 4, 1.5);
+  /* ── サウナ：質5＋規模3＋幅2（作者指定）。
+     「1台あれば3点」の下駄をやめ、何を置いたか（質）と、客数に足りているか（規模）で決める */
   s.sauna = !hasCat('sauna') ? 0 : clamp(
-    3 + bestQ('sauna') + Math.min(tempVariety('sauna') + (hasGentleSauna() ? 1 : 0), 3) * 0.7
+    bestQ('sauna') + scaleScore('sauna', wantSauna, 4, 3)
+    + Math.min(tempVariety('sauna') + (hasGentleSauna() ? 1 : 0), 2)
     + (nappaOn() ? 1.5 : 0) - tempPen, 0, 10);
+  // ── お風呂：質4＋幅4（1種0/2種2/3種3/4種4）＋規模2
   s.furo = !hasCat('furo') ? 0 : clamp(
-    3 + bestQ('furo') * 0.9 + Math.min(furoKindCount() - 1, 3) * 0.85 - tempPen, 0, 10);
+    bestQ('furo') * 0.8 + Math.min(furoKindCount() - 1, 4)
+    + scaleScore('furo', paid, 5, 2) - tempPen, 0, 10);
+  // ── 水風呂：質4＋幅3＋規模3
   s.mizu = !hasCat('mizu') ? 0 : clamp(
-    3 + bestQ('mizu') + Math.min(tempVariety('mizu'), 3) * 0.8 - tempPen, 0, 10);
+    bestQ('mizu') * 0.8 + Math.min(tempVariety('mizu'), 3)
+    + scaleScore('mizu', wantSauna, 12, 3) - tempPen, 0, 10);
 
-  /* 脱衣所サービス：脱衣所の備品1つにつき1.7点（作者指定）＝6つ置けば満点。
-     ロッカーは0点（置くのは当たり前で、受入人数として別に効いている） */
-  s.datsui = clamp(datsuiGoods().length * 1.7, 0, 10);
+  /* ── 脱衣所：小物4点（6つで満点）＋高い備品3点（洗面所・マッサージチェア・自販機）
+     ＋ロッカーの収容3点。1.5万のポスターを並べるだけでは満点にならない（作者指定） */
+  const gd = datsuiGoods().length;
+  const bigDatsui = (hasWorking('sink') ? 1.2 : 0) + (hasWorking('massage') ? 1 : 0)
+    + (hasWorking('vend1') ? 0.4 : 0) + (hasWorking('vend2') ? 0.4 : 0);
+  s.datsui = clamp(Math.min(gd, 6) / 6 * 4 + Math.min(bigDatsui, 3)
+    + clamp(lockerCapacity() / Math.max(paid * 0.35, 1), 0, 1) * 3, 0, 10);
 
-  // ととのいスペース：イスの数（1脚+1・上限5）＋イスの種類（1種類+2・上限5）＝10点（作者指定）
+  /* ── ととのいスペース：質5＋脚数3＋種類2（作者指定）。
+     3万のベンチを5脚並べるより、いいイスを置くほうが効く */
   const chairs = liveOf('rest');
-  s.rest = Math.min(chairs.length, 5) + Math.min(new Set(chairs.map(e => e.id)).size * 2, 5);
+  s.rest = !chairs.length ? 0 : clamp(
+    bestQ('rest') * 1.25 + scaleScore('rest', wantSauna, 6, 3)
+    + Math.min(new Set(chairs.map(e => e.id)).size - 1, 2), 0, 10);
 
-  // 動線：設備の並び順（浴室入口→洗い場→風呂→サウナ→水風呂→イス）の近さ（作者指定）
+  // ── 動線：4本すべて3マス以内で満点（1本でも遠いと満点は取れない・作者指定）
   s.dosen = clamp(dosenParts().total, 0, 10);
 
-  /* おもてなし：満足度4＋バイトの愛想2＋番台で待たせない1＋アメニティ3（作者指定）。
-     アメニティ（タオル・石鹸・化粧水・ドライヤー・手ぶらセット）は
-     1品ごとの合算（amenityParts・満点AMEN_MAX）を3点ぶんに換算して入れる＝
-     設備ではなく「客あしらい」の一部として効く */
+  /* ── おもてなし：満足度4＋バイトの愛想2＋番台で待たせない1＋アメニティ3（作者指定）。
+     満足度の下駄を外した（35基準→50基準）＝ふつうに回しているだけでは点にならない。
+     バイトがいない店は愛想の2点が丸ごと入らない */
   const avgSat = t.satN ? t.satSum / t.satN : 50;
-  const aiso = G.roster.length ? G.roster.reduce((x, r) => x + (r.aiso || 3), 0) / G.roster.length : 2.5;
-  s.omote = clamp(clamp((avgSat - 35) / 45, 0, 1) * 4 + clamp((aiso - 1) / 4, 0, 1) * 2
+  const aiso = G.roster.length ? G.roster.reduce((x, r) => x + (r.aiso || 3), 0) / G.roster.length : 0;
+  s.omote = clamp(clamp((avgSat - 50) / 40, 0, 1) * 4 + clamp(aiso / 5, 0, 1) * 2
     + clamp(1 - ((g.bandai || 0) + (t.gaveUp || 0) * 2) / paid * 4, 0, 1)
     + amenityParts().total / AMEN_MAX * 3, 0, 10);
 
