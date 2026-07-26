@@ -1007,16 +1007,16 @@ function goWaitFor(c, cat, dur) {
   if (!items.length) return;
   const it = pick(items);
   c.waitItem = it;
-  const spots = approachTiles(it);
-  if (!spots.length) return;
+  /* 並ぶ位置は「設備の手前で、かつ客がそこまで歩けるマス」から選ぶ（作者報告）。
+     以前は手前のマスを順番だけで選んでいたので、設備に囲まれて孤立した1マスが混ざっていると、
+     2人目に並ぼうとした客がそこを割り当てられて「ととのいイスにたどり着けない」と言い出していた。
+     イスは目の前にあるのに、たまにしか出ない＝並ぶ順番によって当たり外れがあったのが理由 */
+  const t0 = tileOf(c);
+  const spots = approachTiles(it).map(sp => ({ sp, path: findPath(t0.x, t0.y, sp.x, sp.y) })).filter(o => o.path);
+  if (!spots.length) { stuckAt(c, EQ[it.id].name); c.path = []; return; }
   // 先に並んでいる人数ぶん位置をずらして、行列に見えるようにする
   const ahead = G.customers.filter(o => o !== c && o.state === 'waitEquip' && o.waitItem === it).length;
-  const s = spots[ahead % spots.length];
-  const t0 = tileOf(c);
-  const pth = findPath(t0.x, t0.y, s.x, s.y);
-  // 手前に立てるマスはあるのに、そこまでの道が無い＝他の設備で通路が塞がっている
-  if (!pth) stuckAt(c, EQ[it.id].name);
-  c.path = pth || [];
+  c.path = spots[ahead % spots.length].path;
 }
 
 /* 洗い場なら垢すりタオル、サウナならサウナマットを手に持って向かう。
@@ -1047,13 +1047,17 @@ const PAS_USE = {
   fan:   { id:'fan_bath', dur:[3.5, 6.0], say:0.30 },   // 扇風機の前でひと涼み
   sink:  { id:'sink',     dur:[3.0, 5.0], say:0.30 },   // 洗面所で髪を乾かす
   scale: { id:'scale',    dur:[2.0, 3.4], say:0.5 },    // 体重計に乗って一喜一憂（針がぐるっと振れる）
+  gacha: { id:'gacha',    dur:[2.2, 3.6], say:0.6 },    // 子どもが¥100を入れて回す（売上になる）
 };
+const GACHA_PRICE = 100;      // ガチャガチャ1回（作者指定）
+const GACHA_KID_RATE = 0.30;  // 子どものうち、回していく割合（作者指定）
 // この3つは「置くだけ」に見えて実際に歩いて行く＝道が要る（needsAccess で使う）
 const PAS_USE_IDS = new Set(Object.values(PAS_USE).map(p => p.id));
 function pasLineFor(kind) {
   if (kind === 'drink') return LINES.coolerGood;
   if (kind === 'fan') return LINES.fanGood;
   if (kind === 'scale') return LINES.scaleGood;
+  if (kind === 'gacha') return LINES.gachaGood;
   return G.opts.dryerFee ? LINES.dryerPaid : LINES.dryerFree;
 }
 function goPasUse(c, kind, next) {
@@ -1102,6 +1106,8 @@ function nextPlan(c) {
 
 /* 着替え終わったあと（洗面所で髪を乾かす → 自販機 → 帰る） */
 function afterChange(c) {
+  // 子どもは3割がガチャガチャを回して帰る（¥100が売上に立つ・作者指定）
+  if (c.isChild && !c.didGacha && Math.random() < GACHA_KID_RATE && goPasUse(c, 'gacha', 'leave')) { c.didGacha = true; return; }
   if (!c.didSink && Math.random() < 0.7 && goPasUse(c, 'sink', 'leave')) { c.didSink = true; return; }
   // 風呂上がり、つい体重計に乗って一喜一憂する（乗るまでが風呂、という田所の言い分）
   if (!c.didScale && Math.random() < 0.55 && goPasUse(c, 'scale', 'leave')) { c.didScale = true; return; }
@@ -1938,6 +1944,12 @@ function updateCustomer(c, dt) {
       c.timer -= dt;
       if (c.timer <= 0) {
         const next = c.pas ? c.pas.next : 'plan';
+        // ガチャガチャは1回¥100。子どもが回した瞬間に売上が立つ
+        if (c.pas && c.pas.kind === 'gacha') {
+          G.cash += GACHA_PRICE; G.today.amenRev += GACHA_PRICE; G.today.amenN++; G.today.revenue += GACHA_PRICE;
+          addFloater(c.px, c.py - 24, '+' + yen(GACHA_PRICE));
+          c.sat += 6;
+        }
         endPasUse(c);
         if (next === 'leave') afterChange(c); else c.state = 'plan';
       }
@@ -5495,6 +5507,28 @@ function drawEquipArt(c2, it, def, x, y, w, h, rt, broken) {
         for (let i = 1; i < 4; i++) { c2.beginPath(); c2.moveTo(x + 4 + i * ((w - 8) / 4), y + 8); c2.lineTo(x + 4 + i * ((w - 8) / 4), y + 24); c2.stroke(); }
         for (let i = 1; i < 3; i++) { c2.beginPath(); c2.moveTo(x + 4, y + 8 + i * 5.3); c2.lineTo(x + w - 4, y + 8 + i * 5.3); c2.stroke(); }
         c2.fillStyle = '#f0e0b8'; c2.fillRect(x + 7, y + 10, 4, 3); c2.fillRect(x + w - 12, y + 19, 4, 3);
+      } else if (it.id === 'gacha') {                    // ガチャガチャ（カプセルの詰まった丸い頭＋つまみ）
+        c2.fillStyle = '#7a2f2a'; c2.fillRect(x + 6, y + 14, w - 12, 12);          // 台座
+        c2.fillStyle = '#5a231f'; c2.fillRect(x + 6, y + 24, w - 12, 3);
+        c2.fillStyle = '#e8eef2'; c2.beginPath(); c2.arc(x + w / 2, y + 11, 8, 0, Math.PI * 2); c2.fill();  // ガラス球
+        const caps = ['#e05a5a', '#e8c34a', '#4aa3e0', '#6ac96a', '#c96ac9'];
+        for (let i = 0; i < 5; i++) {                                              // 中のカプセル
+          c2.fillStyle = caps[i];
+          c2.beginPath(); c2.arc(x + w / 2 - 4.5 + (i % 3) * 4.5, y + 9 + (i > 2 ? 4 : 0), 2, 0, Math.PI * 2); c2.fill();
+        }
+        c2.fillStyle = 'rgba(255,255,255,.5)'; c2.beginPath(); c2.arc(x + w / 2 - 3, y + 8, 2.5, 0, Math.PI * 2); c2.fill();
+        const ga = it.pasBy ? rt * 6 : 0;                                          // 回している間だけつまみが回る
+        c2.strokeStyle = '#f0d060'; c2.lineWidth = 2;
+        c2.beginPath(); c2.moveTo(x + w / 2, y + 19); c2.lineTo(x + w / 2 + Math.cos(ga) * 3.5, y + 19 + Math.sin(ga) * 3.5); c2.stroke();
+        c2.fillStyle = '#2f2a26'; c2.fillRect(x + w / 2 - 4, y + 22, 8, 3);        // 取り出し口
+      } else if (it.id === 'ehon') {                     // 絵本の棚（背の低い本棚に絵本が並ぶ）
+        c2.fillStyle = '#a9743f'; c2.fillRect(x + 4, y + 8, w - 8, 18);
+        c2.fillStyle = '#c9a86a'; c2.fillRect(x + 5, y + 9, w - 10, 7);
+        c2.fillStyle = '#c9a86a'; c2.fillRect(x + 5, y + 18, w - 10, 7);
+        const bk = ['#e05a5a', '#4aa3e0', '#e8c34a', '#6ac96a', '#c96ac9', '#e8845a'];
+        for (let i = 0; i < 5; i++) { c2.fillStyle = bk[i]; c2.fillRect(x + 6 + i * 3.4, y + 9, 2.6, 7); }
+        for (let i = 0; i < 5; i++) { c2.fillStyle = bk[(i + 2) % 6]; c2.fillRect(x + 6 + i * 3.4, y + 18, 2.6, 7); }
+        c2.fillStyle = '#8a5a2f'; c2.fillRect(x + 4, y + 25, w - 8, 3);
       } else if (it.id === 'massage') {                  // マッサージチェア
         c2.fillStyle = '#3a3a44'; c2.fillRect(x + 4, y + 5, w - 8, 20);
         c2.fillStyle = '#5a5a6a'; c2.fillRect(x + 6, y + 8, w - 12, 9);
@@ -5949,6 +5983,18 @@ function drawPasUse(e, x, y, rt, skin, hair) {
     ctx.fillStyle = '#f5f0e8';                          // 腰タオルの裾もめくれる
     ctx.beginPath(); ctx.moveTo(x - d * 5, y + 3); ctx.lineTo(x - d * (8 + fl), y + 6.5); ctx.lineTo(x - d * 5, y + 8);
     ctx.closePath(); ctx.fill();
+  } else if (e.pas.kind === 'gacha') {
+    // つまみを回す腕＝設備側の手を、くるくると回す。頭の上に「カチッ」
+    const a = rt * 6 + e.wob;
+    ctx.strokeStyle = skin; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x + d * 2, y - 6);
+    ctx.lineTo(x + d * 5 + Math.cos(a) * 2.5, y - 4 + Math.sin(a) * 2.5); ctx.stroke();
+    if (Math.sin(rt * 3 + e.wob) > 0.6) {
+      ctx.font = 'bold 8px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+      ctx.lineWidth = 2.4; ctx.strokeStyle = 'rgba(255,255,255,.95)';
+      ctx.strokeText('カチッ', x - d * 9, y - 16); ctx.fillStyle = '#c9622a';
+      ctx.fillText('カチッ', x - d * 9, y - 16);
+    }
   } else if (e.pas.kind === 'scale') {
     // 体重計の上で足元の目盛りをのぞき込み、針の振れに一喜一憂する
     const react = Math.abs(Math.sin(rt * 4.5 + e.wob));
