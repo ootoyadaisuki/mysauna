@@ -1331,13 +1331,16 @@ function repAdvice(key) {
   switch (key) {
     case 'clean': {
       const d = dirtCounts();
-      if (d.thick) return G.roster.length ? `濃い汚れが${d.thick}つ。タップして拭く`
-        : `濃い汚れが${d.thick}つ。バイトを雇うと拭く`;
+      // 営業中に汚れを拭けるのはバイトだけ（主人公は番台から動けない）
+      if (d.thick) return G.roster.length ? `濃い汚れが${d.thick}つ。バイトが足りていない`
+        : `濃い汚れが${d.thick}つ。拭けるのはバイトだけ`;
       if (d.thin >= CONF.dirtThinN) return `薄い汚れが${d.thin}つ。濃くなる前に拭く`;
       // 満点には観葉植物が要る（作者指定）＝床が綺麗なだけでは10点にならない
       if (!G.equip.some(e => e.id === 'plant1' && e.cond > 0 && usable(e))) return '観葉植物を置くと満点に届く';
-      // 掃除の手（バイト）が客数に足りていないと、3点ぶんが埋まらない
-      if (G.roster.length < Math.ceil((t.paid || 0) / 25)) return `客${t.paid || 0}人なら、バイトはあと1人ほしい`;
+      /* 掃除の人手が客数に足りていないと、点そのものが大きく削られる（バイト0なら1.5点どまり） */
+      const need = Math.max(1, Math.ceil((t.paid || 0) / 25));
+      if (!G.roster.length) return 'バイトを雇わないと点が伸びない';
+      if (G.roster.length < need) return `客${t.paid || 0}人なら、バイトはあと${need - G.roster.length}人`;
       return '汚れの無い日を7日続ければ満点';
     }
     case 'crowd': {
@@ -1442,12 +1445,15 @@ function repDayScores() {
   const s = {};
   const wantSauna = Math.max(t.sauna || 0, Math.round(paid * 0.5));   // サウナに入りたかった人数
 
-  /* ── 清潔度：汚れ7点＋人手3点（作者指定でシビアに）。
-     床が綺麗なだけでは満点にならない。客が増えたら掃除の手も要る＝バイトが要る。
+  /* ── 清潔度：その日の汚れ具合に「掃除の人手」を掛ける（作者指定でさらにシビアに）。
+     人手は客25人につきバイト1人が目安。ひとりも雇っていない店は、その日たまたま床が綺麗でも
+     15点満点中1.5点どまり＝「放っておけば10日で汚れだらけ、15日でゴキブリが出る」店として扱う。
+     店主ひとりで拭いて回るのには限界がある、という当たり前を数字にした。
      さらに満点には観葉植物（緑がないと「気持ちのいい店」にはならない） */
   const dirtAvg = t.dirtN ? t.dirtSum / t.dirtN : dirtCounts().thick;
-  s.clean = clamp(7 - dirtAvg * 2.4 - dirtAvg * dirtAvg * 0.5, 0, 7)
-    + clamp(G.roster.length / Math.max(paid / 25, 1), 0, 1) * 3;
+  const dirtScore = clamp(10 - dirtAvg * 2.4 - dirtAvg * dirtAvg * 0.5, 0, 10);
+  const hands = clamp(G.roster.length / Math.max(paid / 25, 1), 0, 1);
+  s.clean = dirtScore * (0.15 + 0.85 * hands);
   if (!G.equip.some(e => e.id === 'plant1' && e.cond > 0 && usable(e))) s.clean = Math.min(s.clean, 8);
 
   /* ── 混雑度：待たせなかったか6点＋ロッカーの余裕2点＋番台の捌け2点（作者指定）。
@@ -2139,8 +2145,21 @@ function updatePlayer(p, dt) {
     }
     return;
   }
+  /* 営業中、主人公は番台から離れない（作者指定）。
+     ひとりで会計をさばきながら床まで拭いて回れるなら、バイトを雇う理由が無くなる。
+     ＝営業中に落ちた汚れを片づけられるのはバイトだけ。掃除は「人を雇う」ことでしか買えない。
+     開店前（準備中）は自分で拭いて回るが、それも1日に拭ける数に限りがある（PREP_CLEAN_MAX） */
+  if (G.phase === 'biz') {
+    const t0 = tileOf(p), home = playerSpot();
+    if (!p.task && (t0.x !== home.x || t0.y !== home.y)) { p.task = 'home'; p.path = findPath(t0.x, t0.y, home.x, home.y) || []; }
+    if (p.task === 'home' && stepMove(p, dt)) p.task = null;
+    return;
+  }
   maintain(p, dt, playerSpot());
 }
+/* 開店前に、主人公ひとりで拭いて回れる汚れの数（作者指定）。
+   準備中は時間が無限に使えるので、ここに上限が無いと毎朝ぴかぴかになってしまう */
+const PREP_CLEAN_MAX = 5;
 
 /* ---- スタッフ（アルバイト） ---- */
 function makeStaff(i) {
@@ -2170,7 +2189,9 @@ function claimedBy(target, self) { return allWorkers().some(w => w !== self && w
      壊れた設備は自分たちでは直せない（勝手に修理業者が来て、直して、代金を持っていく） */
 function maintain(w, dt, home) {
   if (!w.task) {
-    const avail = G.dirts.filter(d => !claimedBy(d, w));
+    // 主人公が開店前に拭ける数には限りがある（それ以上は番台で待つ＝バイトの仕事）
+    const tired = w.kind === 'player' && (G.prepCleaned || 0) >= PREP_CLEAN_MAX;
+    const avail = tired ? [] : G.dirts.filter(d => !claimedBy(d, w));
     if (avail.length) {
       const t0 = tileOf(w);
       /* 近い順に、実際にたどり着ける汚れを探す。
@@ -2196,6 +2217,7 @@ function maintain(w, dt, home) {
       if (w.timer <= 0) {
         const i = G.dirts.indexOf(w.target);
         if (i >= 0) G.dirts.splice(i, 1);
+        if (w.kind === 'player') G.prepCleaned = (G.prepCleaned || 0) + 1;
         w.task = null; w.target = null;
       }
     }
@@ -4016,7 +4038,8 @@ function enterPrep() {
   G.phase = 'prep';
   Sfx.bgm('prep');                 // 暖簾を下ろしたあとの夜の曲
   G.customers = []; G.payQueue = [];
-  G.player = makePlayer();         // 準備中の主人公はひたすら掃除して回る（作者指定）
+  G.player = makePlayer();         // 準備中の主人公は掃除して回る（1日に拭ける数は PREP_CLEAN_MAX まで）
+  G.prepCleaned = 0;               // 今夜これから拭いた数
   // 銀行融資は廃止（作者指定）。サラ金はその場で現金が出るので、振込待ちという状態はもう無い
   G.staff = [];                    // バイトは準備中いなくなる。営業開始で戻る（作者指定）
   const careLine = careBubbleText();
