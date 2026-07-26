@@ -6251,7 +6251,9 @@ function renderShop(markSeen) {
     const capTxt = CAP_CATS.includes(def.cat) && def.cap > 0 ? ` <span class="cap-chip">収容${def.cap}人</span>` : '';
     // ⭐＝店の格への貢献（1〜5）。数字で「評判+○」と書くと即効性があると誤解されるので、星でそれとなく伝える
     const stars = Math.min(5, Math.ceil(gradePts(id) / 2));
-    const starTxt = stars > 0 ? ` <span class="grade-chip">${'⭐'.repeat(stars)}</span>` : '';
+    /* ⭐は行の幅を食うので、鍵の掛かった決戦仕様では出さない
+       （名前＋収容＋⭐＋🔒決戦仕様 の4つは1行に収まらず、鍵のほうが見切れてしまう） */
+    const starTxt = stars > 0 && !(locked && id === DUEL_ONLY_EQ) ? ` <span class="grade-chip">${'⭐'.repeat(stars)}</span>` : '';
     const div = document.createElement('div');
     div.className = 'shop-item' + (locked ? ' locked' : '') + (isNew ? ' is-new' : '');
     // 名前の下に一行だけ短い説明（EQ_NOTE）。長い説明は設備をタップした時の詳細に置いてある
