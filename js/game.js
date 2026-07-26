@@ -2318,9 +2318,11 @@ function startMikajime() {
   G.paused = true; $('btnPause').textContent = '▶ 再開';
   Sfx.bgmStop();   // 曲を止める＝静けさ（＋本人の時はベンツのエンジン音）だけが残る（決着したら戻す）
   const k = G.kito;
-  /* 新フロー（作者指定）：出会い→毎回「鬼頭の要求」の選択画面→3回目の訪問で田所が割って入って解決。
+  /* 新フロー（作者指定）：出会い→毎回「鬼頭の要求」の選択画面→田所が割って入って解決。
+     割って入るのは【田所が主人公を「認めた」あと】＝それまでは、みかじめを何回払っても助けは来ない。
+     認められていないうちは若い衆が7日ごとに集金に来続ける（作者指定）。
      500万の手切れ金はいつ選んでもいい（選択画面に常に並ぶ） */
-  if (k && !k.resolved && (k.encounters || 0) >= 2) {
+  if (k && !k.resolved && (k.encounters || 0) >= 2 && tadokoroAllyOn()) {
     G.flags.lastMikaDay = G.day;
     log('🚗 黒塗りのベンツが乗りつけてきた…3度目の集金だ');
     startBenz({ hold: true, thugs: true, onPark: () => startKitoRescue() });
@@ -3717,6 +3719,18 @@ function afterReport() {
   if (G.rep >= 30 && !G.flags.father && !(G.today.care > 0)) {
     G.flags.father = true; scenes.push(...STORY_FATHER);   // 評判のマイルストーン演出。関係ゲージは廃止
   }
+  /* 鬼頭が来なくなってから黒田が現れるまでの7日間に、感謝の場面を2つ挟む（作者指定＝中弛み防止）。
+     2日目＝親子連れ、5日目＝金髪の兄ちゃん。何も起きない日が7日続くと、緊張が抜けてしまう */
+  const kEnd = G.flags.kitoEndDay || 0;
+  if (kEnd > 0 && !scenes.length) {
+    if (G.day - kEnd === 2 && !G.flags.kitoAfterKazoku) {
+      G.flags.kitoAfterKazoku = true; scenes.push(...STORY_KITO_AFTER_KAZOKU);
+      G.najimi = clamp(G.najimi + 4, 0, 100);
+    } else if (G.day - kEnd === 5 && !G.flags.kitoAfterKinpatsu) {
+      G.flags.kitoAfterKinpatsu = true; scenes.push(...STORY_KITO_AFTER_KINPATSU);
+      G.najimi = clamp(G.najimi + 4, 0, 100);
+    }
+  }
   // 常連客イベント：評判が育つと、数日おきに常連との一幕が起きて絆(najimi)が深まる
   if (!scenes.length && G.rep >= 18 && finishedDay - (G.flags.lastNajimiDay || 0) >= 6) {
     const ev = STORY_NAJIMI[G.flags.najimiIdx || 0];
@@ -4179,6 +4193,9 @@ function failYami() {
 /* ミッションとミッションの間に置く休み（作者指定）：ひと編を終えてから10日間は次の編を始めない。
    稼いで立て直す期間を挟むためのもの。編の途中（要求→確認のサイクル）には挟まない */
 const MISSION_COOLDOWN_DAYS = 10;
+/* 鬼頭が来なくなってから黒田が現れるまで（作者指定で10日→7日）。
+   間の2日目・5日目に感謝の場面が入るので、空っぽの日は実質4日だけになる */
+const KURODA_AFTER_KITO_DAYS = 7;
 /* 鬼頭編の登場間隔（作者指定）：鬼頭本人も若い衆も、ミッション中は7日ごとにしか来ない。
    毎日集金に来ると立て直す時間がなく、店が死ぬだけだったため */
 const KITO_INTERVAL_DAYS = 7;
@@ -4241,7 +4258,7 @@ function dueKuroda() {
   const kitoEnd = G.flags.kitoEndDay || 0;
   if (!k.met) return G.day >= (k.nextDay || 0) && G.rep >= KURODA_APPEAR_REP
     && !!(G.tadokoro && G.tadokoro.resolved) && !!(G.kito && G.kito.resolved)
-    && kitoEnd > 0 && G.day >= kitoEnd + MISSION_COOLDOWN_DAYS;
+    && kitoEnd > 0 && G.day >= kitoEnd + KURODA_AFTER_KITO_DAYS;
   // 黒田も始まったら毎日来る＝提案→確認→提案→確認…（作者指定）。
   // met済みでも鬼頭の決着チェックは外さない＝旧版で先走って登場してしまったセーブでも、決着前は黙らせる
   return G.day >= (k.nextDay || 0) && !!(G.kito && G.kito.resolved);
@@ -4272,10 +4289,12 @@ function pickTodaysVisitor() {
   if (dueReina()) return 'reina';
   return null;
 }
-/* フェーズ3：みかじめを2回払った翌日、田所が「困ってることはないか」と声をかけてくる */
+/* みかじめを2回払い、かつ田所が主人公を「認めた」あとで、田所が「困ってることはないか」と声をかけてくる。
+   条件は【田所が認める × みかじめ2回以上】の掛け算（作者指定）＝
+   認められていない相手のために、あの爺さんが体を張ることはない。それまでは自力で耐えるしかない */
 function dueTadokoroConsult() {
   return !!(G.flags.tadokoroConsultDay && G.day >= G.flags.tadokoroConsultDay &&
-    !G.flags.tadokoroConsulted && G.kito && !G.kito.resolved);
+    !G.flags.tadokoroConsulted && tadokoroAllyOn() && G.kito && !G.kito.resolved);
 }
 /* フェーズ3：「刺青・ヤクザお断り」を下ろした翌日、鬼頭が礼を言いに来る */
 function dueKitoThanks() {
