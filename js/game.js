@@ -448,6 +448,10 @@ function hasCat(cat) { return G.equip.some(e => EQ[e.id].cat === cat && (EQ[e.id
 function hasEquip(id) { return G.equip.some(e => e.id === id); }
 /* 故障していない現物があるか（置くだけで効く設備＝pas はこれで判定する） */
 function hasWorking(id) { return G.equip.some(e => e.id === id && e.cond > 0); }
+/* 洗面所があるか。親父の代からの「古い洗面台」も、洗面所として数える
+   （ドライヤーも化粧水も、あの台の上に置ける＝設備としては同じもの） */
+const SINK_IDS = ['sink', 'sink_old'];
+function hasSink() { return SINK_IDS.some(hasWorking); }
 /* 熱波師が店にいるか（フェーズ4：決戦仕様のサウナを組むと、黒田が連れてくる） */
 /* 熱波師が“いま振れる”か。台（決戦仕様の一台）が据わるまでは、来ていても振れない＝効果も出ない */
 function nappaOn() { return !!(G.nappa && G.nappa.hired) && hasWorking('sauna_sp'); }
@@ -1137,7 +1141,7 @@ function goRack(c, kind, dir) {
 const PAS_USE = {
   drink: { id:'cooler',   dur:[1.4, 2.6], say:0.35 },   // 冷水機で給水
   fan:   { id:'fan_bath', dur:[3.5, 6.0], say:0.30 },   // 扇風機の前でひと涼み
-  sink:  { id:'sink',     dur:[3.0, 5.0], say:0.30 },   // 洗面所で髪を乾かす
+  sink:  { ids:SINK_IDS, dur:[3.0, 5.0], say:0.30 },   // 洗面所で髪を乾かす（古い洗面台でも同じ）
   scale: { id:'scale',    dur:[2.0, 3.4], say:0.5 },    // 体重計に乗って一喜一憂（針がぐるっと振れる）
   gacha: { id:'gacha',    dur:[2.2, 3.6], say:0.6 },    // 子どもが¥100を入れて回す（売上になる）
   ehon:  { id:'ehon',     dur:[4.0, 7.0], say:0.6 },    // 絵本の棚の前に座って読む（子どもだけ）
@@ -1145,7 +1149,7 @@ const PAS_USE = {
 const GACHA_PRICE = 100;      // ガチャガチャ1回（作者指定）
 const GACHA_KID_RATE = 0.30;  // 子どものうち、回していく割合（作者指定）
 // この3つは「置くだけ」に見えて実際に歩いて行く＝道が要る（needsAccess で使う）
-const PAS_USE_IDS = new Set(Object.values(PAS_USE).map(p => p.id));
+const PAS_USE_IDS = new Set(Object.values(PAS_USE).flatMap(p => p.ids || [p.id]));
 function pasLineFor(kind) {
   if (kind === 'drink') return LINES.coolerGood;
   if (kind === 'fan') return LINES.fanGood;
@@ -1156,7 +1160,8 @@ function pasLineFor(kind) {
 }
 function goPasUse(c, kind, next) {
   const p = PAS_USE[kind];
-  const items = G.equip.filter(e => e.id === p.id && e.cond > 0 && !e.pasBy && usable(e));
+  const ids = p.ids || [p.id];
+  const items = G.equip.filter(e => ids.includes(e.id) && e.cond > 0 && !e.pasBy && usable(e));
   if (!items.length) return false;
   const it = pick(items);
   const ap = pathToEquip(c, it);
@@ -1334,7 +1339,7 @@ function amenityParts() {
   soap('シャンプー', o.shampooPrice);
   soap('ボディソープ', o.bodysoapPrice);
   // 化粧水・乳液とドライヤーは、洗面所を置いてはじめて客が使える
-  if (hasWorking('sink')) {
+  if (hasSink()) {
     add('化粧水・乳液', o.lotionOn === false ? 0 : AMEN_CHEAP, o.lotionOn === false ? '置いていない' : '無料');
     add('ドライヤー', o.dryerFee ? 0.5 : 1, o.dryerFee ? `¥${o.dryerFee}` : '無料', 1);
   } else {
@@ -1475,7 +1480,8 @@ function repAdvice(key) {
       const n = datsuiGoods().length;
       const lc = lockerCapacity(), need = Math.round((t.paid || 0) * 0.35);
       if (lc < need) return `ロッカー${lc}人ぶん。客${t.paid || 0}人には足りない`;
-      if (!hasWorking('sink')) return '洗面所を置くと大きく伸びる';
+      if (!hasSink()) return '洗面所を置くと大きく伸びる';
+      if (!hasWorking('sink')) return '古い洗面台をちゃんとした洗面所に替える';
       if (n < 6) return `脱衣所の備品あと${6 - n}個で満点`;
       return hasWorking('massage') ? '脱衣所はもう十分' : 'マッサージチェアで満点に届く';
     }
@@ -1587,7 +1593,8 @@ function repDayScores() {
   /* ── 脱衣所：小物4点（6つで満点）＋高い備品3点（洗面所・マッサージチェア・自販機）
      ＋ロッカーの収容3点。1.5万のポスターを並べるだけでは満点にならない（作者指定） */
   const gd = datsuiGoods().length;
-  const bigDatsui = (hasWorking('sink') ? 1.2 : 0) + (hasWorking('massage') ? 1 : 0)
+  // 古い洗面台は「あるだけまし」＝ちゃんとした洗面所の半分以下しか効かない（作者指定）
+  const bigDatsui = (hasWorking('sink') ? 1.2 : hasWorking('sink_old') ? 0.5 : 0) + (hasWorking('massage') ? 1 : 0)
     + (hasWorking('vend1') ? 0.4 : 0) + (hasWorking('vend2') ? 0.4 : 0);
   s.datsui = clamp(Math.min(gd, 6) / 6 * 4 + Math.min(bigDatsui, 3)
     + clamp(lockerCapacity() / Math.max(paid * 0.35, 1), 0, 1) * 3, 0, 10);
@@ -1800,7 +1807,7 @@ function pickHintKey() {
   if (hasCat('sauna') && !hasMat()) cands.push(['hintMat', 1.1]);
   // 設備そのものが足りない不満（買えば直る）
   // 洗面所がない＝ドライヤーも化粧水もない。不満のセリフは髪と肌の2種類から選ぶ
-  if (!hasWorking('sink')) cands.push([Math.random() < 0.65 ? 'hintDryer' : 'hintLotion', 1.6]);
+  if (!hasSink()) cands.push([Math.random() < 0.65 ? 'hintDryer' : 'hintLotion', 1.6]);
   if (hasCat('sauna') && !hasWorking('cooler')) cands.push(['hintCooler', 2.0]);
   if (!hasCat('rest')) cands.push(['hintRest', 1.6]);
   /* 脱衣所の備品が無い（作者指定）。「牛乳ないの？」のように名指しで言わせる＝
@@ -1881,7 +1888,7 @@ function customerLeave(c) {
   }
   c.sat += Math.min(pasSum, 20);          // 盛りすぎても頭打ち
   // 洗面所にあるドライヤーと化粧水は、それぞれ「無料か、いくら取るか」で反応が変わる
-  if (hasWorking('sink')) {
+  if (hasSink()) {
     if (!G.opts.dryerFee) c.sat += 2;
     else if (Math.random() < 0.65) { const p = G.opts.dryerFee; G.cash += p; G.today.amenRev += p; G.today.amenN++; G.today.revenue += p; }
     // 化粧水・乳液は「置く／置かない」だけ（作者指定で販売は廃止）。置いてあれば喜ぶ
@@ -1891,10 +1898,10 @@ function customerLeave(c) {
   // お気に入りの設備があった客は、たまにそれを口にする
   if (!c.bub && pasLine && Math.random() < 0.22) {
     const key = { poster:'posterGood', shogi:'shogiGood', scale:'scaleGood', tv:'tvGood',
-                  massage:'massageGood', sink:'lotionGood', fan_bath:'fanGood' }[pasLine];
+                  massage:'massageGood', sink:'lotionGood', sink_old:'lotionGood', fan_bath:'fanGood' }[pasLine];
     if (key && LINES[key]) bubble(c, pick(LINES[key]));
   }
-  if (!c.bub && hasWorking('sink') && Math.random() < 0.12) bubble(c, pick(G.opts.dryerFee ? LINES.dryerPaid : LINES.dryerFree));
+  if (!c.bub && hasSink() && Math.random() < 0.12) bubble(c, pick(G.opts.dryerFee ? LINES.dryerPaid : LINES.dryerFree));
   if (!c.bub && hasWorking('cooler') && Math.random() < 0.10) bubble(c, pick(LINES.coolerGood));
   // フェーズ4：上位志向の客（10%）＝どんな店でも「上には上がある」と少し不満げに帰る。
   // 満足の天井が常に下がる＝評判の伸びが構造的に鈍る（作者指定）
@@ -3897,7 +3904,7 @@ function closeDay() {
      無料にすると経費が跳ね上がる／売れば売るほど仕入れが伸びる、という読みにくさをなくす */
   const keihiCut = kurodaAllyOn() ? 0.94 : 1;   // 黒田が仲間なら経費6%off（仕入れ・タオルの無駄を締める）
   const amenityCost = Math.round(((G.opts.soapMode !== 'none' ? CONF.soapCostPerDay : 0)
-                    + (hasWorking('sink') && G.opts.lotionOn !== false ? CONF.lotionCostPerDay : 0)
+                    + (hasSink() && G.opts.lotionOn !== false ? CONF.lotionCostPerDay : 0)
                     + (hasMat() ? 500 : 0) + (hasAkasuri() ? 500 : 0)) * keihiCut);
   // タオルも一律の定額（無料貸出の洗濯代という従量ぶんは廃止・作者指定）
   const towelCost = Math.round((G.opts.towel !== 'none' ? CONF.towelCostPerDay : 0) * keihiCut);
@@ -5749,16 +5756,23 @@ function drawEquipArt(c2, it, def, x, y, w, h, rt, broken) {
         c2.fillStyle = '#e8e8e8'; c2.fillRect(x + 7, y + 13, w - 14, 10);
         if (!milk) { c2.fillStyle = '#4a8ac9'; c2.fillRect(x + 8, y + 14, 4, 8); c2.fillStyle = '#e8c84a'; c2.fillRect(x + 14, y + 14, 4, 8); }
         c2.fillStyle = '#b3402e'; c2.fillRect(x + w - 9, y + 15, 3, 5);
-      } else if (it.id === 'sink') {                     // 洗面所（鏡＋洗面台2つ＋ドライヤー＋化粧水と乳液のボトル）
-        c2.fillStyle = '#9fd0e0'; c2.fillRect(x + 4, y + 3, w - 8, 9);          // 鏡
-        c2.fillStyle = 'rgba(255,255,255,.45)'; c2.fillRect(x + 5, y + 4, (w - 10) / 2, 3);
-        c2.fillStyle = '#8a8a84'; c2.fillRect(x + 4, y + 3, w - 8, 1);
-        c2.fillStyle = '#e8e4dc'; c2.fillRect(x + 3, y + 15, w - 6, 9);         // 洗面台のカウンター
-        c2.fillStyle = '#8a6a4a'; c2.fillRect(x + 3, y + 24, w - 6, 3);
-        c2.fillStyle = '#cfd8dc';                                               // 洗面ボウル2つ
+      } else if (it.id === 'sink' || it.id === 'sink_old') {  // 洗面所（鏡＋洗面台2つ＋ドライヤー＋化粧水と乳液のボトル）
+        // 親父の代からの古い洗面台は、鏡が曇り、カウンターも黄ばんでいる（＋ヒビが1本入る）
+        const worn = it.id === 'sink_old';
+        c2.fillStyle = worn ? '#9aa8a8' : '#9fd0e0'; c2.fillRect(x + 4, y + 3, w - 8, 9);   // 鏡
+        c2.fillStyle = `rgba(255,255,255,${worn ? .2 : .45})`; c2.fillRect(x + 5, y + 4, (w - 10) / 2, 3);
+        c2.fillStyle = worn ? '#6b6b62' : '#8a8a84'; c2.fillRect(x + 4, y + 3, w - 8, 1);
+        c2.fillStyle = worn ? '#d8cfba' : '#e8e4dc'; c2.fillRect(x + 3, y + 15, w - 6, 9);  // 洗面台のカウンター
+        c2.fillStyle = worn ? '#6b4f36' : '#8a6a4a'; c2.fillRect(x + 3, y + 24, w - 6, 3);
+        c2.fillStyle = worn ? '#bcc2c2' : '#cfd8dc';                                        // 洗面ボウル2つ
         for (const bx of [x + 8, x + w - 20]) {
           c2.beginPath(); c2.ellipse(bx + 6, y + 20, 6, 3.5, 0, 0, Math.PI * 2); c2.fill();
-          c2.fillStyle = '#9a9a9a'; c2.fillRect(bx + 5, y + 13, 2, 4); c2.fillStyle = '#cfd8dc';
+          c2.fillStyle = worn ? '#7f7f78' : '#9a9a9a'; c2.fillRect(bx + 5, y + 13, 2, 4);
+          c2.fillStyle = worn ? '#bcc2c2' : '#cfd8dc';
+        }
+        if (worn) {                                                             // 鏡のヒビ
+          c2.strokeStyle = 'rgba(60,58,54,.7)'; c2.lineWidth = 0.8;
+          c2.beginPath(); c2.moveTo(x + w - 12, y + 3); c2.lineTo(x + w - 16, y + 8); c2.lineTo(x + w - 10, y + 12); c2.stroke();
         }
         c2.fillStyle = '#bfe3f2'; c2.fillRect(x + w / 2 - 5, y + 9, 4, 7);      // 化粧水
         c2.fillStyle = '#4a8ac9'; c2.fillRect(x + w / 2 - 4.5, y + 7, 3, 2);
@@ -7444,12 +7458,12 @@ function renderManage() {
   const amenPane = `
     <div class="opt-row"><span>シャンプー・ボディソープ<br><span class="opt-sub">無料でも販売でも一律¥${CONF.soapCostPerDay.toLocaleString()}/日</span></span><span>${soapBtns}</span></div>
     ${soapPriceRows}
-    ${hasWorking('sink')
+    ${hasSink()
       ? `<div class="opt-row"><span>ドライヤー<br><span class="opt-sub">無料=満足度↑／¥20=売上</span></span><span>${
           DRYER_FEES.map(f => `<button class="opt-btn ${o.dryerFee === f ? 'on' : ''}" data-act="dryerFee" data-v="${f}">${f ? '¥' + f : '無料'}</button>`).join('')
         }</span></div>`
       : `<div class="opt-row locked"><span>ドライヤー<br><span class="opt-sub">🔒 洗面所の設置で解放</span></span><button class="opt-btn" disabled>—</button></div>`}
-    ${hasWorking('sink')
+    ${hasSink()
       ? tog('lotionOn', o.lotionOn !== false, '化粧水・乳液', `置けば満足度↑／¥${CONF.lotionCostPerDay.toLocaleString()}/日`)
       : `<div class="opt-row locked"><span>化粧水・乳液<br><span class="opt-sub">🔒 洗面所の設置で解放</span></span><button class="opt-btn" disabled>—</button></div>`}
     ${tog('akasuriTowel', hasAkasuri(), '垢すりタオル', '満足度↑／¥500/日')}
@@ -7613,7 +7627,7 @@ function renderData() {
     /* 「品揃え」の行は削除した（作者指定）。種類の数は、お風呂・サウナ・水風呂のバーに入っている */
     const lacks = [];
     if (!hasWorking('cooler')) lacks.push('冷水機');
-    if (!hasWorking('sink')) lacks.push('洗面所');
+    if (!hasSink()) lacks.push('洗面所');
     if (lacks.length) r += row('客が欲しがっているもの', lacks.join('・'), 'minus');
     if ((G.roughDays || 0) >= 1)
       r += row('客の我慢', `荒れた日 ${G.roughDays}日連続`

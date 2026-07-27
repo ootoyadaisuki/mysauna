@@ -272,6 +272,12 @@ const EQ = {
      置けば運営メニューでドライヤー代（無料/¥20）と化粧水代（無料/¥50/¥100）を決められる */
   sink:       { cat:'datsui', name:'洗面所',              w:2,h:1, price:90000,   q:2, run:200, cap:0, room:'datsui',
                 pas:{ sat:5, score:5, likes:['salaryman','kinpatsu'], like:2 }, desc:'鏡と洗面台。ドライヤーも化粧水・乳液もここに置かれる（料金は運営メニューで設定）。無いと、髪が濡れたまま帰ることになる。' },
+  /* 親父の代からある洗面台（ゲーム開始時から脱衣所の左上に据わっている・作者指定）。
+     洗面所としては機能するが、鏡は曇り、蛇口は渋い＝満足度の伸びは洗面所の半分以下。
+     古い設備なので傷むのも早い。ちゃんとした洗面所に買い替えるのが正しい流れ */
+  sink_old:   { cat:'datsui', name:'古い洗面台',          w:2,h:1, price:0,       q:1, run:200, cap:0, room:'datsui', old:true,
+                pas:{ sat:2, score:2, likes:['jisan','oyaji'], like:2 },
+                desc:'親父の代からの鏡と洗面台。曇っていて、蛇口も渋い。', descFix:'鏡を磨いて蛇口を締め直した。使えなくはない。' },
   scale:      { cat:'datsui', name:'体重計',              w:1,h:1, price:30000,   q:1, run:0,   cap:0, room:'datsui',
                 pas:{ sat:2, score:2, likes:['jisan','oyaji'], like:2 }, desc:'昔ながらの針の体重計。乗らずにはいられない。' },
   tv:         { cat:'datsui', name:'テレビ',              w:1,h:1, price:120000,  q:2, run:300, cap:0, room:'datsui', wall:true,
@@ -381,6 +387,7 @@ const MENU_LINKS = [
 const INIT_EQUIP = [
   { id:'bandai',     x:5,  y:9, cond:100 },
   { id:'bath_old',   x:8,  y:1, cond:40 },
+  { id:'sink_old',   x:1,  y:7, cond:40 },   // 脱衣所の左上、壁沿い（作者指定）
   { id:'wash_old',   x:1,  y:3, cond:45 },
   { id:'wash_old',   x:1,  y:5, cond:35 },
   { id:'locker_old', x:10, y:8, cond:50 },
