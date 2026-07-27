@@ -2450,9 +2450,13 @@ function maintain(w, dt, home) {
      以前は「ゴキブリが乗っている汚れを優先して拭く」だけだったので、
      着く頃には別のマスへ走り去っていて、いつまでも仕留められなかった。
      ここでは相手そのものを追いかけ、隣のマスまで詰めたところで叩く */
-  // 営業中の主人公（バイト0人の日）は、番台を離れられる回数のうちでしか追えない
-  const soloOut = w.kind === 'player' && G.phase === 'biz' && (G.bizCleaned || 0) >= BIZ_CLEAN_MAX;
-  if (!soloOut && (!w.task || w.task === 'home' || w.task === 'clean') && G.roach && !claimedBy(G.roach, w)) {
+  /* ただし主人公が力尽きていたら、ゴキブリが出ても動かない（作者指定）。
+     営業中は番台を離れられる回数のうちだけ。夜は拭ける数を使い切った時点で終わり
+     ＝番台で寝ている主人公は、目の前を走られても、そのまま寝ている */
+  const outOfSteam = w.kind === 'player' && (G.phase === 'biz'
+    ? (G.bizCleaned || 0) >= BIZ_CLEAN_MAX
+    : (G.prepCleaned || 0) >= PREP_CLEAN_MAX);
+  if (!outOfSteam && (!w.task || w.task === 'home' || w.task === 'clean') && G.roach && !claimedBy(G.roach, w)) {
     const pth = pathToNear(w, G.roach.tx, G.roach.ty);
     if (pth) { w.task = 'roach'; w.target = G.roach; w.path = pth; }
   }
