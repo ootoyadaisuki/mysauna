@@ -124,7 +124,7 @@ function newToday() {
            towelRev: 0, towelN: 0, akasuriRev: 0, akasuriN: 0, soapRev: 0, soapN: 0,
            teburaRev: 0, teburaN: 0, soapUnits: 0, totonoiTry: 0, gaveUp: 0, mikajime: 0,
            amenRev: 0, amenN: 0, milkRev: 0, autoYami: 0, yamiPaid: 0, repairCost: 0, unpaid: false,
-           care: 0, queueMiss: 0, gripes: {}, satSeg: {}, dirtSum: 0, dirtN: 0,
+           care: 0, queueMiss: 0, gripes: {}, satSeg: {}, dirtSum: 0, dirtN: 0, timeUpN: 0,
            waitSum: 0 };   // waitSum＝客が設備待ち・ロッカー待ちで立っていた時間の合計（混雑度に効く）
 }
 
@@ -174,6 +174,7 @@ const GRIPE_LABEL = {
   totonoi: 'ととのえなかった',
   dosen:   '導線が悪い（設備の配置）',
   lack:    '欲しい設備・備品がない',
+  timeup:  '時間制限で途中で追い出された',
 };
 function gripe(key, n) {
   if (!G.today.gripes) G.today.gripes = {};
@@ -727,6 +728,8 @@ function spawnCustomer(forceKey) {
     dirtHits: 0, noSauna: false, gotTotonoi: false, carry: null, amen: false, walkPx: 0,
     // 親子はサウナには入らない（作者指定）＝likesSauna が0なので、ここで必ず false になる
     wantsSauna: Math.random() < TYPES[tk].likesSauna,
+    // 「これだけ居られれば満足」という時間。滞在時間の制限を掛けたとき、これを下回ると不満になる
+    needMin: STAY_NEED_BATH, inAt: null, timeUp: false, told: false,
     isChild: !!TYPES[tk].kid,          // 子ども＝小さく描き、料金は子供料金、浴室が汚れやすい
     // 湯温の好みは1人ごとに転がす（じいさんだけ個人差あり＝あつ湯派とぬる湯長湯派が混ざる）
     furoPref: TYPES[tk].furoPref + (TYPES[tk].furoVar ? rand(-TYPES[tk].furoVar, TYPES[tk].furoVar) : 0),
@@ -743,6 +746,11 @@ function spawnCustomer(forceKey) {
     // 割合は開店時に決めておく（今日はじめて常連になった人が、その日のうちにもう一度来ないように）
     isNew: Math.random() >= (G.repeatShareToday || 0),
   });
+  // サウナに入る客だけ、満足に必要な時間を1人ずつ転がす（90分:50% / 120分:35% / 150分:15%）
+  if (c.wantsSauna) {
+    let r = Math.random();
+    for (const [min, share] of STAY_NEED_MIX) { c.needMin = min; if ((r -= share) <= 0) break; }
+  }
   /* 動線：来る客は入口の右手から歩いてくる（帰る客は左へ抜ける＝出入りがぶつからない）。
      外の行列も入口の右に伸びるので、来店の列と帰り道が交差しない */
   c.px += T * 2.2;
@@ -1987,6 +1995,11 @@ function updateCustomer(c, dt) {
   }
   // 子どもは湯でも脱衣所でもよく喋る（にぎやかさの演出）
   if (c.isChild && !c.bub && Math.random() < dt * 0.12) bubble(c, pick(LINES.kidLine), 2.4);
+  /* 滞在時間の制限。時間が来た客に印を付けるだけ＝実際に伝えに行くのは人間の仕事で、
+     バイト（いなければ主人公）がそこまで歩いて行く。その間、掃除も会計も止まる（作者指定） */
+  if (G.opts.timeLimit && c.inAt != null && !c.told && !c.timeUp && c.mode === 'towel'
+      && (c.plan.length || c.state === 'using' || c.state === 'waitEquip')
+      && G.minutes - c.inAt >= G.opts.timeLimit) c.timeUp = true;
   switch (c.state) {
     case 'turnAway':
       if (stepMove(c, dt)) {
@@ -2197,6 +2210,12 @@ function makePlayer() {
   return p;
 }
 function updatePlayer(p, dt) {
+  /* バイトがいない店では、時間切れの声かけも主人公がやる（作者指定）。
+     番台を空けて客のところまで歩く＝その間、会計が止まって外の行列が伸びる。
+     ひとりで回す店に時間制限を掛けると、回転を上げたぶんが受付で相殺される */
+  if (G.phase === 'biz' && !G.staff.some(s => !(s.lateT > 0))) {
+    if (p.task === 'tell' || findTimeUpTarget(p)) { maintain(p, dt, playerSpot()); return; }
+  }
   // 支払い待ちが最優先
   if (G.payQueue.length && (!p.task || p.task !== 'bandai')) {
     p.task = 'bandai'; p.target = null;
@@ -2238,6 +2257,7 @@ function updatePlayer(p, dt) {
             addFloater(bandai().x * T + T / 2, bandai().y * T - 6, '+' + yen(take));
             bubble(front, pick(LINES.pay), 1.6);
             G.payQueue.shift();
+            front.inAt = G.minutes;          // 滞在時間はここから数える（＝金を払って暖簾をくぐった時刻）
             goLocker(front, 'in');
             for (const c2 of G.payQueue) if (c2.state === 'pay') { sendToQueueSpot(c2); c2.state = 'toPay'; }
           }
@@ -2314,17 +2334,81 @@ function claimedBy(target, self) { return allWorkers().some(w => w !== self && w
 /* 掃除・待機（主人公とスタッフ共通）。
    ※主人公もバイトも「代金の受け取り」と「掃除」しかできない。
      壊れた設備は自分たちでは直せない（勝手に修理業者が来て、直して、代金を持っていく） */
+/* 「そろそろお時間です」を伝えに行く相手を1人選ぶ。掃除より優先する＝
+   時間制限を掛けるほど、バイトの手が声かけに取られて汚れが残る（作者指定） */
+function findTimeUpTarget(w) {
+  if (!G.opts.timeLimit) return null;
+  const t0 = tileOf(w);
+  const cands = G.customers.filter(c => c.timeUp && !c.told && !claimedBy(c, w));
+  if (!cands.length) return null;
+  const far = c => { const t = tileOf(c); return Math.abs(t.x - t0.x) + Math.abs(t.y - t0.y); };
+  return cands.sort((a, b) => far(a) - far(b))[0];
+}
+/* その客のそばまでの道。客が湯船の中など歩けないマスにいるので、隣接マスも試す */
+function pathToNear(w, tx, ty) {
+  const t0 = tileOf(w);
+  for (const p of [{ x: tx, y: ty }, { x: tx, y: ty + 1 }, { x: tx, y: ty - 1 }, { x: tx + 1, y: ty }, { x: tx - 1, y: ty }]) {
+    if (!walkable(p.x, p.y)) continue;
+    const pth = findPath(t0.x, t0.y, p.x, p.y);
+    if (pth) return pth;
+  }
+  return null;
+}
+/* 声をかけた。まだ足りていない客は不満を残して切り上げる＝
+   サウナ料を取っている店ほど「金を取っておいて追い出すのか」と重く響く */
+function tellTimeUp(w, c) {
+  c.told = true; c.timeUp = false;
+  bubble(w, pick(w.kind === 'player' ? LINES.timeUpMe : LINES.timeUp), 3.2);
+  const short = c.needMin > (G.opts.timeLimit || 0);
+  if (short) {
+    const paidSauna = c.wantsSauna && hasCat('sauna') && (G.opts.saunaFee || 0) > 0;
+    c.sat = clamp(c.sat - (paidSauna ? 14 : 8), 0, 100);
+    gripe('timeup');
+    gripeBubble(c, pick(LINES.timeUpMad), 'timeUp');
+    G.today.timeUpN++;
+  } else if (!c.bub) bubble(c, pick(LINES.timeUpOk), 2.4);
+  c.plan = [];                       // 残りの予定は打ち切り。今使っている湯から上がったら着替えに向かう
+  if (c.state === 'waitEquip') { c.waitItem = null; c.state = 'plan'; }   // 並んでいた列からも抜ける
+}
+
 function maintain(w, dt, home) {
+  // 時間切れの客への声かけが最優先（掃除の前に割り込む）
+  if (!w.task || w.task === 'home') {
+    const c0 = findTimeUpTarget(w);
+    if (c0) {
+      const t = tileOf(c0), pth = pathToNear(w, t.x, t.y);
+      if (pth) { w.task = 'tell'; w.target = c0; w.path = pth; w.timer = 1.2; }
+    }
+  }
+  if (w.task === 'tell') {
+    const c0 = w.target;
+    if (!c0 || c0.told || !G.customers.includes(c0)) { w.task = null; w.target = null; }
+    else if (stepMove(w, dt)) {
+      const t = tileOf(c0), t0 = tileOf(w);
+      // 歩いている客を追いかける（着いた時にもう居なければ、その場から追い直す）
+      if (Math.abs(t.x - t0.x) + Math.abs(t.y - t0.y) > 1) {
+        const pth = pathToNear(w, t.x, t.y);
+        if (pth) w.path = pth; else { w.task = null; w.target = null; }
+      } else {
+        w.timer -= dt;
+        if (w.timer <= 0) { tellTimeUp(w, c0); w.task = null; w.target = null; }
+      }
+    }
+    return;
+  }
   if (!w.task) {
+    /* 営業中の主人公は掃除をしない（作者指定＝掃除は「人を雇う」ことでしか買えない）。
+       声かけのためにここへ入って来ることがあるので、汚れは拾わせずに番台へ帰す */
+    const bizPlayer = w.kind === 'player' && G.phase === 'biz';
     // 主人公が開店前に拭ける数には限りがある（それ以上は番台で待つ＝バイトの仕事）
-    const tired = w.kind === 'player' && (G.prepCleaned || 0) >= PREP_CLEAN_MAX;
+    const tired = !bizPlayer && w.kind === 'player' && (G.prepCleaned || 0) >= PREP_CLEAN_MAX;
     // 拭ける数を使い切ったのに、まだ汚れが残っている＝そこで音を上げる（1晩に1回だけ）
     if (tired && G.dirts.length && !G.tiredSaid) {
       G.tiredSaid = true;
       bubble(w, pick(LINES.prepTired), 5.0);
       log(`🧹 ${PREP_CLEAN_MAX}つ拭いたところで手が止まった。残り${G.dirts.length}つはバイトの仕事だ`);
     }
-    const avail = tired ? [] : G.dirts.filter(d => !claimedBy(d, w));
+    const avail = (tired || bizPlayer) ? [] : G.dirts.filter(d => !claimedBy(d, w));
     if (avail.length) {
       const t0 = tileOf(w);
       /* 近い順に、実際にたどり着ける汚れを探す。
@@ -7409,6 +7493,15 @@ function renderManage() {
   const towelPriceRow = o.towel === 'paid'
     ? `<div class="opt-row"><span>タオル料金</span><span>${[100, 200, 300].map(pp =>
         `<button class="opt-btn ${o.towelPrice === pp ? 'on' : ''}" data-act="towelPrice" data-v="${pp}">¥${pp}</button>`).join('')}</span></div>` : '';
+  /* 時間制限の一行説明。いま選んでいる値で、何が起きるかだけを言う。
+     サウナを持っているかで意味が変わる＝持つ前は「タダで回転が上がる」、持った後は「客を切る」 */
+  const timeLimitSub = () => {
+    const v = o.timeLimit || 0;
+    // ボタンが4つ並ぶので、ここは12文字までに収める（折り返させない）
+    if (!v) return '客は好きなだけ居る';
+    if (!hasCat('sauna')) return '回転だけが上がる';
+    return { 90: 'サウナ客の半分を切る', 120: 'サウナ客の15%を切る', 150: 'ほぼ全員が満足する' }[v];
+  };
   const tog = (act, on, label, sub) =>
     `<div class="opt-row"><span>${label}<br><span class="opt-sub">${sub}</span></span>
       <button class="opt-btn toggle ${on ? 'on' : ''}" data-act="${act}">${on ? 'ON' : 'OFF'}</button></div>`;
@@ -7475,6 +7568,9 @@ function renderManage() {
          ここを開けておくと「下ろして決着 → すぐ掲げ直す」で罰だけ踏み倒せてしまう */
       ? `<div class="opt-row locked"><span>刺青・ヤクザお断り<br><span class="opt-sub">🔒 鬼頭と交わした約束がある（評判 -${KITO_ACCEPT_PEN}）</span></span><button class="opt-btn" disabled>—</button></div>`
       : tog('banYakuza', o.banYakuza, '刺青・ヤクザお断り', '「怖い」不満が消える。ただし連中がみかじめ料を要求しに来る')}
+    <div class="opt-row"><span>滞在時間の制限<br><span class="opt-sub">${timeLimitSub()}</span></span><span>${
+      TIME_LIMITS.map(v => `<button class="opt-btn ${(o.timeLimit || 0) === v ? 'on' : ''}" data-act="timeLimit" data-v="${v}">${v ? v + '分' : 'なし'}</button>`).join('')
+    }</span></div>
     <div class="opt-row locked"><span>女湯の開放<br><span class="opt-sub">🔒 新店で解放予定</span></span><button class="opt-btn" disabled>近日</button></div>`;
   box.innerHTML = tabBar + (manageTab === 'fee' ? feePane : manageTab === 'amen' ? amenPane : rulePane);
   box.querySelectorAll('[data-mtab]').forEach(b => b.onclick = () => { manageTab = b.dataset.mtab; renderManage(); });
@@ -7484,6 +7580,7 @@ function renderManage() {
     else if (act === 'saunaFee') { o.saunaFee = +v; o.saunaFeeCustom = false; }
     else if (act === 'feeCustom') o.feeCustom = !o.feeCustom;
     else if (act === 'saunaFeeCustom') o.saunaFeeCustom = !o.saunaFeeCustom;
+    else if (act === 'timeLimit') o.timeLimit = +v;
     else if (act === 'towel') o.towel = v;
     else if (act === 'kidFee') o.kidFee = +v;
     else if (act === 'towelPrice') o.towelPrice = +v;
