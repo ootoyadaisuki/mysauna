@@ -2385,7 +2385,8 @@ function cleanSec(w) { return w.kind === 'player' ? CLEAN_SEC : CLEAN_SEC * 2; }
 function playerSpent() {
   const p = G.player;
   if (G.phase !== 'prep' || !p || p.task || p.moving) return false;
-  if ((G.prepCleaned || 0) < PREP_CLEAN_MAX) return false;
+  // 5つ拭いて力尽きた夜だけでなく、拭ききって汚れが無くなった夜も番台で寝る（作者指定）
+  if ((G.prepCleaned || 0) < PREP_CLEAN_MAX && G.dirts.length) return false;
   const t = tileOf(p), h = playerSpot();
   return t.x === h.x && t.y === h.y;
 }
@@ -3188,6 +3189,10 @@ function openTadokoroVisit() {
   if (d) { openTadokoro((t.holdCount || 0) >= 1 ? 'nagFinal' : 'nag', d); return; }
   const nd = pickDemand('tadokoro');
   if (nd) { openTadokoro('ask', nd); return; }
+  /* 注文を全部こなしたのに、まだ認めてもらえない時は、あと何が足りないのかを本人に言わせる（作者指定）。
+     ここが黙ったままだと、同じ日常の一幕が延々と繰り返され、
+     鬼頭の一件（田所が割って入るのは「認められたあと」）まで止まって見える */
+  if ((t.done || 0) >= TADOKORO_DEMAND_CLEAR && !tadokoroKessenOK()) { openTadokoro('waiting'); return; }
   openTadokoro(Math.random() < 0.5 ? 'eventA' : 'eventB');   // 要求が尽きたら、日常の一幕（共存を問う）
 }
 const TADOKORO_TEXT = {
@@ -3269,9 +3274,26 @@ function openTadokoro(kind, d) {
     $('tadokoroModal').classList.remove('hidden');
     return;
   }
+  /* 注文は全部こなした。あとは「客がついてくるか」だけ＝残りの条件を数字で見せる（作者指定）。
+     何をすれば話が進むのか分からないまま、同じ場面を繰り返させない */
+  if (kind === 'waiting') {
+    const needRep = Math.max(0, TADOKORO_KESSEN_REP - Math.floor(G.rep));
+    const needNaj = Math.max(0, TADOKORO_KESSEN_NAJIMI - Math.floor(G.najimi));
+    const lack = [needRep ? `<b>評判あと${needRep}</b>` : '', needNaj ? `<b>常連との絆あと${needNaj}</b>` : '']
+      .filter(Boolean).join('　');
+    $('tadokoroTitle').textContent = '🧓 田所は、まだ見ている';
+    $('tadokoroInfo').innerHTML = `田所が湯上がりに番台の前で足を止め、店をぐるりと見回した。<br><br>` +
+      `「注文はもう無い。${TADOKORO_DEMAND_CLEAR}つとも、ちゃんとやりおったな。<br>` +
+      `……だがな、店ってのは、わし一人が納得すりゃいい話じゃない。<br>` +
+      `<b>この湯に、街の客がついてくるかどうかだ。</b>それを見てから、わしは口をきく。」<br><br>` +
+      `<span class="mika-note">📌 田所が認めるまで　${lack || 'もう目前だ'}</span>`;
+    addBtn('とじる', '注文はすべて済んでいる。あとは店の評判を上げる', () => resolveTadokoro('waiting'));
+    $('tadokoroModal').classList.remove('hidden');
+    return;
+  }
   const TX = TADOKORO_TEXT[kind];
   $('tadokoroTitle').textContent = TX.title;
-  $('tadokoroInfo').innerHTML = TX.info;
+  $('tadokoroInfo').innerHTML = shopify(TX.info);
   if (kind === 'hello') {
     // 顔合わせだけ。ここでは何も要求されないし、選択肢もない（後の“注文”への布石）
     addBtn('🧓 ……ああ、覚えてるよ', '田所と顔を合わせた（この店の古株だ）', () => resolveTadokoro('hello'));
@@ -3323,6 +3345,9 @@ function resolveTadokoro(kind, arg) {
     addRep(DEMAND_REP_GAIN);
     toast(`✅ 田所の注文をこなした（${t.done}/${TADOKORO_DEMAND_CLEAR}）常連との絆↑・評判↑`);
     log(`🧓 田所の注文をこなした（${demandLabel(arg)}）`);
+  } else if (kind === 'waiting') {
+    // 待ちの一幕は間を空ける＝毎日のように同じ話を聞かされない（作者指定）
+    t.nextDay = G.day + irand(3, 5);
   } else if (kind === 'hold') {
     // フェーズ2：1回目の未達成はまだ猶予（軽い減点のみ）。次に来た時も未達成なら罰ゲームへ
     t.holdCount = (t.holdCount || 0) + 1;
@@ -3454,7 +3479,7 @@ function openKuroda(kind, d, oldD) {
   }
   const TX = KURODA_TEXT[kind];
   $('kurodaTitle').textContent = TX.title;
-  $('kurodaInfo').innerHTML = TX.info;
+  $('kurodaInfo').innerHTML = shopify(TX.info);
   if (kind === 'kessen') {
     addBtn('とじる', '黒田が仲間になった', () => resolveKuroda('kessen'));
   } else {
@@ -3656,7 +3681,7 @@ function maybeReinaCinematic() {
     if (left <= 0) { openReinaDuel(); return true; }
     if (left === 2 && !G.flags.duelTV2B) {
       G.flags.duelTV2B = true;
-      StoryArt.tvTicker = '夕凪湯に世界一の熱波師！　連日の大行列';
+      StoryArt.tvTicker = shopify('夕凪湯に世界一の熱波師！　連日の大行列');
       Story.play(STORY_DUEL_TV2B, () => {
         StoryArt.tvTicker = null;
         log(`📺 テレビが【${EQ.sauna_sp.name}】と世界一の熱波師を特集。店の盛況が街に流れた`);
@@ -3820,7 +3845,7 @@ function openReinaVisit() {
 function openReina(kind) {
   const T = REINA_TEXT[kind];
   $('reinaTitle').textContent = T.title;
-  $('reinaInfo').innerHTML = T.info;
+  $('reinaInfo').innerHTML = shopify(T.info);
   const box = $('reinaChoices'); box.innerHTML = '';
   const addBtn = (label, sub, fn) => {
     const b = document.createElement('button');
@@ -3833,10 +3858,10 @@ function openReina(kind) {
     addBtn(`💴 待遇を上げて引き留める（${yen(REINA_POACH_COST)}）`, 'バイトを守る（現場が回り続ける）', () => resolveReina('poach', 'retain'));
     addBtn('🤝 本人に任せる', `絆が深ければ残ってくれる（常連絆 ${Math.round(G.najimi)}／薄いと引き抜かれる）`, () => resolveReina('poach', 'trust'));
   } else if (kind === 'buyout') {
-    addBtn('🛁 断る（夕凪湯は売らない）', '孤高を貫く（投票対決の共感票が増える・評判↑）', () => resolveReina('buyout', 'refuse'));
+    addBtn(shopify('🛁 断る（夕凪湯は売らない）'), '孤高を貫く（投票対決の共感票が増える・評判↑）', () => resolveReina('buyout', 'refuse'));
     addBtn(`💰 ${yen(REINA_BUYOUT)}で売る…`, 'もうひとつの結末へ（親父は…）', () => openReina('sell'));
   } else if (kind === 'sell') {   // 売る直前の確認ゲート（誤操作で終わらせない）
-    addBtn('🛁 やっぱり、売れない', '夕凪湯を守る（孤高ルートへ戻る）', () => resolveReina('buyout', 'refuse'));
+    addBtn('🛁 やっぱり、売れない', shopify('夕凪湯を守る（孤高ルートへ戻る）'), () => resolveReina('buyout', 'refuse'));
     addBtn(`💰 それでも、売る（${yen(REINA_BUYOUT)}）`, '契約書にサインする', () => doReinaSell());
   }
   $('reinaModal').classList.remove('hidden');
@@ -5238,7 +5263,16 @@ function addFloater(x, y, text) {
   Sfx.play(String(text)[0] === '-' ? 'pay' : 'cash');
 }
 function addSparkle(x, y) { for (let i = 0; i < 6; i++) sparkles.push({ x: x + rand(-12, 12), y: y + rand(-10, 10), t: rand(.5, 1.1) }); }
+/* 屋号の読み替え（作者指定）。台本もモーダルも通知も、書かれているのは親父の代の「夕凪湯」。
+   プレイヤーが暖簾に別の名前を書いたら、画面に出る時にその屋号へ差し替える＝
+   台本のあちこちに {店名} を書いて回らなくても、屋号がちゃんと物語に出てくる */
+function shopify(s) {
+  const nm = (typeof G !== 'undefined' && G.name) ? G.name : '';
+  if (!nm || nm === '夕凪湯' || s == null) return s;
+  return String(s).split('夕凪湯').join(nm);
+}
 function log(text) {
+  text = shopify(text);
   const h = CONF.openHour + (G.minutes / 60) | 0;
   G.logLines.unshift(`${String(Math.min(h, 23)).padStart(2)}時 ${text}`);
   G.logLines = G.logLines.slice(0, 2);
@@ -5279,14 +5313,14 @@ let toastTimer = null;
 function toast(text) {
   let el = $('toast');
   if (!el) { el = document.createElement('div'); el.id = 'toast'; $('game-ui').appendChild(el); }
-  el.textContent = text; el.style.opacity = 1;
+  el.textContent = shopify(text); el.style.opacity = 1;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.style.opacity = 0, 2200);
 }
 function setHint(html) {
   const el = $('hint');
   if (!html) { el.classList.add('hidden'); return; }
-  el.innerHTML = html; el.classList.remove('hidden');
+  el.innerHTML = shopify(html); el.classList.remove('hidden');
 }
 
 /* ============ 描画 ============ */
@@ -7588,7 +7622,11 @@ function initUI() {
   // ☰ メニュー（準備中でも営業中でも、右上からいつでも開ける）
   $('btnMenu').onclick = openMenu;
   // データ（準備中でも営業中でも開ける）
-  const openData = () => { renderData(); openPausedModal('dataModal'); };
+  const openData = () => {
+    // 見出しの「夕凪湯の数字」も屋号に合わせる（作者指定）
+    $('dataNote').textContent = shopify('いまの夕凪湯の数字。判断に迷ったらここを見ろ。');
+    renderData(); openPausedModal('dataModal');
+  };
   $('btnData').onclick = openData;
   $('btnDataBiz').onclick = openData;
   $('btnDataClose').onclick = () => closePausedModal('dataModal');

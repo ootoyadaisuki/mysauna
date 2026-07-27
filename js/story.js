@@ -1030,9 +1030,13 @@ const Story = {
      親父たちは「お前の店」ではなく「たいし湯」のように、店の名前で呼ぶ）。
      まだ名前が決まっていない時だけ「うち」で逃がす */
   lineText(line) {
-    if (line.text.indexOf('{店名}') < 0) return line.text;
     const nm = (typeof G !== 'undefined' && G.name) ? G.name : 'うち';
-    return line.text.replace(/\{店名\}/g, nm);
+    let s = line.text;
+    if (s.indexOf('{店名}') >= 0) s = s.replace(/\{店名\}/g, nm);
+    /* 台本は親父の代の屋号「夕凪湯」で書いてある。プレイヤーが暖簾に別の名前を
+       書いていたら、その屋号に読み替える（作者指定＝店の名前が物語に出てくる） */
+    if (typeof shopify === 'function') s = shopify(s);
+    return s;
   },
 
   showLine() {
