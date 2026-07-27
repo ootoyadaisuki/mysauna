@@ -923,7 +923,12 @@ function finishUse(c) {
   if (!c.bub) {
     if (cat === 'furo') {
       if (def.old) bubble(c, pick(LINES.bathOld));
-      else if (c.tempReact === 'hot') { gripe('temp'); gripeBubble(c, pick(LINES.furoHot), 'temp'); }
+      /* 「ぬる湯も置いてくれ」は、店にぬる湯（40℃以下）が無い時だけ（作者指摘）。
+         あるのにそう言われると、何を求められているのか分からない */
+      else if (c.tempReact === 'hot') {
+        gripe('temp');
+        gripeBubble(c, pick(furoTemps().some(v => v <= 40) ? LINES.furoHotOnly : LINES.furoHot), 'temp');
+      }
       else if (c.tempReact === 'nuru') { gripe('temp'); gripeBubble(c, pick(LINES.furoNuru), 'temp'); }
       else if (item.id === 'bath2') bubble(c, pick(LINES.bathHinoki));
       else if (item.id === 'bath_tansan') bubble(c, pick(LINES.furoTansan));
@@ -1241,8 +1246,7 @@ function amenityParts() {
   soap('ボディソープ', o.bodysoapPrice);
   // 化粧水・乳液とドライヤーは、洗面所を置いてはじめて客が使える
   if (hasWorking('sink')) {
-    add('化粧水・乳液', o.lotionFee === 0 ? AMEN_CHEAP : o.lotionFee <= 50 ? AMEN_FAIR : 0,
-      o.lotionFee ? `¥${o.lotionFee}` : '無料');
+    add('化粧水・乳液', o.lotionOn === false ? 0 : AMEN_CHEAP, o.lotionOn === false ? '置いていない' : '無料');
     add('ドライヤー', o.dryerFee ? 0.5 : 1, o.dryerFee ? `¥${o.dryerFee}` : '無料', 1);
   } else {
     add('化粧水・乳液', 0, '洗面所がない');
@@ -1324,8 +1328,9 @@ function repAdvice(key) {
   const upgrade = cat => {
     // まだ置いていないもののうち、いま置いてある一番いい台より質(q)が上で、いちばん安いもの
     const best = bestQ(cat);
+    // 決戦仕様（◯◯スペシャル）は物語の内緒なので、ここでは勧めない（作者指定）
     const up = Object.entries(EQ).filter(([id, d]) => d.cat === cat && (d.q || 1) > best
-      && (d.rep || 0) <= G.rep && !d.old).sort((a, b) => a[1].price - b[1].price)[0];
+      && (d.rep || 0) <= G.rep && !d.old && id !== DUEL_ONLY_EQ).sort((a, b) => a[1].price - b[1].price)[0];
     return up ? `${up[1].name}に買い替えると伸びる` : '種類を増やすほうが早い';
   };
   switch (key) {
@@ -1336,7 +1341,7 @@ function repAdvice(key) {
         : `濃い汚れが${d.thick}つ。拭けるのはバイトだけ`;
       if (d.thin >= CONF.dirtThinN) return `薄い汚れが${d.thin}つ。濃くなる前に拭く`;
       // 満点には観葉植物が要る（作者指定）＝床が綺麗なだけでは10点にならない
-      if (!G.equip.some(e => e.id === 'plant1' && e.cond > 0 && usable(e))) return '観葉植物を置くと満点に届く';
+      if (!G.equip.some(e => e.id === 'plant1' && e.cond > 0 && usable(e))) return '観葉植物が無いと8点止まり';
       /* 掃除の人手が客数に足りていないと、点そのものが大きく削られる（バイト0なら1.5点どまり） */
       const need = Math.max(1, Math.ceil((t.paid || 0) / 25));
       if (!G.roster.length) return 'バイトを雇わないと点が伸びない';
@@ -1789,10 +1794,8 @@ function customerLeave(c) {
   if (hasWorking('sink')) {
     if (!G.opts.dryerFee) c.sat += 2;
     else if (Math.random() < 0.65) { const p = G.opts.dryerFee; G.cash += p; G.today.amenRev += p; G.today.amenN++; G.today.revenue += p; }
-    if (!G.opts.lotionFee) c.sat += 2;
-    else if (Math.random() < clamp(0.7 - (G.opts.lotionFee - 50) / 200, 0.25, 0.7)) {
-      const p = G.opts.lotionFee; G.cash += p; G.today.amenRev += p; G.today.amenN++; G.today.revenue += p;
-    } else c.sat -= 1;
+    // 化粧水・乳液は「置く／置かない」だけ（作者指定で販売は廃止）。置いてあれば喜ぶ
+    if (G.opts.lotionOn !== false) c.sat += 2;
   }
   // ※マッサージチェアの¥100は「実際に座った時」に入る（customerLeaveでの一律抽選は廃止）
   // お気に入りの設備があった客は、たまにそれを口にする
@@ -2935,8 +2938,19 @@ function openTadokoro(kind, d) {
   } else if (kind === 'kessen') {
     addBtn('とじる', '田所が仲間になった', () => resolveTadokoro('kessen'));
   } else {
-    addBtn('🤝 共存を選ぶ', '古い常連の居場所も残す（常連との絆↑）', () => resolveTadokoro(kind, 'kyozon'));
-    addBtn('🔥 サウナ路線を貫く', '時代に合わせて攻める（評判↑・田所は渋い顔）', () => resolveTadokoro(kind, 'kaikaku'));
+    /* 選択肢は場面ごとに変える（作者指摘）。中身（絆を取るか、評判を取るか）は同じでも、
+       水漏れを直してもらった場面で「サウナ路線を貫く」と答えるのは、話が噛み合っていない */
+    const CH = {
+      intro:  [['🤝 昔からの湯を守る', '古い常連の居場所を残すと約束する（絆↑）'],
+               ['🔥 サウナで新しい客を呼ぶ', '正直に路線を告げる（評判↑・田所は渋い顔）']],
+      eventA: [['🤝 古参の作法に合わせる', '長湯も昔からの流儀だと収める（絆↑）'],
+               ['🔥 サウナーの作法を通す', '新しい客のマナーを店の基準にする（評判↑）']],
+      eventB: [['🤝 礼を言って、教えを乞う', 'この店の配管を教わる（絆↑）'],
+               ['🔥 業者を呼ぶから無理はするな', '筋を通して断る（評判↑・田所は渋い顔）']],
+    };
+    const c = CH[kind] || CH.intro;
+    addBtn(c[0][0], c[0][1], () => resolveTadokoro(kind, 'kyozon'));
+    addBtn(c[1][0], c[1][1], () => resolveTadokoro(kind, 'kaikaku'));
   }
   $('tadokoroModal').classList.remove('hidden');
 }
@@ -3787,7 +3801,7 @@ function closeDay() {
      無料にすると経費が跳ね上がる／売れば売るほど仕入れが伸びる、という読みにくさをなくす */
   const keihiCut = kurodaAllyOn() ? 0.94 : 1;   // 黒田が仲間なら経費6%off（仕入れ・タオルの無駄を締める）
   const amenityCost = Math.round(((G.opts.soapMode !== 'none' ? CONF.soapCostPerDay : 0)
-                    + (hasWorking('sink') ? CONF.lotionCostPerDay : 0)
+                    + (hasWorking('sink') && G.opts.lotionOn !== false ? CONF.lotionCostPerDay : 0)
                     + (hasMat() ? 500 : 0) + (hasAkasuri() ? 500 : 0)) * keihiCut);
   // タオルも一律の定額（無料貸出の洗濯代という従量ぶんは廃止・作者指定）
   const towelCost = Math.round((G.opts.towel !== 'none' ? CONF.towelCostPerDay : 0) * keihiCut);
@@ -7009,17 +7023,19 @@ function initUI() {
     $('staffModal').classList.add('hidden');
     if (G.phase === 'biz') { G.paused = false; $('btnPause').textContent = '⏸ 一時停止'; }
   };
-  $('btnLoan').onclick = () => {
+  const openLoan = () => {
     /* 初回だけ、まず信用金庫に断られる場面を挟む（作者指定）。
        「銀行は選択肢にない」ことを説明文ではなく場面で分からせてから、サラ金の欄を見せる */
     if (!G.flags.bankIntro) {
       G.flags.bankIntro = true; saveGame();
-      Story.play(STORY_BANK_INTRO, () => { renderLoan(); $('loanModal').classList.remove('hidden'); });
+      Story.play(STORY_BANK_INTRO, () => { renderLoan(); openPausedModal('loanModal'); });
       return;
     }
-    renderLoan(); $('loanModal').classList.remove('hidden');
+    renderLoan(); openPausedModal('loanModal');
   };
-  $('btnLoanClose').onclick = () => $('loanModal').classList.add('hidden');
+  $('btnLoan').onclick = openLoan;
+  $('btnLoanBiz').onclick = openLoan;   // 営業中も借りられる（運営とデータの間・作者指定）
+  $('btnLoanClose').onclick = () => closePausedModal('loanModal');   // 営業中に開いた時は、閉じたら再開する
   /* サラ金は審査なし・即日。10万円刻みで好きな額を、限度100万まで一度に借りられる（作者指定）。
      銀行は廃止したので、ここが唯一の資金調達口。
      限度が低いのが肝＝借金で設備を揃えることはできず、稼いで返すしかない */
@@ -7044,15 +7060,7 @@ function initUI() {
     toast(`灰田から ${yen(amt)} 借りた…`);
     oyajiNag('loan', 2.4);                       // 2回目以降は“ながら”の小言だけ
   };
-  $('btnYamiRepay').onclick = () => {
-    if (!G.yami || G.yami.debt <= 0) return;
-    const off = yamiPayoff();                      // 集金の画面の【全額返済】と同じ額（元本＋今週の金利）
-    if (G.cash < off) { toast('全額返すには足りない…'); return; }
-    G.cash -= off; G.yami.debt = 0;
-    toast('🎉 灰田ファイナンスを完済した…！ 集金は来なくなる');
-    log('💳 灰田ファイナンスを完済した。もう、あの男は来ない');
-    renderLoan(); updateTopbar(); saveGame();
-  };
+  // 返済のボタンは renderYamiRepayBar が毎回作る（額をバーで決めるため）
   // 配置
   $('btnPlaceOk').onclick = () => {
     const p = G.placing;
@@ -7238,9 +7246,7 @@ function renderManage() {
         }</span></div>`
       : `<div class="opt-row locked"><span>ドライヤー<br><span class="opt-sub">🔒 洗面所の設置で解放</span></span><button class="opt-btn" disabled>—</button></div>`}
     ${hasWorking('sink')
-      ? `<div class="opt-row"><span>化粧水・乳液<br><span class="opt-sub">一律¥${CONF.lotionCostPerDay.toLocaleString()}/日。高いと使う客が減る</span></span><span>${
-          LOTION_FEES.map(f => `<button class="opt-btn ${o.lotionFee === f ? 'on' : ''}" data-act="lotionFee" data-v="${f}">${f ? '¥' + f : '無料'}</button>`).join('')
-        }</span></div>`
+      ? tog('lotionOn', o.lotionOn !== false, '化粧水・乳液', `置けば満足度↑／¥${CONF.lotionCostPerDay.toLocaleString()}/日`)
       : `<div class="opt-row locked"><span>化粧水・乳液<br><span class="opt-sub">🔒 洗面所の設置で解放</span></span><button class="opt-btn" disabled>—</button></div>`}
     ${tog('akasuriTowel', hasAkasuri(), '垢すりタオル', '満足度↑／¥500/日')}
     ${tog('saunaMat', hasMat(), 'サウナマット', 'サウナ満足度↑／¥500/日')}
@@ -7282,7 +7288,7 @@ function renderManage() {
       }
     }
     else if (act === 'dryerFee') o.dryerFee = +v;
-    else if (act === 'lotionFee') o.lotionFee = +v;
+    else if (act === 'lotionOn') o.lotionOn = !(o.lotionOn !== false);
     else if (act === 'shampooPrice' || act === 'bodysoapPrice') o[act] = +v;
     // 置き場のあるアメニティ。ONなら浴室内の場所選び、OFFなら撤去
     else if (act === 'akasuriTowel' || act === 'saunaMat') { toggleRack(act === 'saunaMat' ? 'matrack' : 'akarack'); return; }
@@ -7492,9 +7498,8 @@ function renderLoan() {
   const yDebt = G.yami ? G.yami.debt : 0;
   const canBorrow = yDebt + CONF.sarakinUnit <= CONF.sarakinMax;   // 10万すら借りられない＝枠いっぱい
   $('loanInfoYami').innerHTML =
-    `審査なし・即日。<b>${manYen(CONF.sarakinUnit)}刻み</b>で、<b>${manYen(CONF.sarakinMax)}まで</b>好きなだけ。<br>` +
-    `金利は年${Math.round(CONF.sarakinApr * 100)}%。毎週水曜に集金が来る。<br>` +
-    `集金では「ジャンプ（金利のみ）／10万円返す／全額返済」から選ぶ。` +
+    `審査なし・即日融資・上限${manYen(CONF.sarakinMax)}。<br>` +
+    `金利は年${Math.round(CONF.sarakinApr * 100)}%。毎週水曜に集金が来る。` +
     (yDebt > 0
       ? `<br>残債 <b>${manYen(yDebt)}</b>（今週の金利 ${yen(yamiDue())}）`
       : '') +
@@ -7511,8 +7516,39 @@ function renderLoan() {
   $('borrowAmts').querySelectorAll('button').forEach(b => {
     b.onclick = () => window.doBorrowSarakin(+b.dataset.amt);
   });
-  $('btnYamiRepay').innerHTML = yDebt > 0 ? `全額返済<br>（${manYen(yamiPayoff())}）` : '全額返済';
-  $('btnYamiRepay').disabled = !(yDebt > 0 && G.cash >= yamiPayoff());
+  renderYamiRepayBar(yDebt);
+}
+/* 返済はバーで額を決める（作者指定）。10万円きざみで、残債と手持ちの小さいほうが上限。
+   集金の場面と違って金利は乗せない＝ここで返すのは元本そのもの（前倒しの繰上返済） */
+function renderYamiRepayBar(yDebt) {
+  const box = $('yamiRepayBox');
+  if (!yDebt) { box.innerHTML = '<p class="modal-note">借金はない。</p>'; return; }
+  const unit = CONF.sarakinPrincipal;
+  const max = Math.min(yDebt, Math.floor(G.cash / unit) * unit);
+  if (max < unit) {
+    box.innerHTML = `<p class="modal-note">返すには最低 ${manYen(unit)} 要る（手持ち ${yen(G.cash)}）。</p>`;
+    return;
+  }
+  box.innerHTML =
+    `<div class="yami-bar">
+       <div class="yami-bar-val">返す額 <b id="loanRepVal">${manYen(unit)}</b>
+         <br><span class="opt-sub">残り <b id="loanLeftVal">${yen(yDebt - unit)}</b></span></div>
+       <input type="range" id="loanRep" min="${unit}" max="${max}" step="${unit}" value="${unit}">
+     </div>
+     <button id="btnLoanRepay" class="big-btn">この額を返す<br><span class="opt-sub">灰田の口座へ振り込む</span></button>`;
+  const sl = $('loanRep');
+  sl.oninput = () => {
+    $('loanRepVal').textContent = manYen(+sl.value);
+    $('loanLeftVal').textContent = yen(yDebt - +sl.value);
+  };
+  $('btnLoanRepay').onclick = () => {
+    const p = +sl.value;
+    G.cash -= p; G.yami.debt = Math.max(0, G.yami.debt - p);
+    G.today.yamiPaid = (G.today.yamiPaid || 0) + p;
+    if (G.yami.debt <= 0) { G.yami.debt = 0; toast('🎉 灰田ファイナンスを完済した…！'); log('💳 灰田への返済を終えた。もう来ない'); }
+    else { toast(`灰田に ${yen(p)} 返した（残り ${yen(G.yami.debt)}）`); log(`💳 灰田に ${yen(p)} 返した`); }
+    renderLoan(); updateTopbar(); saveGame();
+  };
 }
 
 /* ============ 起動 ============ */

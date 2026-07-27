@@ -85,6 +85,7 @@
         <div id="bizStats">客 0人 / 売上 ¥0</div>
         <div class="biz-actions">
           <button id="btnManageBiz" class="sm-btn">⚙ 運営</button>
+          <button id="btnLoanBiz" class="sm-btn">🏦 融資</button>
           <button id="btnDataBiz" class="sm-btn">📊 データ</button>
           <button id="btnPause" class="sm-btn">⏸ 一時停止</button>
           <button id="btnSpeed" class="sm-btn">▶ 速度1</button>
@@ -195,9 +196,8 @@
         <p id="loanInfoYami" class="modal-note"></p>
         <!-- 借入額は10万円刻みで自由に選べる（作者指定）。一度に限度額いっぱいまで借りてもいい -->
         <div id="borrowAmts" class="loan-amts"></div>
-        <div class="loan-actions">
-          <button id="btnYamiRepay" class="big-btn">全額返済</button>
-        </div>
+        <!-- 返済額はバーで自由に決める（作者指定）。10万円きざみ・残債と手持ちの小さい方が上限 -->
+        <div id="yamiRepayBox" class="loan-actions"></div>
       </div>
       <button id="btnLoanClose" class="big-btn">とじる</button>
     </div>
