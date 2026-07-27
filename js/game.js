@@ -595,7 +595,9 @@ function roachTiles(noDirt) {
 function updateRoach(rDt) {
   if (G.phase !== 'biz' && G.phase !== 'prep') { G.roach = null; return; }
   if (dirtCounts().thick < ROACH_FROM) { G.roach = null; for (const d of G.dirts) d.roach = false; return; }
-  // 仕留めた直後はしばらく出てこない（叩いた端から湧いたら、ずっと追いかけ回すことになる）
+  /* 仕留めた直後はしばらく出てこない（叩いた端から湧いたら、ずっと追いかけ回すことになる）。
+     ここは実時間の秒。最速だと1日が50秒ほどなので、長く取りすぎると
+     「濃い汚れが5つ以上あるのに、何日も1匹も出ない」ことになる（実際そうなっていた） */
   if (G.roachCool > 0) { G.roachCool -= rDt; return; }
   if (!G.roach) {
     const start = pick(roachTiles(true) || []) || pick(roachTiles(false));   // 汚れの無いマスから現れる
@@ -640,7 +642,7 @@ function killRoach(w, tile) {
   tile = tile || { x: r.tx, y: r.ty };
   G.roachSplat = { x: r.px, y: r.py, t: 1.4 };
   G.roach = null;
-  G.roachCool = rand(40, 90);            // 次の1匹が出てくるまでの間
+  G.roachCool = rand(8, 16);             // 次の1匹が出てくるまでの間（実時間の秒）
   for (const d of G.dirts) d.roach = false;
   addSparkle(tile.x * T + T / 2, tile.y * T + T / 2);
   Sfx.play('fix');
@@ -2435,7 +2437,9 @@ function maintain(w, dt, home) {
      以前は「ゴキブリが乗っている汚れを優先して拭く」だけだったので、
      着く頃には別のマスへ走り去っていて、いつまでも仕留められなかった。
      ここでは相手そのものを追いかけ、隣のマスまで詰めたところで叩く */
-  if ((!w.task || w.task === 'home' || w.task === 'clean') && G.roach && !claimedBy(G.roach, w)) {
+  // 営業中の主人公（バイト0人の日）は、番台を離れられる回数のうちでしか追えない
+  const soloOut = w.kind === 'player' && G.phase === 'biz' && (G.bizCleaned || 0) >= BIZ_CLEAN_MAX;
+  if (!soloOut && (!w.task || w.task === 'home' || w.task === 'clean') && G.roach && !claimedBy(G.roach, w)) {
     const pth = pathToNear(w, G.roach.tx, G.roach.ty);
     if (pth) { w.task = 'roach'; w.target = G.roach; w.path = pth; }
   }
@@ -2447,6 +2451,8 @@ function maintain(w, dt, home) {
       const t0 = tileOf(w);
       if (Math.abs(t0.x - r.tx) <= 1 && Math.abs(t0.y - r.ty) <= 1) {
         killRoach(w, t0); w.task = null; w.target = null;
+        // 番台を離れて叩きに行った1回ぶん（掃除と同じ枠で数える）
+        if (w.kind === 'player' && G.phase === 'biz') G.bizCleaned = (G.bizCleaned || 0) + 1;
       } else if (arrived) {                       // 逃げられた＝いまの居場所へ追い直す
         const pth = pathToNear(w, r.tx, r.ty);
         if (pth) w.path = pth; else { w.task = null; w.target = null; }
@@ -2487,7 +2493,7 @@ function maintain(w, dt, home) {
       G.tiredSaid = true;
       bubble(w, pick(soloPlayer ? LINES.bizTired : LINES.prepTired), 5.0);
       log(soloPlayer
-        ? `🧹 ${BIZ_CLEAN_MAX}つ拭いたところで番台に戻された。ひとりでは、これ以上は手が回らない`
+        ? `🧹 ${BIZ_CLEAN_MAX}つ拭いたところで手を止め、番台に戻った。ひとりでは、これ以上は手が回らない`
         : `🧹 ${PREP_CLEAN_MAX}つ拭いたところで手が止まった。残り${G.dirts.length}つはバイトの仕事だ`);
     }
     const avail = tired ? [] : G.dirts.filter(d => !claimedBy(d, w));
@@ -2555,6 +2561,7 @@ function startDay() {
   G.phase = 'biz';
   G.minutes = 0;
   G.bizCleaned = 0;                        // 営業中に主人公が拭いた数（バイト0人の日だけ増える）
+  G.roachCool = 0;                         // 前日の「仕留めた直後」は持ち越さない（朝は出直し）
   G.tiredSaid = false;                     // 「これ以上は手が回らない」の独り言は1日1回
   for (const d of G.dirts) d.t = -9999;    // 前日から持ち越した汚れは、開店の時点で「放置」扱い
   refreshDead();                 // 開店前に、道が通っていない設備を洗い直す
