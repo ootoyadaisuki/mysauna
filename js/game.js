@@ -176,6 +176,15 @@ const GRIPE_LABEL = {
   lack:    '欲しい設備・備品がない',
   timeup:  '時間制限で途中で追い出された',
 };
+/* お客の声を1件ためる。w＝その声が満足度から奪った点数（＝評判への効きめ）。
+   日報では種類ごとにまとめ、「奪った点数の合計」の多い順に出す＝その日の実態が上に来る。
+   以前は先着6件＋抽選で拾っていたので、午前中にたまたま当たった声しか載らなかった。
+   褒め言葉は w=0 で入れておき、不満の少ない日だけ顔を出す */
+function voice(c, line, key, w, mark) {
+  const vs = G.today && G.today.voices;
+  if (!vs || vs.length >= 200) return;
+  vs.push({ line, who: (c && c.type) ? c.type.name : '客', key, w: w || 0, mark: mark || '' });
+}
 function gripe(key, n) {
   if (!G.today.gripes) G.today.gripes = {};
   G.today.gripes[key] = (G.today.gripes[key] || 0) + (n || 1);
@@ -1032,7 +1041,7 @@ function finishUse(c) {
       gripe('dirty');
       const line = pick(LINES.dirtyBad);
       hintBubble(c, line);
-      if (G.today.voices.length < 6) G.today.voices.push(`⚠ ${c.type.name}「${line}」`);
+      voice(c, line, 'dirty', CONF.dirtAngryHit, '⚠');
     }
   } else if (dc.thick >= 1 && !c.dirtAnnoy) {
     c.dirtAnnoy = true;
@@ -1088,7 +1097,7 @@ function finishUse(c) {
       const tLines = c.lastSaunaGentle ? LINES.totonoiSoft : LINES.totonoi;
       bubble(c, pick(tLines), 3.2);
       addSparkle(c.px, c.py - 20);
-      if (G.today.voices.length < 6) G.today.voices.push(`${c.type.name}「${pick(tLines)}」`);
+      voice(c, pick(tLines), 'totonoi', 0);
     } else {
       // 順番は踏んだのに、ととのいきらなかった＝設備か清潔さが足りない
       c.sat += 6;
@@ -1802,6 +1811,9 @@ function feeSatMod() {
   return Math.round((FEE_BASE - G.opts.fee) / 100 * 3) - Math.round(feeGripe() * 4 + saunaFeeGripe() * 2);
 }
 
+/* ヒントの吹き出し1件が、実際にどれくらい満足度を削っているか（日報の並び順に使う）。
+   料金は feeSatMod、汚れは dirtThinHit、ないものねだりは-3が毎回の客に効いている */
+const HINT_WEIGHT = { price: 6, dirty: 8, lack: 3 };
 /* 不満の吹き出しを「客の不満」欄のどの項目として数えるか */
 const GRIPE_OF_HINT = {
   hintFee: 'price', hintSaunaFee: 'price', priceyTebura: 'price', teburaPricey: 'price',
@@ -1898,8 +1910,8 @@ function customerLeave(c) {
     c.sat -= Math.round(CONF.dosenHit * Math.min(tiles / lim, 2));
     gripe('dosen');
     if (!c.bub) hintBubble(c, pick(pro ? LINES.dosenPro : LINES.dosen));
-    if (G.today.voices.length < 6 && Math.random() < 0.4)
-      G.today.voices.push(`⚠ ${c.type.name}「${pick(pro ? LINES.dosenPro : LINES.dosen)}」`);
+    voice(c, pick(pro ? LINES.dosenPro : LINES.dosen), 'dosen',
+          Math.round(CONF.dosenHit * Math.min(tiles / lim, 2)), '⚠');
   }
   // フェーズ3：ないものねだり（ミスト・塩・熱波師）。帰り際に「あれが無かったな…」とがっかりする
   if (c.wantsMist && !hasWorking('sauna_mist')) { c.sat -= 3; gripe('lack'); if (!c.bub && Math.random() < .5) bubble(c, pick(LINES.wantMist)); }
@@ -1941,7 +1953,7 @@ function customerLeave(c) {
     if (!c.bub && Math.random() < 0.35) {
       const line = pick(LINES.snobWant);
       bubble(c, line);
-      if (G.today.voices.length < 6 && Math.random() < 0.5) G.today.voices.push(`💎 ${c.type.name}「${line}」`);
+      voice(c, line, 'snob', 6, '💎');
     }
   }
   // 運営メニューの影響
@@ -1958,7 +1970,8 @@ function customerLeave(c) {
       const line = pick(LINES[key]);
       hintBubble(c, line);
       hinted = true;
-      if (G.today.voices.length < 6) G.today.voices.push(`⚠ ${c.type.name}「${line}」`);
+      const gk = GRIPE_OF_HINT[key] || 'lack';
+      voice(c, line, gk, HINT_WEIGHT[gk] || 4, '⚠');
     }
   }
   if (!hinted && !c.bub) {
@@ -1983,12 +1996,12 @@ function customerLeave(c) {
     G.regulars = clamp(G.regulars - 1, 0, CONF.regularMax); G.today.regularsDown++;
   }
   // 帰り際の一言。ヒントの吹き出しが出ている時は上書きしない（赤枠を消さない）
-  if (c.sat >= 70) { if (!c.bub) bubble(c, pick(LINES.leaveGood)); if (G.today.voices.length < 6 && Math.random() < .4) G.today.voices.push(`${c.type.name}「${pick(LINES.leaveGood)}」`); }
+  if (c.sat >= 70) { if (!c.bub) bubble(c, pick(LINES.leaveGood)); voice(c, pick(LINES.leaveGood), 'leaveGood', 0); }
   else if (c.sat < 45) {
     const bad = pick(LINES.leaveBad);
     if (!c.bub) bubble(c, bad);
     logGripe(c.type.name, bad, 'leaveBad');                              // 不満顔で帰った客は赤文字で知らせる
-    if (G.today.voices.length < 6 && Math.random() < .5) G.today.voices.push(`${c.type.name}「${bad}」`);
+    voice(c, bad, 'leaveBad', Math.round(50 - c.sat), '⚠');
   }
   c.state = 'toExit';
   walkToExit(c);
@@ -4208,13 +4221,24 @@ function closeDay() {
   if (profit < 0 && G.day <= 5 && repD > 0) {
     html += `<div class="rep-voice">💡 まだ赤字だが、評判は上がっている。銭湯は客足が戻るまで数日かかる。慌てて借りるな。</div>`;
   }
-  // お客の声＝改善のヒント中心（クレーム・要望を先に、褒め言葉は後に・作者指定）
+  /* お客の声＝その日の実態を、効いた順に出す（作者指定）。
+     種類ごとにまとめ、「奪った満足度の合計＝件数×1件あたりの重さ」の多い順に並べる。
+     件数順にしないのは、軽い不満が数だけで、致命的な不満（壊れている等）を押しのけるため。
+     不満が3件に満たない日だけ、余った枠に褒め言葉を入れる＝序盤は不満だらけでいい */
   if (t.voices.length) {
-    const isClaim = s => /^(⚠|💎)/.test(s) ||
-      s.includes('高い') || s.includes('欲しい') || s.includes('ないの') || s.includes('足りない') || s.includes('ほしい');
-    const claims = t.voices.filter(isClaim), rest = t.voices.filter(s => !isClaim(s));
-    const show = claims.concat(rest).slice(0, 4);
-    html += `<div class="rep-voice">🗣 お客の声（改善のヒント）<br>${show.join('<br>')}</div>`;
+    const agg = {};
+    for (const v of t.voices) {
+      const a = agg[v.key] || (agg[v.key] = { ...v, n: 0, sum: 0, by: {} });
+      a.n++; a.sum += v.w; a.by[v.who] = (a.by[v.who] || 0) + 1;
+    }
+    // 代表して名前を出すのは、その不満をいちばん多く言った客層（1人だけの声を全体の顔にしない）
+    for (const a of Object.values(agg))
+      a.who = Object.keys(a.by).sort((x, y) => a.by[y] - a.by[x])[0] || a.who;
+    const list = Object.values(agg).sort((a, b) => b.sum - a.sum);
+    const bad = list.filter(v => v.sum > 0), good = list.filter(v => v.sum <= 0);
+    const show = bad.concat(good).slice(0, 4);
+    const line = v => `${v.mark}${v.who}「${v.line}」${v.n > 1 ? `（${v.n}人）` : ''}`;
+    html += `<div class="rep-voice">🗣 お客の声（評判に効いた順）<br>${show.map(line).join('<br>')}</div>`;
   } else {
     html += `<div class="rep-voice">🗣 お客の声<br>（今日は特に不満の声はなかった）</div>`;
   }
