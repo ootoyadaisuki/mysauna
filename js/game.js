@@ -7605,13 +7605,12 @@ function renderData() {
     }
     if (sp.penSum) {
       r += `<div class="rep-row sub minus"><span>− マイナス評価</span><span class="v">−${sp.penSum}</span></div>`;
-      for (const it of sp.pens)
-        r += row(`　${it.l}${it.sub ? `<br><span class="opt-sub">　${it.sub}</span>` : ''}`, `−${it.v}`, 'minus');
+      // 直し方はここには書かない（上の「今やるべきこと」に出るので二重になる・作者指定）
+      for (const it of sp.pens) r += row(`　${it.l}`, `−${it.v}`, 'minus');
     }
     if (sp.bonus) r += row(sp.bonus > 0 ? '街での出来事（加点）' : '街での出来事（減点）',
       `${sp.bonus > 0 ? '+' : ''}${sp.bonus}`, sp.bonus < 0 ? 'minus' : '');
-    // 品揃えの評価は「種類の数」で見る＝1種類△／2種類○／3種類以上◎
-    r += row('品揃え', `風呂 ${kindMark('furo')}　サウナ ${kindMark('sauna')}　水風呂 ${kindMark('mizu')}`);
+    /* 「品揃え」の行は削除した（作者指定）。種類の数は、お風呂・サウナ・水風呂のバーに入っている */
     const lacks = [];
     if (!hasWorking('cooler')) lacks.push('冷水機');
     if (!hasWorking('sink')) lacks.push('洗面所');
