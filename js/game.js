@@ -30,7 +30,7 @@ const G = {
   minutes: 0,                // 9:00からの経過(分)
   speedIdx: 0, paused: false,
   customers: [], payQueue: [],
-  player: null, staff: [], roach: null,   // ゴキブリ1匹（汚れが5つを超えると現れる・保存しない）
+  player: null, staff: [], roach: null, roachCool: 0,   // ゴキブリ1匹（汚れが5つを超えると現れる・保存しない）
   spawnQueue: [],
   adBoost: 0, adBought: {},
   placing: null, selected: null,
@@ -586,6 +586,8 @@ function roachTiles(noDirt) {
 function updateRoach(rDt) {
   if (G.phase !== 'biz' && G.phase !== 'prep') { G.roach = null; return; }
   if (dirtCounts().thick < ROACH_FROM) { G.roach = null; for (const d of G.dirts) d.roach = false; return; }
+  // 仕留めた直後はしばらく出てこない（叩いた端から湧いたら、ずっと追いかけ回すことになる）
+  if (G.roachCool > 0) { G.roachCool -= rDt; return; }
   if (!G.roach) {
     const start = pick(roachTiles(true) || []) || pick(roachTiles(false));   // 汚れの無いマスから現れる
     if (!start) return;
@@ -619,8 +621,17 @@ function killRoachNear(w, tile) {
   const r = G.roach;
   if (!r || !tile) return;
   if (Math.abs(r.tx - tile.x) > 1 || Math.abs(r.ty - tile.y) > 1) return;
+  killRoach(w, tile);
+}
+/* その場で仕留める。ゴキブリを追いかけて追いついた時（task:'roach'）と、
+   すぐそばの汚れを拭ききった時（killRoachNear）の両方から呼ばれる */
+function killRoach(w, tile) {
+  const r = G.roach;
+  if (!r) return;
+  tile = tile || { x: r.tx, y: r.ty };
   G.roachSplat = { x: r.px, y: r.py, t: 1.4 };
   G.roach = null;
+  G.roachCool = rand(40, 90);            // 次の1匹が出てくるまでの間
   for (const d of G.dirts) d.roach = false;
   addSparkle(tile.x * T + T / 2, tile.y * T + T / 2);
   Sfx.play('fix');
@@ -2384,12 +2395,37 @@ function tellTimeUp(w, c) {
 }
 
 function maintain(w, dt, home) {
+  // 営業中の主人公は番台を離れない（声かけで呼ばれた時だけここへ来る）＝掃除もゴキブリ退治もしない
+  const bizPlayer0 = w.kind === 'player' && G.phase === 'biz';
   // 時間切れの客への声かけが最優先（掃除の前に割り込む）
   if (!w.task || w.task === 'home') {
     const c0 = findTimeUpTarget(w);
     if (c0) {
       const t = tileOf(c0), pth = pathToNear(w, t.x, t.y);
       if (pth) { w.task = 'tell'; w.target = c0; w.path = pth; w.timer = 1.2; }
+    }
+  }
+  /* ゴキブリが出ていたら、掃除より先に仕留めに行く（作者指定）。
+     以前は「ゴキブリが乗っている汚れを優先して拭く」だけだったので、
+     着く頃には別のマスへ走り去っていて、いつまでも仕留められなかった。
+     ここでは相手そのものを追いかけ、隣のマスまで詰めたところで叩く */
+  if (!bizPlayer0 && (!w.task || w.task === 'home' || w.task === 'clean') && G.roach && !claimedBy(G.roach, w)) {
+    const pth = pathToNear(w, G.roach.tx, G.roach.ty);
+    if (pth) { w.task = 'roach'; w.target = G.roach; w.path = pth; }
+  }
+  if (w.task === 'roach') {
+    const r = G.roach;
+    if (!r || r !== w.target) { w.task = null; w.target = null; }
+    else {
+      const arrived = stepMove(w, dt);
+      const t0 = tileOf(w);
+      if (Math.abs(t0.x - r.tx) <= 1 && Math.abs(t0.y - r.ty) <= 1) {
+        killRoach(w, t0); w.task = null; w.target = null;
+      } else if (arrived) {                       // 逃げられた＝いまの居場所へ追い直す
+        const pth = pathToNear(w, r.tx, r.ty);
+        if (pth) w.path = pth; else { w.task = null; w.target = null; }
+      }
+      return;
     }
   }
   if (w.task === 'tell') {
