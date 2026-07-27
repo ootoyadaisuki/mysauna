@@ -353,9 +353,20 @@ function roomLabel(id) {
    ロッカーや洗い場を並べて「奥の列」を作ることもできない＝
    誰にも使われない“飾り”は、置く時点で生まれないようにしている。
    返り値の why は、なぜ置けないかを一言で出すためのもの（置けるときは null） */
-/* サウナの入り口＝「高温」「ミスト」等の札の前1ブロック（札は下辺左端に描かれる）。
-   ここに物を置くと客が入れない“画”になるので、設置禁止マスとして扱う（作者指定） */
-function saunaDoorTile(it) { return { x: it.x, y: it.y + eh(it) }; }
+/* サウナの入り口＝「高温」「ミスト」等の札の前1ブロック。
+   ここに物を置くと客が入れない“画”になるので、設置禁止マスとして扱う（作者指定）。
+   絵は drawEquip が rot×90°ぶん回して描いているので、入り口も回した先の辺に付いてくる＝
+   回転させれば浴室の一番下の列（入口を上に向ける）にも、左端（入口を右に向ける）にも置ける。
+   rot 0=下 / 1=左 / 2=上 / 3=右（絵の回転と同じ向き） */
+function saunaDoorTile(it) {
+  const w = ew(it), h = eh(it);
+  switch ((it.rot || 0) & 3) {
+    case 1:  return { x: it.x - 1,     y: it.y };
+    case 2:  return { x: it.x + w - 1, y: it.y - 1 };
+    case 3:  return { x: it.x + w,     y: it.y + h - 1 };
+    default: return { x: it.x,         y: it.y + h };
+  }
+}
 function placeCheck(id, gx, gy, moving, rot) {
   const w = ew(id, rot), h = eh(id, rot);
   if (!surfaceOK(id, gx, gy, w, h)) return { ok: false, why: null };
@@ -370,11 +381,12 @@ function placeCheck(id, gx, gy, moving, rot) {
     if (d.x >= gx && d.x < gx + w && d.y >= gy && d.y < gy + h)
       return { ok: false, why: `${EQ[s.id].name}の入り口（札の前）は空けておく必要があります` };
   }
-  // サウナ自身を置く時は、入り口の1マスが浴室内の空きマスであること
+  // サウナ自身を置く時は、入り口の1マスが浴室内の空きマスであること（入り口の向きは rot で決まる）
   if (EQ[id].cat === 'sauna') {
-    const dx = gx, dy = gy + h;
-    if (dy >= CONF.divideY || isWall(dx, dy) || equipAt(dx, dy, moving))
-      return { ok: false, why: 'サウナの入り口（札の前1マス）が空いていません' };
+    const d = saunaDoorTile({ id, x: gx, y: gy, rot });
+    const inBath = d.x >= 1 && d.x <= CONF.W - 2 && d.y >= 1 && d.y < CONF.divideY;
+    if (!inBath || isWall(d.x, d.y) || isDoorway(d.x, d.y) || equipAt(d.x, d.y, moving))
+      return { ok: false, why: 'サウナの入り口（札の前1マス）が空いていません。回すと入り口の向きが変わります' };
   }
   // 間仕切りをまたぐ設備は置けない（浴室と脱衣所は別の部屋）
   if (gy < CONF.divideY && gy + h > CONF.divideY) return { ok: false, why: null };
@@ -5556,9 +5568,19 @@ function drawEquip(c2, it, rt) {
     // サウナだけは数字ではなく熱さの言葉で出す（作者指定）。「110℃」より「灼熱」のほうが伝わる。
     // ミスト・塩は固有の札（def.tag）＝別ジャンルであることが札の時点で伝わる。正確な室温は設備をタップすれば読める
     const txt = def.cat === 'sauna' ? (def.tag || saunaBand(temp).label) : temp + '℃';
-    c2.fillStyle = 'rgba(20,15,10,.55)'; c2.fillRect(ox + 2, oy + fh - 16, txt.length > 3 ? 33 : 27, 10);
+    const bw2 = txt.length > 3 ? 33 : 27;
+    /* サウナの札は入り口のそばに掛ける（回すと入り口が動くので、札も付いてくる）。
+       文字は読めないと意味がないので、向きは変えずに掛ける位置だけを移す */
+    let lx = ox + 2, ly = oy + fh - 16;
+    if (def.cat === 'sauna') {
+      const r = (it.rot || 0) & 3;
+      if (r === 1) { lx = ox + 2;            ly = oy + 2; }             // 入り口＝左 → 左上
+      else if (r === 2) { lx = ox + fw - bw2 - 2; ly = oy + 2; }        // 入り口＝上 → 右上
+      else if (r === 3) { lx = ox + fw - bw2 - 2; ly = oy + fh - 16; }  // 入り口＝右 → 右下
+    }
+    c2.fillStyle = 'rgba(20,15,10,.55)'; c2.fillRect(lx, ly, bw2, 10);
     c2.fillStyle = '#fff'; c2.font = 'bold 8px "DotGothic16",sans-serif'; c2.textAlign = 'left';
-    c2.fillText(txt, ox + 4, oy + fh - 8);
+    c2.fillText(txt, lx + 2, ly + 8);
   }
 }
 
