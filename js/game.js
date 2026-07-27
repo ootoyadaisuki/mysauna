@@ -549,6 +549,17 @@ function lockersFull() { return lockersInUse() >= lockerCapacity(); }
    薄い＝落ちたばかり／濃い＝dirtOldMin ぶん放置され、こびり付いたもの。
    t が無い・未来の汚れ（前日からの持ち越し）は最初から濃い扱い */
 function isThickDirt(d) { return d.t == null || d.t > G.minutes || G.minutes - d.t >= CONF.dirtOldMin; }
+/* ゴキブリ（作者指定）。こびり付いた汚れが5つ以上たまると、古いものから順に湧く。
+   掃除は必ずゴキブリの付いた汚れからで、客が近くを通ると悲鳴が上がる＝
+   「放っておくと、ただ点が下がるだけでは済まない」ことを絵で見せる */
+const ROACH_FROM = 5;
+function syncRoaches() {
+  const thick = G.dirts.filter(isThickDirt).sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
+  const n = thick.length >= ROACH_FROM ? Math.min(thick.length - (ROACH_FROM - 1), 6) : 0;
+  for (const d of G.dirts) d.roach = false;
+  for (let i = 0; i < n; i++) thick[i].roach = true;
+}
+function roachCount() { return G.dirts.filter(d => d.roach).length; }
 function dirtCounts() {
   let thin = 0, thick = 0;
   for (const d of G.dirts) { if (isThickDirt(d)) thick++; else thin++; }
@@ -895,9 +906,15 @@ function finishUse(c) {
   /* 周辺の汚れ。薄い汚れは数えない（作者指定）＝薄いうちはプレイヤーに掃除する手がなく、
      見えた瞬間に怒られるのは理不尽だった。こびり付いた濃い汚れだけが客の目に入る */
   if (c.dirtHits < 3) {
-    const near = G.dirts.filter(p => isThickDirt(p)
-      && Math.abs(p.x - c.use.approach.x) <= 2 && Math.abs(p.y - c.use.approach.y) <= 2).length;
-    if (near > 0) { c.sat -= Math.min(near * 2, 6); c.dirtHits++; gripe('dirty'); if (Math.random() < .4) bubble(c, pick(LINES.dirty)); }
+    const nearD = G.dirts.filter(p => isThickDirt(p)
+      && Math.abs(p.x - c.use.approach.x) <= 2 && Math.abs(p.y - c.use.approach.y) <= 2);
+    const near = nearD.length;
+    if (near > 0) {
+      c.sat -= Math.min(near * 2, 6); c.dirtHits++; gripe('dirty');
+      // ゴキブリを見てしまった客は、汚れを見ただけの客とは比べものにならないくらい怒る（作者指定）
+      if (nearD.some(p => p.roach)) { c.sat -= 8; hintBubble(c, pick(LINES.roach)); }
+      else if (Math.random() < .4) bubble(c, pick(LINES.dirty));
+    }
   }
   /* 店ぜんたいの汚れ具合。使った設備の近くかどうかに関係なく効く。判定は客ひとりにつき一度だけ。
      ・薄い汚れ → セーフ。何も起きない（作者指定＝薄いうちは掃除できないので罰しない）
@@ -1055,6 +1072,7 @@ const PAS_USE = {
   sink:  { id:'sink',     dur:[3.0, 5.0], say:0.30 },   // 洗面所で髪を乾かす
   scale: { id:'scale',    dur:[2.0, 3.4], say:0.5 },    // 体重計に乗って一喜一憂（針がぐるっと振れる）
   gacha: { id:'gacha',    dur:[2.2, 3.6], say:0.6 },    // 子どもが¥100を入れて回す（売上になる）
+  ehon:  { id:'ehon',     dur:[4.0, 7.0], say:0.6 },    // 絵本の棚の前に座って読む（子どもだけ）
 };
 const GACHA_PRICE = 100;      // ガチャガチャ1回（作者指定）
 const GACHA_KID_RATE = 0.30;  // 子どものうち、回していく割合（作者指定）
@@ -1065,6 +1083,7 @@ function pasLineFor(kind) {
   if (kind === 'fan') return LINES.fanGood;
   if (kind === 'scale') return LINES.scaleGood;
   if (kind === 'gacha') return LINES.gachaGood;
+  if (kind === 'ehon') return LINES.ehonGood;
   return G.opts.dryerFee ? LINES.dryerPaid : LINES.dryerFree;
 }
 function goPasUse(c, kind, next) {
@@ -1115,6 +1134,8 @@ function nextPlan(c) {
 function afterChange(c) {
   // 子どもは3割がガチャガチャを回して帰る（¥100が売上に立つ・作者指定）
   if (c.isChild && !c.didGacha && Math.random() < GACHA_KID_RATE && goPasUse(c, 'gacha', 'leave')) { c.didGacha = true; return; }
+  // 親の着替えを待つあいだ、絵本の棚の前に座って読む子ども（作者指定）
+  if (c.isChild && !c.didEhon && Math.random() < 0.5 && goPasUse(c, 'ehon', 'leave')) { c.didEhon = true; return; }
   if (!c.didSink && Math.random() < 0.7 && goPasUse(c, 'sink', 'leave')) { c.didSink = true; return; }
   // 風呂上がり、つい体重計に乗って一喜一憂する（乗るまでが風呂、という田所の言い分）
   if (!c.didScale && Math.random() < 0.55 && goPasUse(c, 'scale', 'leave')) { c.didScale = true; return; }
@@ -1467,7 +1488,8 @@ function repDayScores() {
   const crowdN = (g.crowd || 0) + (g.locker || 0) + (g.bandai || 0)
     + (t.turnedAway || 0) * 2 + (t.gaveUp || 0) * 2 + (t.queueMiss || 0);
   const waitPer = (t.waitSum || 0) / paid;
-  s.crowd = clamp(6 - Math.max(crowdN / paid - 0.1, 0) / 0.22 - waitPer / 2, 0, 6)
+  // 待たせた分の減点を1.3倍にする（作者指定）
+  s.crowd = clamp(6 - Math.max(crowdN / paid - 0.1, 0) / 0.17 - waitPer / 1.55, 0, 6)
     + clamp((lockerCapacity() / Math.max(paid * 0.35, 1)), 0, 1) * 2
     + clamp(1 - ((g.bandai || 0) + (t.turnedAway || 0) * 2) / paid * 5, 0, 1) * 2;
 
@@ -1986,8 +2008,9 @@ function updateCustomer(c, dt) {
         const brk = c.waitItem && c.waitItem.cond <= 0;
         gripe(brk ? 'broken' : 'crowd');
         const name = c.waitItem && EQ[c.waitItem.id].name;
-        if (!c.bub) bubble(c, name ? pick(brk ? LINES.waitBroken : LINES.waitFullName).replace('{name}', name)
-                                    : pick(brk ? LINES.waitBroken : LINES.waitFull));
+        // 行列の文句は赤枠で出す（作者指定）＝台数を増やせば直る、という改善のサイン
+        hintBubble(c, name ? pick(brk ? LINES.waitBroken : LINES.waitFullName).replace('{name}', name)
+                           : pick(brk ? LINES.waitBroken : LINES.waitFull));
       }
       if (c.waitT > 60) {                    // しびれを切らして諦める
         c.plan.shift(); c.sat -= 8;
@@ -2174,7 +2197,9 @@ function playerAsleep() {
 }
 // 番台でうとうとしている印。💤 がゆっくり浮かんで消える
 function drawSleep(p, rt) {
-  const x = p.px, y = p.py - 26;
+  const b = bandai();
+  const x = b ? b.x * T + T / 2 + 4 : p.px;      // 突っ伏している頭のすぐ上
+  const y = b ? b.y * T - 2 : p.py - 26;
   for (let i = 0; i < 2; i++) {
     const ph = ((rt * 0.45 + i * 0.5) % 1);
     ctx.globalAlpha = (1 - ph) * 0.9;
@@ -2231,8 +2256,10 @@ function maintain(w, dt, home) {
          「いちばん近い1つ」だけを見て、そこへの道が無いと何もせず終わっていたため、
          設備で囲まれた汚れが1つでもあると、他に掃除できる汚れがあっても
          毎フレーム同じ汚れを選び直して棒立ちになっていた */
+      // ゴキブリが出ている汚れが最優先。そのあとは近い順（作者指定）
       const sorted = avail.slice().sort((a, b) =>
-        (Math.abs(a.x - t0.x) + Math.abs(a.y - t0.y)) - (Math.abs(b.x - t0.x) + Math.abs(b.y - t0.y)));
+        ((b.roach ? 1 : 0) - (a.roach ? 1 : 0)) * 1000
+        + (Math.abs(a.x - t0.x) + Math.abs(a.y - t0.y)) - (Math.abs(b.x - t0.x) + Math.abs(b.y - t0.y)));
       for (const d0 of sorted) {
         const pth = findPath(t0.x, t0.y, d0.x, d0.y);
         if (pth) { w.task = 'clean'; w.target = d0; w.path = pth; w.timer = 7; break; }
@@ -2388,6 +2415,7 @@ function updateBiz(dt) {
   const dcNow = dirtCounts();
   G.today.dirtSum += dcNow.thick * dt;        // 薄い汚れは数えない（作者指定）
   G.today.dirtN += dt;
+  syncRoaches();                              // こびり付いた汚れが5つを超えたらゴキブリが湧く
   while (G.spawnQueue.length && G.spawnQueue[0] <= G.minutes) {
     G.spawnQueue.shift();
     spawnCustomer();
@@ -3994,6 +4022,56 @@ function afterReport() {
   // 田所の初登場は「4日目の営業終了後（夜）」＝閉店後の浴室で並ぶ一幕（作者指定）。
   // 2〜3日目の夜は母からの電話が入りうるので、そこを避けて4日目にずらしてある
   const tadokoroNightHello = (finishedDay === TADOKORO_HELLO_DAY && G.tadokoro && !G.tadokoro.hello);
+  /* 治療費が足りない夜は、まず灰田に頭を下げる道を出す（作者指定）。
+     借りて払えば物語は続く。断る・もう借りられない＝そこで親父を看取れない（ゲームオーバー） */
+  if (G.today.care > 0 && G.cash < G.today.care) {
+    openCareShortfall(() => afterCareOK(finishedDay, tadokoroNightHello));
+    return;
+  }
+  afterCareOK(finishedDay, tadokoroNightHello);
+}
+/* 治療費が足りない時の分岐（作者指定）。サラ金の枠が残っていれば「借りる／借りない」を聞き、
+   枠が無ければ断られる場面だけを見せる。どちらも「借りない・借りられない」ならゲームオーバー */
+function openCareShortfall(next) {
+  const need = G.today.care - G.cash;
+  const room = CONF.sarakinMax - ((G.yami && G.yami.debt) || 0);
+  const unit = CONF.sarakinUnit;
+  const amt = Math.ceil(need / unit) * unit;                 // 10万円きざみで、足りるところまで
+  const canBorrow = amt <= room;
+  $('yamiTitle').textContent = '💳 治療費が、足りない';
+  $('yamiInfo').innerHTML =
+    `今日は親父の治療費 <b>${yen(G.today.care)}</b> を病院に届ける日だ。手元にあるのは <b>${yen(G.cash)}</b>。<br>` +
+    `<b>${yen(need)}</b> 足りない。<br><br>` +
+    (canBorrow
+      ? `番台の引き出しから、あの男の名刺を出した。灰田ファイナンス――審査なし、即日。<br>` +
+        `<span class="mika-note">借りれば払える。断れば、親父の治療は止まる</span>`
+      : `名刺を出して、番号を押した。灰田は少し黙ってから、こう言った。<br>` +
+        `「……もう、お貸しできる枠がありません。」<br>` +
+        `<span class="mika-note">借りる先は、もうない</span>`);
+  const box = $('yamiChoices'); box.innerHTML = '';
+  const add = (label, sub, fn, danger) => {
+    const b = document.createElement('button');
+    b.className = 'big-btn' + (danger ? ' danger' : '');
+    b.innerHTML = `${label}<br><span class="opt-sub">${sub}</span>`;
+    b.onclick = fn; box.appendChild(b);
+  };
+  if (canBorrow) {
+    add(`💳 灰田から ${yen(amt)} 借りる`, `金利は年${Math.round(CONF.sarakinApr * 100)}%。毎週水曜に集金が来る`, () => {
+      $('yamiModal').classList.add('hidden');
+      borrowYami(amt);
+      toast(`💳 灰田から ${yen(amt)} 借りた…治療費は払える`);
+      log(`💳 治療費のために灰田から ${yen(amt)} 借りた`);
+      updateTopbar(); next();
+    });
+  }
+  add('🙇 …借りない', '親父の治療費は、用意できない', () => {
+    $('yamiModal').classList.add('hidden');
+    triggerCareGameOver();
+  }, true);
+  $('yamiModal').classList.remove('hidden');
+}
+/* 治療費の目処が立ったあとの夜（お見舞い→母の電話→親父の小言→…） */
+function afterCareOK(finishedDay, tadokoroNightHello) {
   const enterPrepPhase = () => {
     enterPrep(); saveGame();
     if (checkGrandEnding()) return;
@@ -4002,10 +4080,7 @@ function afterReport() {
   };
   // その夜に流すストーリーを積む（治療費の見舞い→母の電話→親父の小言→親父の承認、の順）
   const scenes = [];
-  // 治療費（15日ごと）：営業結果を確認したら、まっさきに病院へお見舞いに行く（作者指定で営業収支と分離）。
-  // 15万を用意できなければ親父を看取れない＝唯一の即ゲームオーバー（融資枠が残っていても関係ない）
   if (G.today.care > 0) {
-    if (G.cash < G.today.care) { triggerCareGameOver(); return; }
     scenes.push(...careScene());   // careScene が支払い・次回予約・親父との一幕を担う
   }
   if (finishedDay === 1 && !G.flags.s1) { G.flags.s1 = true; scenes.push(...STORY_DAY1); }
@@ -4084,6 +4159,7 @@ function enterPrep() {
   G.customers = []; G.payQueue = [];
   G.player = makePlayer();         // 準備中の主人公は掃除して回る（1日に拭ける数は PREP_CLEAN_MAX まで）
   G.prepCleaned = 0;               // 今夜これから拭いた数
+  syncRoaches();                   // 夜のあいだも、こびり付いた汚れにはゴキブリが出ている
   G.tiredSaid = false;             // 「もう動けない」の独り言は1晩に1回
   // 銀行融資は廃止（作者指定）。サラ金はその場で現金が出るので、振込待ちという状態はもう無い
   G.staff = [];                    // バイトは準備中いなくなる。営業開始で戻る（作者指定）
@@ -5238,6 +5314,32 @@ function drawDirt(d) {
   ctx.ellipse(d.x * T + T / 2, d.y * T + T / 2, 9, 6, 0, 0, Math.PI * 2);
   ctx.ellipse(d.x * T + T / 2 - 6, d.y * T + T / 2 + 4, 5, 3, 0, 0, Math.PI * 2);
   ctx.fill();
+  if (d.roach) drawRoach(d);
+}
+/* ゴキブリ1匹。汚れの上をちょろちょろ這い回る（作者指定）。
+   卵形の黒い胴・脚6本・長い触角。動きは時間から作るので、毎フレーム飛び回ったりはしない */
+function drawRoach(d) {
+  const rt = Date.now() / 1000;
+  const seed = d.x * 7.3 + d.y * 3.1;
+  const a = rt * 0.9 + seed;                                   // 這う向き（ゆっくり回る）
+  const cx = d.x * T + T / 2 + Math.cos(a) * 7 + Math.sin(rt * 5 + seed) * 1.2;
+  const cy = d.y * T + T / 2 + Math.sin(a * 1.3) * 5;
+  const dir = Math.cos(a * 1.3) >= 0 ? 1 : -1;
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.sin(a) * 0.5);
+  ctx.strokeStyle = '#1e1712'; ctx.lineWidth = 0.9;            // 脚（左右3本ずつ・小刻みに動く）
+  for (let i = 0; i < 3; i++) {
+    const ly = -1.8 + i * 1.8, kick = Math.sin(rt * 18 + i * 2 + seed) * 1.1;
+    ctx.beginPath(); ctx.moveTo(-1, ly); ctx.lineTo(-4, ly + kick); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(1, ly); ctx.lineTo(4, ly - kick); ctx.stroke();
+  }
+  ctx.strokeStyle = '#241c16'; ctx.lineWidth = 0.8;            // 触角
+  ctx.beginPath(); ctx.moveTo(dir * 2, -1.4); ctx.lineTo(dir * 6, -3.4 + Math.sin(rt * 9) * 0.8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(dir * 2, 1.4); ctx.lineTo(dir * 6, 3.4 + Math.cos(rt * 9) * 0.8); ctx.stroke();
+  ctx.fillStyle = '#2b211a';                                    // 胴
+  ctx.beginPath(); ctx.ellipse(0, 0, 4.2, 2.6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#3d2f24';                                    // 背中のツヤ
+  ctx.beginPath(); ctx.ellipse(-dir * 0.8, -0.6, 2.2, 1.2, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
 }
 
 function drawEquip(c2, it, rt) {
@@ -5802,7 +5904,9 @@ function drawCharBody(e, rt) {
   // 体重計は「乗る」もの（作者指定）。使っているあいだは台の真上に立たせ、板の厚みぶん少し持ち上げる
   const onScale = (e.kind === 'cust' && e.state === 'usingPas' && e.pas && e.pas.kind === 'scale') ? e.pas.item : null;
   const x = post ? post.x * T + T / 2 : onScale ? onScale.x * T + T / 2 : e.px;
-  const y = post ? post.y * T + 2 : onScale ? onScale.y * T + T / 2 - 3 : e.py + bob;
+  // 拭ける数を使い切った夜は、番台に突っ伏して寝ている（作者指定）＝台の高さまで沈める
+  const asleep = !!post && playerAsleep();
+  const y = post ? post.y * T + (asleep ? 8 : 2) : onScale ? onScale.y * T + T / 2 - 3 : e.py + bob;
   if (post) {
     ctx.save();
     ctx.beginPath(); ctx.rect((post.x - 1) * T, 0, T * 3, post.y * T + 5); ctx.clip();
@@ -5955,6 +6059,11 @@ function drawCharBody(e, rt) {
       ctx.fillRect(x - 3 + Math.sin(rt * 3 + i * 2) * 2 + i * 3, y - 15 - ph * 9, 1.6, 3);
     }
     ctx.globalAlpha = 1;
+  }
+  // 番台に突っ伏して寝ている主人公＝目を閉じ、頭が台に着いている（💤 は drawSleep が出す）
+  if (asleep) {
+    ctx.fillStyle = '#2a2320';
+    ctx.fillRect(x - 4, y - 8.2, 3, 1); ctx.fillRect(x + 1, y - 8.2, 3, 1);
   }
   // ── 重要人物の“それらしさ”（髭・眼鏡・ヘルメット・ネクタイ＋頭上の名札で誰なのか分かる）
   if (e.kind === 'npc') {
@@ -6112,6 +6221,18 @@ function drawPasUse(e, x, y, rt, skin, hair) {
     ctx.fillStyle = '#f5f0e8';                          // 腰タオルの裾もめくれる
     ctx.beginPath(); ctx.moveTo(x - d * 5, y + 3); ctx.lineTo(x - d * (8 + fl), y + 6.5); ctx.lineTo(x - d * 5, y + 8);
     ctx.closePath(); ctx.fill();
+  } else if (e.pas.kind === 'ehon') {
+    // 棚の前に座り込んで絵本を広げている（作者指定）。ページが時々めくれる
+    const flip = Math.sin(rt * 1.6 + e.wob) > 0.85;
+    ctx.fillStyle = '#f4ecd8';                                  // 開いた本
+    ctx.fillRect(x - 6, y - 6, 12, 7);
+    ctx.fillStyle = '#c9a86a'; ctx.fillRect(x - 6, y - 6, 12, 1.2);
+    ctx.strokeStyle = '#8a7a5a'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x, y + 1); ctx.stroke();
+    if (flip) { ctx.fillStyle = '#fffaf0'; ctx.fillRect(x, y - 6, 5, 7); }   // めくった1ページ
+    ctx.strokeStyle = skin; ctx.lineWidth = 2;                  // 本を持つ両手
+    ctx.beginPath(); ctx.moveTo(x - 3, y - 5); ctx.lineTo(x - 6, y - 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 3, y - 5); ctx.lineTo(x + 6, y - 2); ctx.stroke();
   } else if (e.pas.kind === 'gacha') {
     // つまみを回す腕＝設備側の手を、くるくると回す。頭の上に「カチッ」
     const a = rt * 6 + e.wob;
@@ -6123,6 +6244,15 @@ function drawPasUse(e, x, y, rt, skin, hair) {
       ctx.lineWidth = 2.4; ctx.strokeStyle = 'rgba(255,255,255,.95)';
       ctx.strokeText('カチッ', x - d * 9, y - 16); ctx.fillStyle = '#c9622a';
       ctx.fillText('カチッ', x - d * 9, y - 16);
+    }
+    // ころんと落ちてくるカプセル（回すたびに色が変わる）
+    const drop = (rt * 0.5 + e.wob) % 1;
+    if (drop > 0.6) {
+      const dp = (drop - 0.6) / 0.4;
+      ctx.fillStyle = ['#e05a5a', '#e8c34a', '#4aa3e0', '#6ac96a'][Math.floor(rt * 0.5 + e.wob) % 4];
+      ctx.beginPath(); ctx.arc(x + d * 6, y - 4 + dp * 8, 2.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.5)';
+      ctx.beginPath(); ctx.arc(x + d * 5.2, y - 5 + dp * 8, 0.9, 0, Math.PI * 2); ctx.fill();
     }
   } else if (e.pas.kind === 'scale') {
     // 体重計の上で足元の目盛りをのぞき込み、針の振れに一喜一憂する
