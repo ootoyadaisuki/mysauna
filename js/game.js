@@ -7366,6 +7366,7 @@ function toggleRack(id) {
   startPlacing(id, null, { once: true, onPlaced: reopen, onCancel: reopen });
 }
 
+let manageTab = 'fee';   // 運営メニューのタブ（料金／アメニティ／ルール）
 function renderManage() {
   const o = G.opts;
   const box = $('manageBody');
@@ -7426,16 +7427,21 @@ function renderManage() {
       `<button class="opt-btn ${cur === pp ? 'on' : ''}" data-act="${act}" data-v="${pp}">¥${pp}</button>`).join('')}</span></div>`;
   const soapPriceRows = o.soapMode === 'sell'
     ? priceRow('shampooPrice', 'シャンプー', o.shampooPrice) + priceRow('bodysoapPrice', 'ボディソープ', o.bodysoapPrice) : '';
-  box.innerHTML = `
-    <div class="opt-sec">💴 料金</div>
+  /* 3つのタブに分ける（作者指定）。1本のリストに全部並べると1.2画面ぶんになり、
+     料金を触りに来ただけでも垢すりタオルのトグルまで通り過ぎることになる。
+     見る目的が違う（料金＝客足と売上／アメニティ＝経費と満足度／ルール＝1個）ので、混ぜない */
+  const tabs = [['fee', '💴 料金'], ['amen', '🧴 アメニティ'], ['rule', '🚪 ルール']];
+  const tabBar = `<div class="opt-tabs">` + tabs.map(([k, l]) =>
+    `<button class="tab ${manageTab === k ? 'on' : ''}" data-mtab="${k}">${l}</button>`).join('') + `</div>`;
+  const feePane = `
     <div class="opt-row"><span>入浴料<br><span class="opt-sub">目安 ¥${worthFee()}。高すぎると客が減る</span></span><span>${feeBtns}</span></div>
     ${o.feeCustom ? feeSlider('fee', o.fee) : ''}
     ${kidFeeRow}
     ${saunaFeeRow}
     <div class="opt-row"><span>タオル<br><span class="opt-sub">維持¥1,000/日。無料=集客↑／有料=売上↑</span></span><span>${towelBtns}</span></div>
     ${towelPriceRow}
-    ${teburaRow}
-    <div class="opt-sec">🧴 アメニティ</div>
+    ${teburaRow}`;
+  const amenPane = `
     <div class="opt-row"><span>シャンプー・ボディソープ<br><span class="opt-sub">無料でも販売でも一律¥${CONF.soapCostPerDay.toLocaleString()}/日</span></span><span>${soapBtns}</span></div>
     ${soapPriceRows}
     ${hasWorking('sink')
@@ -7448,13 +7454,16 @@ function renderManage() {
       : `<div class="opt-row locked"><span>化粧水・乳液<br><span class="opt-sub">🔒 洗面所の設置で解放</span></span><button class="opt-btn" disabled>—</button></div>`}
     ${tog('akasuriTowel', hasAkasuri(), '垢すりタオル', '満足度↑／¥500/日')}
     ${tog('saunaMat', hasMat(), 'サウナマット', 'サウナ満足度↑／¥500/日')}
-    <div class="opt-row locked"><span>垢すりサービス（プロが担当）<br><span class="opt-sub">🔒 新店で解放予定</span></span><button class="opt-btn" disabled>近日</button></div>
-    <div class="opt-sec">🚪 入店ルール</div>
+    <div class="opt-row locked"><span>垢すりサービス（プロが担当）<br><span class="opt-sub">🔒 新店で解放予定</span></span><button class="opt-btn" disabled>近日</button></div>`;
+  const rulePane = `
     ${kitoAccepted()
       /* 鬼頭を受け入れる形で決着した店は、もう札を掲げられない（受け入れると約束したのだから）。
          ここを開けておくと「下ろして決着 → すぐ掲げ直す」で罰だけ踏み倒せてしまう */
       ? `<div class="opt-row locked"><span>刺青・ヤクザお断り<br><span class="opt-sub">🔒 鬼頭と交わした約束がある（評判 -${KITO_ACCEPT_PEN}）</span></span><button class="opt-btn" disabled>—</button></div>`
-      : tog('banYakuza', o.banYakuza, '刺青・ヤクザお断り', '「怖い」不満が消える。ただし連中がみかじめ料を要求しに来る')}`;
+      : tog('banYakuza', o.banYakuza, '刺青・ヤクザお断り', '「怖い」不満が消える。ただし連中がみかじめ料を要求しに来る')}
+    <div class="opt-row locked"><span>女湯の開放<br><span class="opt-sub">🔒 新店で解放予定</span></span><button class="opt-btn" disabled>近日</button></div>`;
+  box.innerHTML = tabBar + (manageTab === 'fee' ? feePane : manageTab === 'amen' ? amenPane : rulePane);
+  box.querySelectorAll('[data-mtab]').forEach(b => b.onclick = () => { manageTab = b.dataset.mtab; renderManage(); });
   box.querySelectorAll('.opt-btn').forEach(b => b.onclick = () => {
     const act = b.dataset.act, v = b.dataset.v;
     if (act === 'fee') { o.fee = +v; o.feeCustom = false; }
@@ -7604,33 +7613,8 @@ function renderData() {
   if ((G.roughDays || 0) >= 1)
     h += row('客の我慢', `荒れた日 ${G.roughDays}日連続`
       + (G.roughDays >= CONF.riotDays ? '<br><span class="opt-sub">いつ暴れてもおかしくない</span>' : ''), 'minus');
-  /* ── 客層別の満足度（作者指定）。評判には混ぜず、ここは「どこに寄った店になっているか」を読む欄。
-     どれかに偏ると全体が歪むので、いちばん低い層をそのまま次の投資先の指針にできる */
-  const segs = segSatParts().filter(sg => sg.n > 0);
-  if (segs.length) {
-    h += sec('👥 客層べつの満足度');
-    const lo = segs.reduce((a, b) => (b.avg < a.avg ? b : a));
-    for (const sg of segs) {
-      const mark = sg.avg >= 70 ? '◎' : sg.avg >= 55 ? '○' : sg.avg >= 45 ? '△' : '×';
-      h += row(sg.name, `${mark} ${sg.avg}点<br><span class="opt-sub">${sg.n}人・直近3日</span>`, sg.avg < 45 ? 'minus' : '');
-    }
-    h += `<div class="rep-voice">${
-      segs.length < 3 ? `☝ まだ来ていない層がある。設備と料金しだいで客層は増える`
-      : lo.avg < 55 ? `⚠ いちばん冷めているのは<b>${lo.name}</b>（${lo.avg}点）。効くのは ${lo.hint}`
-      : '✨ どの層にも偏らず満足させられている'}</div>`;
-  }
-  // ── 客の不満（直近3日ぶんの声を種類ごとに数えたもの。ここを見れば直すべき所が分かる）
-  const { sum: gsum, total: gtot } = gripeSummary();
-  h += sec('😠 客の不満');
-  if (!gtot) h += row('直近3日の不満の声', 'なし。今のところ文句は出ていない');
-  else {
-    for (const [k, n] of Object.entries(gsum).sort((a, b) => b[1] - a[1])) {
-      if (!GRIPE_LABEL[k]) continue;
-      const pct = Math.round(n / gtot * 100);
-      h += row(GRIPE_LABEL[k], `${n}件（${pct}%）`, pct >= 25 ? 'minus' : '');
-    }
-    h += row('<span class="opt-sub">直近3日の声の合計</span>', `<span class="opt-sub">${gtot}件</span>`);
-  }
+  /* 「客層べつの満足度」「客の不満」の欄は削除した（作者指定）＝
+     どちらも評判の10項目と、そこに出る▶のアドバイスで分かる。データ画面は1画面に収める */
   // フェーズ3：採用中スタッフの働きぶり（スペック・日給・勤続・状態）
   if (G.roster.length) {
     h += sec('🧑‍🔧 スタッフの働きぶり');
@@ -7640,18 +7624,8 @@ function renderData() {
         `日給${yen(e.wage)}<br>働きぶり ${e.skill}／勤続${e.days || 0}日${mood}`);
     }
   } else h += row('アルバイト', 'なし（採用は【広告】の求人広告から）');
-  // ── 人との関係（会った相手だけ）
-  h += sec('🤝 人との関係');
-  h += row('親父時代からの常連との絆', `${Math.round(G.najimi)} / 100`);
-  const rel = (st, icon, name, allyTxt) => {
-    if (!st || !st.met) return '';
-    return row(`${icon} ${name}`, st.ally ? allyTxt : st.resolved ? '決着した' : '……まだ、認められていない');
-  };
-  h += rel(G.tadokoro, '🧓', '田所源造', '仲間（地元客↑・維持/修理費↓）');
-  h += rel(G.kuroda, '💼', '黒田修司', '仲間（経費↓・会社員客↑）');
-  h += rel(G.reina, '❄', '桐生玲奈', '仲間（設備15%引き・集客↑）');
-  if (G.kito && G.kito.met) h += row('🚬 鬼頭', G.kito.resolved ? (G.kito.ally ? '付き合いが続いている' : '決着した') : `集金 ${G.kito.encounters}回目`);
-  if (G.yami && G.yami.met) h += row('🩸 灰田金融', G.yami.debt > 0 ? `取り立て継続中（不払い ${G.yami.missed}回）` : '完済した');
+  /* 「人との関係」の欄も削除した（作者指定）。誰と何が起きているかは、
+     その場の一幕と、準備画面の宿題（demandHint）で分かる */
   if (G.reina && G.reina.duel === 'announced') {
     h += sec('🗳 投票対決') +
       row('投票日まで', `あと${Math.max(0, G.reina.duelDay - G.day)}日`) +
