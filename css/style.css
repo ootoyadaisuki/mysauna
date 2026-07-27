@@ -159,6 +159,20 @@ body {
   background:#3a2f28; color:#c9b494; border:2px solid #6b5b44; cursor:pointer;
 }
 .opt-tabs .tab.on { background:#5a4433; color:#ffd98a; border-color:#c9a86a; }
+/* 評判の10項目＝1行1本のバー（名前・バー・点数を横一列）。1画面に収めるための形 */
+.rep-bar-row {
+  display:grid; grid-template-columns:auto 1fr 38px; align-items:center; gap:8px;
+  padding:5px 2px; border-bottom:1px solid #3a2f28; font-size:13px;
+}
+.rep-bar-row .nm { color:#e8ded0; white-space:nowrap; }
+.rep-bar-row .bar { height:9px; border-radius:5px; background:#2f2721; overflow:hidden; }
+.rep-bar-row .bar i { display:block; height:100%; border-radius:5px; }
+.rep-bar-row .bv { text-align:right; font-weight:bold; }
+.rep-bar-row .ok  { background:#6ac96a; color:#8fe08f; }
+.rep-bar-row .mid { background:#c9c05a; color:#e0d97a; }
+.rep-bar-row .low { background:#d99a3a; color:#f0b45a; }
+.rep-bar-row .bad { background:#c9543a; color:#e8735a; }
+.rep-bar-row .bv.ok, .rep-bar-row .bv.mid, .rep-bar-row .bv.low, .rep-bar-row .bv.bad { background:none; }
 #shopTabs .tab { position:relative; }
 /* 新しく解放された設備があるカテゴリの赤丸 */
 .new-dot {

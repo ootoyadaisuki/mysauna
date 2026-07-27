@@ -7512,126 +7512,122 @@ function renderManage() {
 /* ============ データ（いまの店の数字を確かめる） ============ */
 /* 攻略チェックリストにはしない。あくまで「今どうなっているか」の計器盤。
    まだ会っていない相手のことは出さない（先の展開は見せない） */
+let dataTab = 'rep';   // データ画面のタブ。開いた時は【評判】＝「今やるべきこと」が最初に目に入る
 function renderData() {
   const box = $('dataBody');
   const row = (l, v, cls) => `<div class="rep-row ${cls || ''}"><span>${l}</span><span class="v">${v}</span></div>`;
   const sec = t => `<div class="opt-sec">${t}</div>`;
-  const hist = Array.isArray(G.recentProfits) ? G.recentProfits : [];
-  const avg = hist.length ? Math.round(hist.reduce((a, b) => a + b, 0) / hist.length) : 0;
-  let h = '';
-  // ── タスク（判断に迷ったらまずここ。作者指定でトップへ）
-  const dm = demandHint();
-  if (dm.length) h += sec('📌 タスク') + dm.map(s => `<div class="rep-voice">${s}</div>`).join('');
-  // ── 経営（金まわり）
-  h += sec('📊 経営');
-  h += row('手元資金', yen(G.cash));
-  if (G.yami && G.yami.debt > 0)
-    h += row('💳 灰田ファイナンスの残債',
-      `${yen(G.yami.debt)}<br><span class="opt-sub">今週の金利 ${yen(yamiDue())}・集金は毎週水曜（あと ${yen(CONF.sarakinMax - G.yami.debt)} 借りられる）</span>`, 'minus');
-  h += row('直近5日の平均収支', `${avg >= 0 ? '+' : ''}${yen(avg)}`, avg < 0 ? 'minus' : '');
-  h += row('直近5日の黒字日数', `${hist.filter(p => p > 0).length}日 / ${hist.length}日`);
-  /* 昨日の利益・客単価・常連（作者指定）＝黒田の課題で問われる数字は、この欄で確かめられるようにする。
-     課題は「直近の営業日」で判定するので、ここも同じ G.lastStats を見せて食い違わないようにしてある。
-     今日ぶんは締めるまで確定しないが、途中経過が分かるほうが手を打てるので併記する */
-  const ls = G.lastStats;
-  const tt = G.today || {};
-  const tankaNow = tt.paid ? Math.round(tt.revenue / tt.paid) : 0;
-  h += row('昨日の利益', ls ? `${ls.profit >= 0 ? '+' : ''}${yen(ls.profit)}` : 'まだ営業していない', ls && ls.profit < 0 ? 'minus' : '');
-  h += row('客単価', ls
-    ? `${yen(ls.tanka)}<br><span class="opt-sub">昨日 ${ls.paid}人・${tankaNow ? `今日は ${yen(tankaNow)}` : '今日はまだ0人'}</span>`
-    : 'まだ営業していない');
-  h += row('常連', `${G.regulars || 0}人<br><span class="opt-sub">満足して帰った客が、また来てくれる</span>`);
-  /* 水道光熱費（作者指定）＝直近5日の平均額と、それが売上の何%を食っているか。
-     光熱費は固定・水道代は客数ぶんの従量なので、「客が増えたのに比率が下がらない」＝湯を使いすぎ、と読める。
-     目安は30%（実在の銭湯もこのくらい）。それを超えたら設備の持ちすぎか、客足に対して湯船が大きすぎる */
-  const uh = Array.isArray(G.recentUtil) ? G.recentUtil : [];
-  if (uh.length) {
-    const uAvg = Math.round(uh.reduce((a, b) => a + b.util + b.water, 0) / uh.length);
-    const rSum = uh.reduce((a, b) => a + b.revenue, 0);
-    const pct = rSum ? Math.round(uh.reduce((a, b) => a + b.util + b.water, 0) / rSum * 100) : 0;
-    h += row('水道光熱費', `${yen(uAvg)}/日<br><span class="opt-sub">直近${uh.length}日の平均・売上の${pct}%（目安は30%まで）</span>`,
-      pct > 40 ? 'minus' : '');
-  } else h += row('水道光熱費', 'まだ営業していない');
-  h += row('入浴料', `¥${G.opts.fee}` + (hasCat('sauna') ? `（＋サウナ ¥${G.opts.saunaFee}）` : ''));
-  h += row('客が受け入れる入浴料', `〜¥${worthFee()}`, G.opts.fee > worthFee() ? 'minus' : '');
-  if (hasCat('sauna')) h += row('客が受け入れるサウナ料', `〜¥${worthSaunaFee()}`, G.opts.saunaFee > worthSaunaFee() ? 'minus' : '');
-  h += row('受入人数（ロッカー）', `${lockerCapacity()}人（${G.equip.filter(e => EQ[e.id].cat === 'locker' && e.cond > 0).length}台）`);
-  /* ── 評判の内訳（新評判システム・作者指定）。10項目×10点満点＝100点を、
-     プラス評価（項目ごとの取れ高）とマイナス評価（その他の減点）の一覧で見せる。
-     設備もシステム（アメニティ・マット・垢すり・お断り）もおもてなしも、ぜんぶここに入っている。
-     ※「店の格」という言い方はここでは一切使わない＝内部の都合でしかない */
-  syncRep();
-  const sp = repScoreParts();
-  h += sec('🏮 評判');
-  h += repCounting()
-    ? row('総合スコア', `集計中<br><span class="opt-sub">開店から7日ぶんの営業がそろう8日目に出る（あと${REP_WARMUP - G.day + 1}日）</span>`)
-    : row('総合スコア', `${G.rep} / 100<br><span class="opt-sub">下の足し引きの合計。直近${Math.min(sp.days, REP_DAYS)}日の営業をならした点</span>`);
-  const lo = sp.items.reduce((a, b) => (b.v < a.v ? b : a));
-  h += `<div class="rep-row sub"><span>＋ プラス評価</span><span class="v">+${sp.base.toFixed(1)}</span></div>`;
-  /* 取りこぼしているところだけを名指しで出す（作者指定の計算式に対応）。
-     コスパは「高い」と言われている料金、動線は「遠い」区間だけ。全部そろっていれば何も出さない */
-  const badCospa = cospaParts().list.filter(x => x.v === 0);
-  const badDosen = dosenParts().list.filter(x => x.v < 3);
-  const am = amenityParts();
-  const badAmen = am.list.filter(x => x.v < x.max).sort((a, b) => (a.v / a.max) - (b.v / b.max));   // いちばん取りこぼしている品を名指しする
-  for (const it of sp.items) {
-    const mark = it.v >= 8 ? '◎' : it.v >= 6 ? '○' : it.v >= 4 ? '△' : '×';
-    /* △（6点未満）と×（4点未満）にだけ、黄色い文字で「次にやること」を出す（作者指定）。
-       ただの説明文（hint）ではなく、いまの店を読んで名指しする＝repAdvice が返す */
-    let sub = it.v < 6 ? repAdvice(it.key) || it.hint : '';
-    // 1行に収まるよう、名指しは1件だけ＋残りは件数で（折り返すと読めない・作者指定）
-    if (it.key === 'cospa' && it.v < 6 && badCospa.length)
-      sub = `高い：${badCospa[0].name} ${badCospa[0].note}` + (badCospa.length > 1 ? ` ほか${badCospa.length - 1}件` : '');
-    if (it.key === 'dosen' && it.v < 6 && badDosen.length)
-      sub = `遠い：${badDosen[0].name} ${badDosen[0].note}` + (badDosen.length > 1 ? ` ほか${badDosen.length - 1}件` : '');
-    // おもてなしの3点ぶんはアメニティ。取りこぼしているものを1つだけ名指しする
-    if (it.key === 'omote' && it.v < 6 && badAmen.length)
-      sub = `アメニティ ${am.total} / ${AMEN_MAX}・伸ばせる：${badAmen[0].name} ${badAmen[0].note}`;
-    h += row(`　${mark} ${it.name}${sub ? `<br><span class="opt-sub">　▶ ${sub}</span>` : ''}`,
-      `${it.v.toFixed(1)} / 10`, it.v < 4 ? 'minus' : '');
-  }
-  h += `<div class="rep-row sub minus"><span>− マイナス評価</span><span class="v">${sp.penSum ? '−' + sp.penSum : '0'}</span></div>`;
-  if (sp.pens.length) for (const it of sp.pens)
-    h += row(`　${it.l}${it.sub ? `<br><span class="opt-sub">　${it.sub}</span>` : ''}`, `−${it.v}`, 'minus');
-  else h += row('　<span class="opt-sub">引かれているものはない</span>', '<span class="opt-sub">0</span>');
-  if (sp.bonus) h += row(sp.bonus > 0 ? '　街での出来事（加点）' : '　街での出来事（減点）',
-    `${sp.bonus > 0 ? '+' : ''}${sp.bonus}`, sp.bonus < 0 ? 'minus' : '');
-  // 見立ては1行の全幅で（2列だとラベルが縦に潰れる）
-  h += `<div class="rep-voice">${sp.penSum >= 10
-    ? `⚠ 減点が${sp.penSum}点ある。直せばその日のうちに数字が戻る`
-    : lo.v < 6 ? `☝ いちばん低いのは<b>${lo.name}</b>（${lo.v.toFixed(1)}点）。効くのは ${lo.hint}`
-      : '✨ どの項目もよく取れている'}<br>10項目×10点満点。7日ぶんの営業をならして採点するので、直した効きは数日かけて出る</div>`;
-  // 品揃えの評価は「種類の数」で見る（作者指定）＝1種類△／2種類○／3種類以上◎
-  h += row('品揃え', `風呂 ${kindMark('furo')}　サウナ ${kindMark('sauna')}　水風呂 ${kindMark('mizu')}`);
-  const lacks = [];
-  if (!hasWorking('cooler')) lacks.push('冷水機');
-  if (!hasWorking('sink')) lacks.push('洗面所（ドライヤー・化粧水）');
-  if (lacks.length) h += row('客が欲しがっているもの', lacks.join('・'), 'minus');
-  /* 「🌡 今日の営業」の欄は削除した（作者指定）。満足度・汚れ・ととのい率は、
-     上の10項目（清潔度・おもてなし・ととのいスペース）と、そこに出る▶のアドバイスに集約してある。
-     「今日は暴れられそう」だけは他に出るところがないので、ここに1行だけ残す */
-  if ((G.roughDays || 0) >= 1)
-    h += row('客の我慢', `荒れた日 ${G.roughDays}日連続`
-      + (G.roughDays >= CONF.riotDays ? '<br><span class="opt-sub">いつ暴れてもおかしくない</span>' : ''), 'minus');
-  /* 「客層べつの満足度」「客の不満」の欄は削除した（作者指定）＝
-     どちらも評判の10項目と、そこに出る▶のアドバイスで分かる。データ画面は1画面に収める */
-  // フェーズ3：採用中スタッフの働きぶり（スペック・日給・勤続・状態）
-  if (G.roster.length) {
-    h += sec('🧑‍🔧 スタッフの働きぶり');
-    for (const e of G.roster) {
-      const mood = e.sulk ? '／😾ふてくされ中（賃上げ拒否）' : e.skill >= 85 ? '／頼れる戦力だ' : e.skill >= 60 ? '／仕事に慣れてきた' : '／まだ覚え中';
-      h += row(`${e.name}<br><span class="opt-sub">真面目${'★'.repeat(e.maji)}　スピード${'★'.repeat(e.spd)}　愛想${'★'.repeat(e.aiso)}</span>`,
-        `日給${yen(e.wage)}<br>働きぶり ${e.skill}／勤続${e.days || 0}日${mood}`);
+  const tabBar = `<div class="opt-tabs">` +
+    [['rep', '🏮 評判'], ['kei', '📊 経営']].map(([k, l]) =>
+      `<button class="tab ${dataTab === k ? 'on' : ''}" data-dtab="${k}">${l}</button>`).join('') + `</div>`;
+
+  /* ── 経営タブ（金まわり） */
+  const keiPane = () => {
+    const hist = Array.isArray(G.recentProfits) ? G.recentProfits : [];
+    const avg = hist.length ? Math.round(hist.reduce((x, y) => x + y, 0) / hist.length) : 0;
+    let k = '';
+    k += row('手元資金', yen(G.cash));
+    if (G.yami && G.yami.debt > 0)
+      k += row('💳 灰田ファイナンスの残債',
+        `${yen(G.yami.debt)}<br><span class="opt-sub">今週の金利 ${yen(yamiDue())}・集金は毎週水曜</span>`, 'minus');
+    k += row('直近5日の平均収支', `${avg >= 0 ? '+' : ''}${yen(avg)}`, avg < 0 ? 'minus' : '');
+    k += row('直近5日の黒字日数', `${hist.filter(p => p > 0).length}日 / ${hist.length}日`);
+    const ls = G.lastStats;
+    const tt = G.today || {};
+    const tankaNow = tt.paid ? Math.round(tt.revenue / tt.paid) : 0;
+    k += row('昨日の利益', ls ? `${ls.profit >= 0 ? '+' : ''}${yen(ls.profit)}` : 'まだ営業していない', ls && ls.profit < 0 ? 'minus' : '');
+    k += row('客単価', ls
+      ? `${yen(ls.tanka)}<br><span class="opt-sub">昨日 ${ls.paid}人・${tankaNow ? `今日は ${yen(tankaNow)}` : '今日はまだ0人'}</span>`
+      : 'まだ営業していない');
+    k += row('常連', `${G.regulars || 0}人<br><span class="opt-sub">満足して帰った客が、また来てくれる</span>`);
+    /* 水道光熱費＝直近5日の平均額と、それが売上の何%を食っているか。目安は30%（実在の銭湯もこのくらい） */
+    const uh = Array.isArray(G.recentUtil) ? G.recentUtil : [];
+    if (uh.length) {
+      const uAvg = Math.round(uh.reduce((x, y) => x + y.util + y.water, 0) / uh.length);
+      const rSum = uh.reduce((x, y) => x + y.revenue, 0);
+      const pct = rSum ? Math.round(uh.reduce((x, y) => x + y.util + y.water, 0) / rSum * 100) : 0;
+      k += row('水道光熱費', `${yen(uAvg)}/日<br><span class="opt-sub">直近${uh.length}日の平均・売上の${pct}%（目安は30%まで）</span>`,
+        pct > 40 ? 'minus' : '');
+    } else k += row('水道光熱費', 'まだ営業していない');
+    k += row('入浴料', `¥${G.opts.fee}` + (hasCat('sauna') ? `（＋サウナ ¥${G.opts.saunaFee}）` : ''));
+    k += row('客が受け入れる入浴料', `〜¥${worthFee()}`, G.opts.fee > worthFee() ? 'minus' : '');
+    if (hasCat('sauna')) k += row('客が受け入れるサウナ料', `〜¥${worthSaunaFee()}`, G.opts.saunaFee > worthSaunaFee() ? 'minus' : '');
+    k += row('受入人数（ロッカー）', `${lockerCapacity()}人（${G.equip.filter(e => EQ[e.id].cat === 'locker' && e.cond > 0).length}台）`);
+    return k;
+  };
+
+  /* ── 評判タブ。いちばん上に「今やるべきこと」、その下は10項目を1行ずつのバーで（作者指定）。
+     点数の細かい内訳を読ませるのではなく、どこが凹んでいて、次に何をすればいいかだけを見せる */
+  const repPane = () => {
+    syncRep();
+    const sp = repScoreParts();
+    const lo = sp.items.reduce((x, y) => (y.v < x.v ? y : x));
+    const badCospa = cospaParts().list.filter(x => x.v === 0);
+    const badDosen = dosenParts().list.filter(x => x.v < 3);
+    const am = amenityParts();
+    const badAmen = am.list.filter(x => x.v < x.max).sort((x, y) => (x.v / x.max) - (y.v / y.max));
+    // その項目に出す「次の一手」。コスパ・動線・おもてなしは、取りこぼしを名指しできる
+    const adviceOf = it => {
+      if (it.key === 'cospa' && badCospa.length)
+        return `高い：${badCospa[0].name} ${badCospa[0].note}` + (badCospa.length > 1 ? ` ほか${badCospa.length - 1}件` : '');
+      if (it.key === 'dosen' && badDosen.length)
+        return `遠い：${badDosen[0].name} ${badDosen[0].note}` + (badDosen.length > 1 ? ` ほか${badDosen.length - 1}件` : '');
+      if (it.key === 'omote' && badAmen.length)
+        return `伸ばせる：${badAmen[0].name} ${badAmen[0].note}`;
+      return repAdvice(it.key) || it.hint;
+    };
+    let r = '';
+    /* ── 今やるべきこと（作者指定）。順番は「効きの早い順」＝
+       ①直せばその日に戻る減点 ②いちばん凹んでいる項目 ③引き受けている宿題 */
+    const todo = [];
+    if (sp.pens.length) {
+      const p0 = sp.pens[0];
+      todo.push(`<b>${p0.l}</b>を直す（−${p0.v}点）${sp.pens.length > 1 ? `　ほか${sp.pens.length - 1}件` : ''}`
+        + (p0.sub ? `<br><span class="opt-sub">${p0.sub}</span>` : ''));
     }
-  } else h += row('アルバイト', 'なし（採用は【広告】の求人広告から）');
-  /* 「人との関係」の欄も削除した（作者指定）。誰と何が起きているかは、
-     その場の一幕と、準備画面の宿題（demandHint）で分かる */
-  if (G.reina && G.reina.duel === 'announced') {
-    h += sec('🗳 投票対決') +
-      row('投票日まで', `あと${Math.max(0, G.reina.duelDay - G.day)}日`) +
-      row('見込み票', `夕凪 ${computeYuVotes()} / 蒼天 約${SOUTEN_DUEL_VOTES}`);
-  }
-  box.innerHTML = h;
+    if (lo.v < 8) todo.push(`<b>${lo.name}</b>が${lo.v.toFixed(1)}点<br><span class="opt-sub">▶ ${adviceOf(lo)}</span>`);
+    // 減点のまとめ（😠）は上の1件目と同じ話なので、ここでは省く（準備画面のほうには出る）
+    for (const d of demandHint()) if (!d.startsWith('😠')) todo.push(d);
+    r += sec('📌 今やるべきこと');
+    r += todo.length
+      ? todo.slice(0, 3).map(t => `<div class="rep-voice">${t}</div>`).join('')
+      : `<div class="rep-voice">✨ いまは大きな穴がない。設備を足して、さらに上を狙おう</div>`;
+    // ── 総合スコアと10項目のバー
+    r += sec('🏮 評判');
+    r += repCounting()
+      ? row('総合スコア', `集計中<br><span class="opt-sub">8日目に出る（あと${REP_WARMUP - G.day + 1}日）</span>`)
+      : row('総合スコア', `${G.rep} / 100<br><span class="opt-sub">10項目×10点。直近${Math.min(sp.days, REP_DAYS)}日をならした点</span>`);
+    for (const it of sp.items) {
+      const cls = it.v >= 8 ? 'ok' : it.v >= 6 ? 'mid' : it.v >= 4 ? 'low' : 'bad';
+      r += `<div class="rep-bar-row"><span class="nm">${it.name}</span>` +
+        `<span class="bar"><i class="${cls}" style="width:${Math.round(it.v * 10)}%"></i></span>` +
+        `<span class="bv ${cls}">${it.v.toFixed(1)}</span></div>`;
+    }
+    if (sp.penSum) {
+      r += `<div class="rep-row sub minus"><span>− マイナス評価</span><span class="v">−${sp.penSum}</span></div>`;
+      for (const it of sp.pens)
+        r += row(`　${it.l}${it.sub ? `<br><span class="opt-sub">　${it.sub}</span>` : ''}`, `−${it.v}`, 'minus');
+    }
+    if (sp.bonus) r += row(sp.bonus > 0 ? '街での出来事（加点）' : '街での出来事（減点）',
+      `${sp.bonus > 0 ? '+' : ''}${sp.bonus}`, sp.bonus < 0 ? 'minus' : '');
+    // 品揃えの評価は「種類の数」で見る＝1種類△／2種類○／3種類以上◎
+    r += row('品揃え', `風呂 ${kindMark('furo')}　サウナ ${kindMark('sauna')}　水風呂 ${kindMark('mizu')}`);
+    const lacks = [];
+    if (!hasWorking('cooler')) lacks.push('冷水機');
+    if (!hasWorking('sink')) lacks.push('洗面所');
+    if (lacks.length) r += row('客が欲しがっているもの', lacks.join('・'), 'minus');
+    if ((G.roughDays || 0) >= 1)
+      r += row('客の我慢', `荒れた日 ${G.roughDays}日連続`
+        + (G.roughDays >= CONF.riotDays ? '<br><span class="opt-sub">いつ暴れてもおかしくない</span>' : ''), 'minus');
+    if (G.reina && G.reina.duel === 'announced')
+      r += sec('🗳 投票対決') +
+        row('投票日まで', `あと${Math.max(0, G.reina.duelDay - G.day)}日`) +
+        row('見込み票', `夕凪 ${computeYuVotes()} / 蒼天 約${SOUTEN_DUEL_VOTES}`);
+    return r;
+  };
+
+  box.innerHTML = tabBar + (dataTab === 'kei' ? keiPane() : repPane());
+  box.querySelectorAll('[data-dtab]').forEach(b => b.onclick = () => { dataTab = b.dataset.dtab; renderData(); });
 }
 
 function renderAds() {
