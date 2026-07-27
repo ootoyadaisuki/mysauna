@@ -687,7 +687,10 @@ function stepMove(e, dt) {
   e.moving = true;
   if (dist <= step) {
     e.px = tx; e.py = ty; e.path.shift();
-    return e.path.length === 0;
+    // 最後の1マスに着いた瞬間に「歩いている」を降ろす。ここを立てたままにしていたので、
+    // 目的地に着いても歩行中の扱いが残り、番台についた判定（＝突っ伏して寝る絵）が出なかった
+    if (!e.path.length) { e.moving = false; return true; }
+    return false;
   }
   e.px += dx / dist * step; e.py += dy / dist * step;
   e.walkPx = (e.walkPx || 0) + step;      // 歩かされた距離＝動線の悪さの目安（客の不満の判定に使う）
