@@ -2233,11 +2233,20 @@ function makePlayer() {
   return p;
 }
 function updatePlayer(p, dt) {
-  /* バイトがいない店では、時間切れの声かけも主人公がやる（作者指定）。
-     番台を空けて客のところまで歩く＝その間、会計が止まって外の行列が伸びる。
-     ひとりで回す店に時間制限を掛けると、回転を上げたぶんが受付で相殺される */
-  if (G.phase === 'biz' && !G.staff.some(s => !(s.lateT > 0))) {
-    if (p.task === 'tell' || findTimeUpTarget(p)) { maintain(p, dt, playerSpot()); return; }
+  /* バイトが誰も居ない（全員まだ来ていない場合も含む）店では、営業中も主人公が
+     掃除・ゴキブリ退治・時間切れの声かけまで全部やる（作者指定）。
+     受付・掃除・声かけをひとりで回す＝どれかが必ず後手に回り、店が回らない。
+     手を付けた仕事は最後までやり切る。番台へ戻るのはそれからなので、その間、行列は伸びる */
+  const solo = G.phase === 'biz' && !G.staff.some(s => !(s.lateT > 0));
+  if (solo) {
+    const busy = p.task === 'clean' || p.task === 'tell' || p.task === 'roach';
+    /* 時間切れの声かけだけは番台より先（客を裸で待たせたまま放ってはおけない）。
+       掃除に出られるのは行列が切れた時だけ＝ひとりで回す店の床は、まず片づかない */
+    if (busy || findTimeUpTarget(p) || !G.payQueue.length) {
+      if (p.task === 'bandai') { p.task = null; p.target = null; }   // 番台を離れる（maintain は手が空いた人しか動かせない）
+      maintain(p, dt, playerSpot());
+      return;
+    }
   }
   // 支払い待ちが最優先
   if (G.payQueue.length && (!p.task || p.task !== 'bandai')) {
@@ -2289,10 +2298,10 @@ function updatePlayer(p, dt) {
     }
     return;
   }
-  /* 営業中、主人公は番台から離れない（作者指定）。
-     ひとりで会計をさばきながら床まで拭いて回れるなら、バイトを雇う理由が無くなる。
-     ＝営業中に落ちた汚れを片づけられるのはバイトだけ。掃除は「人を雇う」ことでしか買えない。
-     開店前（準備中）は自分で拭いて回るが、それも1日に拭ける数に限りがある（PREP_CLEAN_MAX） */
+  /* バイトが1人でも出勤していれば、営業中の主人公は番台から離れない（作者指定）。
+     会計をさばきながら床まで拭いて回れるなら、バイトを雇う理由が無くなる。
+     ＝雇ったその日から、掃除も声かけもバイトの仕事になる。
+     バイトが誰も居ない日だけは主人公が全部やる（この関数の頭の solo）＝店が回らない、を体で分からせる */
   if (G.phase === 'biz') {
     const t0 = tileOf(p), home = playerSpot();
     if (!p.task && (t0.x !== home.x || t0.y !== home.y)) { p.task = 'home'; p.path = findPath(t0.x, t0.y, home.x, home.y) || []; }
@@ -2395,21 +2404,21 @@ function tellTimeUp(w, c) {
 }
 
 function maintain(w, dt, home) {
-  // 営業中の主人公は番台を離れない（声かけで呼ばれた時だけここへ来る）＝掃除もゴキブリ退治もしない
-  const bizPlayer0 = w.kind === 'player' && G.phase === 'biz';
   // 時間切れの客への声かけが最優先（掃除の前に割り込む）
   if (!w.task || w.task === 'home') {
     const c0 = findTimeUpTarget(w);
     if (c0) {
       const t = tileOf(c0), pth = pathToNear(w, t.x, t.y);
       if (pth) { w.task = 'tell'; w.target = c0; w.path = pth; w.timer = 1.2; }
+      // そばまで行けない客は諦める（伝えられないまま、毎フレーム狙い続けるのを防ぐ）
+      else c0.told = true, c0.timeUp = false;
     }
   }
   /* ゴキブリが出ていたら、掃除より先に仕留めに行く（作者指定）。
      以前は「ゴキブリが乗っている汚れを優先して拭く」だけだったので、
      着く頃には別のマスへ走り去っていて、いつまでも仕留められなかった。
      ここでは相手そのものを追いかけ、隣のマスまで詰めたところで叩く */
-  if (!bizPlayer0 && (!w.task || w.task === 'home' || w.task === 'clean') && G.roach && !claimedBy(G.roach, w)) {
+  if ((!w.task || w.task === 'home' || w.task === 'clean') && G.roach && !claimedBy(G.roach, w)) {
     const pth = pathToNear(w, G.roach.tx, G.roach.ty);
     if (pth) { w.task = 'roach'; w.target = G.roach; w.path = pth; }
   }
@@ -2445,18 +2454,19 @@ function maintain(w, dt, home) {
     return;
   }
   if (!w.task) {
-    /* 営業中の主人公は掃除をしない（作者指定＝掃除は「人を雇う」ことでしか買えない）。
-       声かけのためにここへ入って来ることがあるので、汚れは拾わせずに番台へ帰す */
-    const bizPlayer = w.kind === 'player' && G.phase === 'biz';
+    /* 主人公が営業中にここへ来るのは、バイトが誰も居ない時だけ（updatePlayer の solo）。
+       その日は受付も掃除も声かけも全部ひとりで背負う。開店前の「5つで手が止まる」上限は
+       夜の話なので、営業中には掛けない */
+    const soloPlayer = w.kind === 'player' && G.phase === 'biz';
     // 主人公が開店前に拭ける数には限りがある（それ以上は番台で待つ＝バイトの仕事）
-    const tired = !bizPlayer && w.kind === 'player' && (G.prepCleaned || 0) >= PREP_CLEAN_MAX;
+    const tired = !soloPlayer && w.kind === 'player' && (G.prepCleaned || 0) >= PREP_CLEAN_MAX;
     // 拭ける数を使い切ったのに、まだ汚れが残っている＝そこで音を上げる（1晩に1回だけ）
     if (tired && G.dirts.length && !G.tiredSaid) {
       G.tiredSaid = true;
       bubble(w, pick(LINES.prepTired), 5.0);
       log(`🧹 ${PREP_CLEAN_MAX}つ拭いたところで手が止まった。残り${G.dirts.length}つはバイトの仕事だ`);
     }
-    const avail = (tired || bizPlayer) ? [] : G.dirts.filter(d => !claimedBy(d, w));
+    const avail = tired ? [] : G.dirts.filter(d => !claimedBy(d, w));
     if (avail.length) {
       const t0 = tileOf(w);
       /* 近い順に、実際にたどり着ける汚れを探す。
