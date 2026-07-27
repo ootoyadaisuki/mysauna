@@ -152,6 +152,13 @@ body {
   background:#3a2f28; color:#c9b494; border:2px solid #6b5b44; border-bottom:none; cursor:pointer;
 }
 #shopTabs .tab.on { background:#5a4433; color:#ffd98a; border-color:#c9a86a; }
+/* 運営メニューのタブ（料金／アメニティ／ルール）。1画面に収めるための切り替え */
+.opt-tabs { display:flex; gap:6px; margin:0 0 10px; }
+.opt-tabs .tab {
+  flex:1; font-family:inherit; font-size:13px; padding:8px 4px; border-radius:8px;
+  background:#3a2f28; color:#c9b494; border:2px solid #6b5b44; cursor:pointer;
+}
+.opt-tabs .tab.on { background:#5a4433; color:#ffd98a; border-color:#c9a86a; }
 #shopTabs .tab { position:relative; }
 /* 新しく解放された設備があるカテゴリの赤丸 */
 .new-dot {
