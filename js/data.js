@@ -290,6 +290,20 @@ const EQ = {
   sink_old:   { cat:'datsui', name:'古い洗面台',          w:2,h:1, price:0,       q:1, run:200, cap:0, room:'datsui', old:true,
                 pas:{ sat:2, score:2, likes:['jisan','oyaji'], like:2 },
                 desc:'親父の代からの鏡と洗面台。曇っていて、蛇口も渋い。', descFix:'鏡を磨いて蛇口を締め直した。使えなくはない。' },
+  /* トイレ（作者指定）。ゲーム開始時から脱衣所の右下に、親父の代からのボットン便所が据わっている。
+     客は湯上がりに寄っていくが、汲み取りの和式は今の客にはきつい＝出てきた客が文句を言う。
+     トイレが1つも無いと「トイレは無いの!?」と、いちばん基本的なところで見放される */
+  toilet_old: { cat:'datsui', name:'古いボットン便所',    w:1,h:1, price:0,       q:1, run:0,   cap:0, room:'datsui', old:true,
+                pas:{ sat:1, score:1 },
+                desc:'親父の代からの汲み取り式。和式でしゃがむ。臭いもこもる。', descFix:'汲み取って床を洗った。ボットンなのは変わらない。' },
+  toilet1:    { cat:'datsui', name:'水洗トイレ',          w:1,h:1, price:140000,  q:2, run:300, cap:0, room:'datsui',
+                pas:{ sat:3, score:3 }, desc:'洋式の水洗。座れて、流せる。ここでようやく人並みの銭湯になる。' },
+  toilet_multi:{cat:'datsui', name:'多目的トイレ',        w:2,h:1, price:240000,  q:3, run:400, cap:0, room:'datsui', rep:45,
+                pas:{ sat:4, score:4, likes:['oyako','jisan'], like:3 },
+                desc:'手すりとおむつ台のある広いトイレ。子連れも、足腰の弱った常連も安心して通える。' },
+  toilet2:    { cat:'datsui', name:'ウォシュレット',      w:1,h:1, price:320000,  q:4, run:500, cap:0, room:'datsui', rep:60,
+                pas:{ sat:5, score:5, likes:['salaryman','kinpatsu'], like:2 },
+                desc:'温水洗浄便座。トイレが綺麗な店は、それだけで信用される。' },
   scale:      { cat:'datsui', name:'体重計',              w:1,h:1, price:30000,   q:1, run:0,   cap:0, room:'datsui',
                 pas:{ sat:2, score:2, likes:['jisan','oyaji'], like:2 }, desc:'昔ながらの針の体重計。乗らずにはいられない。' },
   tv:         { cat:'datsui', name:'テレビ',              w:1,h:1, price:120000,  q:2, run:300, cap:0, room:'datsui', wall:true,
@@ -366,6 +380,9 @@ const EQ_NOTE = {
   cooler:      'サウナ中の給水はここで',
   // 脱衣所
   sink:        'ドライヤーも化粧水もここ',
+  toilet1:     'ようやく人並みに座って流せる',
+  toilet_multi:'子連れも足の悪い常連も来れる',
+  toilet2:     'ここまで来ると客の顔が変わる',
   scale:       '乗らずにはいられない針',
   tv:          '相撲にナイター。長っ尻の元',
   poster:      '爺さんの目がやたら輝く',
@@ -400,6 +417,7 @@ const INIT_EQUIP = [
   { id:'bandai',     x:5,  y:9, cond:100 },
   { id:'bath_old',   x:8,  y:1, cond:40 },
   { id:'sink_old',   x:1,  y:7, cond:40 },   // 脱衣所の左上、壁沿い（作者指定）
+  { id:'toilet_old', x:11, y:9, cond:35 },   // 脱衣所の右下、壁沿い（作者指定）
   { id:'wash_old',   x:1,  y:3, cond:45 },
   { id:'wash_old',   x:1,  y:5, cond:35 },
   { id:'locker_old', x:10, y:8, cond:50 },
@@ -585,6 +603,11 @@ const LINES = {
   hintScale:   ['体重計、置いてないのか', '体重計に乗って帰りたいな'],
   hintTv:      ['野球中継が見たいな', 'テレビでも見ながら涼みたいな'],
   hintMassage: ['マッサージチェアがあればなあ', '腰、揉んで帰りたい…'],
+  /* トイレ（作者指定）。無い店＝そもそも成り立っていない、ボットン＝出てきた客が顔をしかめる。
+     用を足して出てきた客は、洋式なら「スッキリ〜」と機嫌よく帰る */
+  hintToilet:  ['トイレは無いの!?', 'ウンコもれそう…', 'トイレくらい置いてくれよ', '我慢して帰るしかないのか…'],
+  toiletOld:   ['ボットン便所かよ…', 'うわ、まだ汲み取りか', '和式はもう膝がきつい', '臭いがすごいんだが'],
+  toiletDone:  ['スッキリ〜', 'ふぅ、生き返った', 'ああ、すっきりした', '間に合った…'],
   // 湯温は設備ごとに固定＝客は「温度を変えろ」ではなく「風呂の種類を増やせ」と言う
   hintFuroKind:['もっとお風呂の種類がほしいな', 'お風呂は1種類しかないのか…'],
   hintNuruFuro:['熱い湯しかないのか…', 'ぬるい湯にゆっくり浸かりたい'],

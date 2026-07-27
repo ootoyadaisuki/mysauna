@@ -474,6 +474,12 @@ function hasWorking(id) { return G.equip.some(e => e.id === id && e.cond > 0); }
    （ドライヤーも化粧水も、あの台の上に置ける＝設備としては同じもの） */
 const SINK_IDS = ['sink', 'sink_old'];
 function hasSink() { return SINK_IDS.some(hasWorking); }
+/* トイレ（作者指定）。親父の代からのボットン便所も「トイレはある」に数えるが、
+   洋式かどうかは別に見る＝ボットンのままだと、使った客がその都度文句を言う */
+const TOILET_IDS = ['toilet_old', 'toilet1', 'toilet_multi', 'toilet2'];
+const TOILET_NEW = ['toilet1', 'toilet_multi', 'toilet2'];
+function hasToilet() { return TOILET_IDS.some(hasWorking); }
+function hasNewToilet() { return TOILET_NEW.some(hasWorking); }
 /* 熱波師が店にいるか（フェーズ4：決戦仕様のサウナを組むと、黒田が連れてくる） */
 /* 熱波師が“いま振れる”か。台（決戦仕様の一台）が据わるまでは、来ていても振れない＝効果も出ない */
 function nappaOn() { return !!(G.nappa && G.nappa.hired) && hasWorking('sauna_sp'); }
@@ -1190,6 +1196,8 @@ const PAS_USE = {
   scale: { id:'scale',    dur:[2.0, 3.4], say:0.5 },    // 体重計に乗って一喜一憂（針がぐるっと振れる）
   gacha: { id:'gacha',    dur:[2.2, 3.6], say:0.6 },    // 子どもが¥100を入れて回す（売上になる）
   ehon:  { id:'ehon',     dur:[4.0, 7.0], say:0.6 },    // 絵本の棚の前に座って読む（子どもだけ）
+  // トイレ（作者指定）。便器の上に座って（ボットンはしゃがんで）用を足し、出てきた時に一言
+  toilet:{ ids:TOILET_IDS, dur:[3.0, 5.0], say:0 },
 };
 const GACHA_PRICE = 100;      // ガチャガチャ1回（作者指定）
 const GACHA_KID_RATE = 0.30;  // 子どものうち、回していく割合（作者指定）
@@ -1201,6 +1209,7 @@ function pasLineFor(kind) {
   if (kind === 'scale') return LINES.scaleGood;
   if (kind === 'gacha') return LINES.gachaGood;
   if (kind === 'ehon') return LINES.ehonGood;
+  if (kind === 'toilet') return LINES.toiletDone;
   return G.opts.dryerFee ? LINES.dryerPaid : LINES.dryerFree;
 }
 function goPasUse(c, kind, next) {
@@ -1254,6 +1263,8 @@ function afterChange(c) {
   if (c.isChild && !c.didGacha && Math.random() < GACHA_KID_RATE && goPasUse(c, 'gacha', 'leave')) { c.didGacha = true; return; }
   // 親の着替えを待つあいだ、絵本の棚の前に座って読む子ども（作者指定）
   if (c.isChild && !c.didEhon && Math.random() < 0.5 && goPasUse(c, 'ehon', 'leave')) { c.didEhon = true; return; }
+  // 帰る前にトイレへ寄る客（作者指定）。トイレが無ければ、そのまま我慢して帰ることになる
+  if (!c.didToilet && Math.random() < 0.35 && goPasUse(c, 'toilet', 'leave')) { c.didToilet = true; return; }
   if (!c.didSink && Math.random() < 0.7 && goPasUse(c, 'sink', 'leave')) { c.didSink = true; return; }
   // 風呂上がり、つい体重計に乗って一喜一憂する（乗るまでが風呂、という田所の言い分）
   if (!c.didScale && Math.random() < 0.55 && goPasUse(c, 'scale', 'leave')) { c.didScale = true; return; }
@@ -1509,7 +1520,9 @@ function repAdvice(key) {
     }
     case 'furo': {
       if (!hasCat('furo')) return '浴槽がまだ1台もない';
-      if (furoKindCount() < 3) return 'あつ湯とぬる湯を揃えると伸びる';
+      // どんな品揃えでも当てはまるように「種類を増やす」で統一（作者指定）。
+      // あつ湯とぬる湯を両方持っている店に「揃えろ」と言ってしまっていた
+      if (furoKindCount() < 3) return `お風呂の種類を増やすと伸びる（いま${furoKindCount()}種類）`;
       const sc = scaleNote('furo', t.paid || 0, 5);
       if (sc.r > sc.per) return `湯船が${sc.cap}人ぶん。客${sc.want}人には狭い`;
       return bestQ('furo') < 4 ? upgrade('furo') : '種類をもう1つ増やすと満点';
@@ -1525,7 +1538,9 @@ function repAdvice(key) {
       const n = datsuiGoods().length;
       const lc = lockerCapacity(), need = Math.round((t.paid || 0) * 0.35);
       if (lc < need) return `ロッカー${lc}人ぶん。客${t.paid || 0}人には足りない`;
+      if (!hasToilet()) return 'トイレが1つもない。まず1つ置く';
       if (!hasSink()) return '洗面所を置くと大きく伸びる';
+      if (!hasNewToilet()) return '古いボットン便所を洋式に替える';
       if (!hasWorking('sink')) return '古い洗面台をちゃんとした洗面所に替える';
       if (n < 6) return `脱衣所の備品あと${6 - n}個で満点`;
       return hasWorking('massage') ? '脱衣所はもう十分' : 'マッサージチェアで満点に届く';
@@ -1860,6 +1875,10 @@ function pickHintKey() {
   if (!hasCat('rest')) cands.push(['hintRest', 1.6]);
   /* 脱衣所の備品が無い（作者指定）。「牛乳ないの？」のように名指しで言わせる＝
      何を置けばいいのかが、そのままカタログへの案内になる */
+  /* トイレ（作者指定）。1つも無いのはいちばん基本的な欠落なので、いちばん強く言わせる。
+     ボットンしか無い店は、使った客がその場で文句を言う（usingPas）ので、ここでは弱めでいい */
+  if (!hasToilet()) cands.push(['hintToilet', 2.6]);
+  else if (!hasNewToilet()) cands.push(['toiletOld', 0.8]);
   if (!hasWorking('vend1')) cands.push(['hintMilk', 1.5]);
   if (!hasWorking('fan_bath')) cands.push(['hintFan', 1.1]);
   if (!hasWorking('scale')) cands.push(['hintScale', 0.7]);
@@ -1918,6 +1937,9 @@ function customerLeave(c) {
     voice(c, pick(pro ? LINES.dosenPro : LINES.dosen), 'dosen',
           Math.round(CONF.dosenHit * Math.min(tiles / lim, 2)), '⚠');
   }
+  /* トイレが1つも無い（作者指定）。用を足せない銭湯は、それだけで話にならない＝
+     一律で効く減点にしてある（ボットンでも、あるだけましという扱い） */
+  if (!hasToilet()) { c.sat -= 5; gripe('lack'); }
   // フェーズ3：ないものねだり（ミスト・塩・熱波師）。帰り際に「あれが無かったな…」とがっかりする
   if (c.wantsMist && !hasWorking('sauna_mist')) { c.sat -= 3; gripe('lack'); if (!c.bub && Math.random() < .5) bubble(c, pick(LINES.wantMist)); }
   if (c.wantsShio && !hasWorking('sauna_shio')) { c.sat -= 3; gripe('lack'); if (!c.bub && Math.random() < .5) bubble(c, pick(LINES.wantShio)); }
@@ -2170,6 +2192,21 @@ function updateCustomer(c, dt) {
           G.cash += GACHA_PRICE; G.today.amenRev += GACHA_PRICE; G.today.amenN++; G.today.revenue += GACHA_PRICE;
           addFloater(c.px, c.py - 24, '+' + yen(GACHA_PRICE));
           c.sat += 6;
+        }
+        /* トイレから出てきた一言（作者指定）。洋式なら「スッキリ〜」、
+           親父の代からのボットンなら、顔をしかめて出てくる＝替えろ、の合図 */
+        if (c.pas && c.pas.kind === 'toilet') {
+          if (c.pas.item.id === 'toilet_old') {
+            c.sat = clamp(c.sat - 6, 0, 100);
+            gripe('lack');
+            const line = pick(LINES.toiletOld);
+            gripeBubble(c, line, 'toiletOld');
+            voice(c, line, 'lack', 6, '⚠');
+          } else {
+            const line = pick(LINES.toiletDone);
+            bubble(c, line, 2.6);
+            voice(c, line, 'toiletDone', 0);
+          }
         }
         endPasUse(c);
         if (next === 'leave') afterChange(c); else c.state = 'plan';
@@ -5977,6 +6014,53 @@ function drawEquipArt(c2, it, def, x, y, w, h, rt, broken) {
         c2.fillStyle = '#e8e8e8'; c2.fillRect(x + 7, y + 13, w - 14, 10);
         if (!milk) { c2.fillStyle = '#4a8ac9'; c2.fillRect(x + 8, y + 14, 4, 8); c2.fillStyle = '#e8c84a'; c2.fillRect(x + 14, y + 14, 4, 8); }
         c2.fillStyle = '#b3402e'; c2.fillRect(x + w - 9, y + 15, 3, 5);
+      } else if (TOILET_IDS.includes(it.id)) {
+        /* トイレ（作者指定）。床のタイルの上に便器を置く。
+           ボットン＝和式の細長い便器と金隠し（臭いが立ちのぼる）。
+           洋式＝タンク・便座・フタ。ウォシュレットは操作パネル、多目的は手すりとおむつ台 */
+        const boton = it.id === 'toilet_old';
+        c2.fillStyle = boton ? '#b9b3a4' : '#e4e8ea';                       // 床のタイル
+        c2.fillRect(x + 2, y + 2, w - 4, h - 4);
+        c2.strokeStyle = 'rgba(0,0,0,.10)'; c2.lineWidth = 1;
+        for (let gx2 = x + 2; gx2 < x + w - 2; gx2 += 8) { c2.beginPath(); c2.moveTo(gx2, y + 2); c2.lineTo(gx2, y + h - 2); c2.stroke(); }
+        const cx0 = x + w / 2;
+        if (boton) {
+          c2.fillStyle = '#cfcabc';                                          // 和式便器（縦長）
+          c2.beginPath(); c2.ellipse(cx0, y + 17, 6, 10, 0, 0, Math.PI * 2); c2.fill();
+          c2.fillStyle = '#2a2622';                                          // 落とし穴
+          c2.beginPath(); c2.ellipse(cx0, y + 19, 3.4, 6, 0, 0, Math.PI * 2); c2.fill();
+          c2.fillStyle = '#d8d3c6';                                          // 金隠し
+          c2.beginPath(); c2.ellipse(cx0, y + 8, 5.5, 4, 0, Math.PI, 0); c2.fill();
+          c2.strokeStyle = 'rgba(90,80,60,.45)'; c2.lineWidth = 0.8;         // 立ちのぼる臭い
+          for (let i = 0; i < 2; i++) {
+            const ph = (rt * 0.5 + i * 0.5) % 1;
+            c2.globalAlpha = (1 - ph) * 0.7;
+            c2.beginPath();
+            c2.moveTo(cx0 - 3 + i * 6, y + 14 - ph * 10);
+            c2.quadraticCurveTo(cx0 - 1 + i * 6, y + 10 - ph * 10, cx0 - 3 + i * 6, y + 6 - ph * 10);
+            c2.stroke();
+          }
+          c2.globalAlpha = 1;
+        } else {
+          const multi = it.id === 'toilet_multi';
+          if (multi) {                                                       // 手すり（横棒2本）とおむつ台
+            c2.fillStyle = '#e8c34a'; c2.fillRect(x + 3, y + 20, 7, 2.4); c2.fillRect(x + w - 10, y + 20, 7, 2.4);
+            c2.fillStyle = '#cfd8dc'; c2.fillRect(x + 3, y + 5, 8, 6);
+          }
+          c2.fillStyle = '#f4f6f6'; c2.fillRect(cx0 - 6, y + 4, 12, 7);      // タンク
+          c2.fillStyle = '#dfe4e6'; c2.fillRect(cx0 - 6, y + 10, 12, 2);
+          c2.fillStyle = '#f8fafa';                                          // 便座（楕円）
+          c2.beginPath(); c2.ellipse(cx0, y + 18, 6.5, 8, 0, 0, Math.PI * 2); c2.fill();
+          c2.fillStyle = '#cfd8dc';
+          c2.beginPath(); c2.ellipse(cx0, y + 18.5, 3.6, 5, 0, 0, Math.PI * 2); c2.fill();
+          c2.fillStyle = '#eef2f4';                                          // 上げたフタ
+          c2.beginPath(); c2.ellipse(cx0, y + 10, 6, 3, 0, Math.PI, 0); c2.fill();
+          if (it.id === 'toilet2') {                                         // ウォシュレットの操作パネル
+            c2.fillStyle = '#f0f2f2'; c2.fillRect(cx0 + 6, y + 12, 5, 8);
+            c2.fillStyle = broken ? '#8a8a84' : '#4aa3e0'; c2.fillRect(cx0 + 7, y + 14, 3, 2);
+            c2.fillStyle = '#b3402e'; c2.fillRect(cx0 + 7, y + 17, 3, 1.6);
+          }
+        }
       } else if (it.id === 'sink' || it.id === 'sink_old') {  // 洗面所（鏡＋洗面台2つ＋ドライヤー＋化粧水と乳液のボトル）
         // 親父の代からの古い洗面台は、鏡が曇り、カウンターも黄ばんでいる（＋ヒビが1本入る）
         const worn = it.id === 'sink_old';
@@ -6072,13 +6156,40 @@ function drawEquipArt(c2, it, def, x, y, w, h, rt, broken) {
       break;
     }
     case 'etc': {
-      if (it.id === 'cooler') {                          // 冷水機（青いタンク＋蛇口＋水しぶき）
-        c2.fillStyle = '#e8ecee'; c2.fillRect(x + 6, y + 8, w - 12, 18);
-        c2.fillStyle = '#4a8ac9'; c2.fillRect(x + 8, y + 3, w - 16, 8);
-        c2.fillStyle = '#bfe3f2'; c2.fillRect(x + 9, y + 4, w - 18, 5);
-        c2.fillStyle = '#9a9a9a'; c2.fillRect(x + w / 2 - 1, y + 14, 2, 5);
-        c2.fillStyle = '#cfe8f2'; c2.fillRect(x + 9, y + 20, w - 18, 4);
-        if (!broken) { c2.fillStyle = 'rgba(160,220,245,.9)'; c2.fillRect(x + w / 2 - 0.7, y + 18 + (rt * 12 % 3), 1.4, 2); }
+      if (it.id === 'cooler') {
+        /* 冷水機（作者指定＝学校にあるあの水飲み器）。グレーの縦長の箱に、
+           ステンレスの天板と水受け。天板の噴き口から水が真上に噴き上がり、
+           客は身を乗り出して、その水に直接口をつけて飲む（紙コップは使わない） */
+        c2.fillStyle = '#b9bdc0'; c2.fillRect(x + 8, y + 10, w - 16, 17);      // 本体（グレーの箱）
+        c2.fillStyle = '#a3a8ab'; c2.fillRect(x + 8, y + 10, 2.5, 17);         // side shade
+        c2.fillStyle = '#8f9498'; c2.fillRect(x + 8, y + 26, w - 16, 2);       // 足もと
+        c2.fillStyle = '#6f7478'; c2.fillRect(x + 11, y + 24, w - 22, 2);      // 足踏みペダル
+        c2.fillStyle = '#d7dcdf'; c2.fillRect(x + 6, y + 6, w - 12, 6);        // ステンレスの天板
+        c2.fillStyle = '#eef2f4'; c2.fillRect(x + 6, y + 6, w - 12, 1.6);      // 天板のハイライト
+        c2.fillStyle = '#9aa1a5';                                              // 天板にくぼんだ水受け
+        c2.beginPath(); c2.ellipse(x + w / 2, y + 9.6, (w - 18) / 2, 2.6, 0, 0, Math.PI * 2); c2.fill();
+        c2.fillStyle = '#7f868a';                                              // 噴き口
+        c2.beginPath(); c2.ellipse(x + w / 2, y + 8.6, 1.8, 1.1, 0, 0, Math.PI * 2); c2.fill();
+        if (!broken) {
+          /* 水は誰も居なくてもちょろちょろ出ている。飲んでいる間は勢いよく噴き上がる。
+             噴水は客の体の後ろになる（設備は客より先に描く）ので、口もとで自然に隠れる */
+          const jx = x + w / 2, jy = y + 8;
+          const hgt = it.pasBy ? 11 + Math.sin(rt * 7) * 1.2 : 3.5;
+          c2.strokeStyle = 'rgba(150,215,245,.95)'; c2.lineWidth = 2.0; c2.lineCap = 'round';
+          c2.beginPath(); c2.moveTo(jx, jy); c2.lineTo(jx, jy - hgt); c2.stroke();
+          c2.strokeStyle = 'rgba(255,255,255,.7)'; c2.lineWidth = 0.8;
+          c2.beginPath(); c2.moveTo(jx - 0.5, jy - 0.5); c2.lineTo(jx - 0.5, jy - hgt + 0.8); c2.stroke();
+          if (it.pasBy) {
+            c2.fillStyle = 'rgba(200,240,255,.95)';                            // 噴き上がった先で散る粒
+            for (let i = 0; i < 4; i++) {
+              const ph = (rt * 1.8 + i * 0.25) % 1;
+              const sway = (i % 2 ? 1 : -1) * (1 + ph * 3.5);
+              c2.globalAlpha = 1 - ph;
+              c2.beginPath(); c2.arc(jx + sway, jy - hgt + ph * ph * 9, 1.2 * (1 - ph) + .5, 0, Math.PI * 2); c2.fill();
+            }
+            c2.globalAlpha = 1;
+          }
+        }
       } else if (it.id === 'fan_bath') {                 // 扇風機（首振り・羽根が回る）
         c2.fillStyle = '#8a8a84'; c2.fillRect(x + w / 2 - 1.5, y + 18, 3, 8);
         c2.fillStyle = '#6b6b66'; c2.fillRect(x + 9, y + 25, w - 18, 3);
@@ -6187,13 +6298,21 @@ function atBandaiPost(e) {
 /* 子どもは大人と同じ絵を、足もとを軸に縮めて描く（作者指定＝子供の画像）。
    頭は縮めすぎると顔が潰れるので、体より控えめに縮む＝頭が大きい子どもの体型になる */
 const KID_SCALE = 0.66;
+/* 設備の「上に」乗る／座るもの（作者指定）。体重計は乗って針を見る、トイレは座って（和式はしゃがんで）用を足す。
+   立ち位置ではなく設備そのものの真上に描き、dy で高さを変える＝乗っている・座っているように見せる */
+function pasOn(e) {
+  if (!(e.state === 'usingPas' && e.pas)) return null;
+  if (e.pas.kind === 'scale') return { item: e.pas.item, dy: -3 };
+  if (e.pas.kind === 'toilet') return { item: e.pas.item, dy: e.pas.item.id === 'toilet_old' ? 5 : 2 };
+  return null;
+}
 function drawChar(e, rt) {
   if (!e.isChild) { drawCharBody(e, rt); return; }
   ctx.save();
   // 縮める軸は「その子が実際に立っている足もと」。体重計に乗っている間は台の上が足もとになる
-  const onScale = (e.state === 'usingPas' && e.pas && e.pas.kind === 'scale') ? e.pas.item : null;
-  const gx = onScale ? onScale.x * T + T / 2 : e.px;
-  const gy = (onScale ? onScale.y * T + T / 2 - 3 : e.py) + 8;
+  const onScale = pasOn(e);
+  const gx = onScale ? onScale.item.x * T + T / 2 : e.px;
+  const gy = (onScale ? onScale.item.y * T + T / 2 + onScale.dy : e.py) + 8;
   ctx.translate(gx, gy); ctx.scale(KID_SCALE, KID_SCALE); ctx.translate(-gx, -gy);
   drawCharBody(e, rt);
   ctx.restore();
@@ -6207,13 +6326,18 @@ function drawCharBody(e, rt) {
   const asleepHere = e.kind === 'player' && playerAsleep();
   const post = (atBandaiPost(e) || asleepHere) ? bandai() : null;
   // 体重計は「乗る」もの（作者指定）。使っているあいだは台の真上に立たせ、板の厚みぶん少し持ち上げる
-  const onScale = (e.kind === 'cust' && e.state === 'usingPas' && e.pas && e.pas.kind === 'scale') ? e.pas.item : null;
-  const x = post ? post.x * T + T / 2 : onScale ? onScale.x * T + T / 2 : e.px;
+  const onScale = e.kind === 'cust' ? pasOn(e) : null;
+  /* 冷水機の水は上から弧を描いて出る（作者指定）。飲む客は、その頂点に口をつけるために
+     機械の上へ身を乗り出す＝立ち位置から半分ほど設備側へ寄せて描く */
+  const lean = (e.kind === 'cust' && e.state === 'usingPas' && e.pas && e.pas.kind === 'drink') ? e.pas.item : null;
+  const leanX = lean ? (lean.x * T + ew(lean) * T / 2 - e.px) * 0.38 : 0;
+  const leanY = lean ? (lean.y * T + eh(lean) * T / 2 - e.py) * 0.38 : 0;
+  const x = post ? post.x * T + T / 2 : onScale ? onScale.item.x * T + ew(onScale.item) * T / 2 : e.px + leanX;
   // 拭ける数を使い切った夜は、番台に突っ伏して寝ている（作者指定）＝台の高さまで沈める。
   // 一気に沈めず、ひと息おいてから 0.9 秒かけて崩れ落ちる（dozeAmt）
   const asleep = !!post && asleepHere;
   const fall = asleep ? 6 * (1 - Math.cos(Math.PI * dozeAmt())) / 2 : 0;
-  const y = post ? post.y * T + 2 + fall : onScale ? onScale.y * T + T / 2 - 3 : e.py + bob;
+  const y = post ? post.y * T + 2 + fall : onScale ? onScale.item.y * T + T / 2 + onScale.dy : e.py + bob + leanY;
   if (post) {
     ctx.save();
     ctx.beginPath(); ctx.rect((post.x - 1) * T, 0, T * 3, post.y * T + 5); ctx.clip();
@@ -6476,10 +6600,11 @@ function drawPasUse(e, x, y, rt, skin, hair) {
   const cx = it.x * T + ew(it) * T / 2;                 // 設備の中心
   const d = cx < e.px ? -1 : 1;                         // 設備は左か右か（道具はそちら側の手に持つ）
   if (e.pas.kind === 'drink') {
-    // 紙コップでごくごく給水（作者指定）。コップは口元に固定したまま、
-    // 喉が上下して「ゴク」が飛び、飲むほど水面が下がって、最後に雫がこぼれる
+    /* 冷水機の上から弧を描いて出る水に、直接口をつけて飲む（作者指定＝紙コップは使わない）。
+       水は機械の天板の吹き出し口から出て、身を乗り出した客の口もとへ落ちる */
+    /* 水の弧そのものは冷水機の絵（drawEquip）が出す＝客の体の後ろを通り、
+       身を乗り出した口もとで隠れる。ここでは客の側の芝居だけを描く */
     const beat = (rt * 3.4 + e.wob) % 1;                // ごくり1回ぶんの拍
-    const tilt = 0.55 + Math.sin(rt * 3.4 + e.wob) * 0.3;
     // 喉の動き（首もとの小さな影が、ごくりのたびに上下する）
     ctx.fillStyle = 'rgba(180,120,80,.55)';
     ctx.beginPath(); ctx.arc(x - d * 0.5, y - 2.8 - beat * 1.8, 1.4, 0, Math.PI * 2); ctx.fill();
@@ -6491,23 +6616,33 @@ function drawPasUse(e, x, y, rt, skin, hair) {
     ctx.fillStyle = '#2f8fc4';
     ctx.fillText('ゴク', x - d * 9, y - 15 - beat * 3);
     ctx.globalAlpha = 1;
-    ctx.save();
-    ctx.translate(x + d * 4.5, y - 6);                  // 口元まで持ち上げた紙コップ
-    ctx.rotate(-d * tilt * 0.7);
-    ctx.fillStyle = '#f6f2ea';                          // 紙コップ（下すぼまり）
-    ctx.beginPath(); ctx.moveTo(-2.6, -3.4); ctx.lineTo(2.6, -3.4); ctx.lineTo(1.8, 2.6); ctx.lineTo(-1.8, 2.6);
-    ctx.closePath(); ctx.fill();
-    const lvl = 1 - ((rt * 0.4 + e.wob) % 1);           // 飲むほど水が減っていく（減りきったら次の一杯）
-    ctx.fillStyle = '#9fd8ff';
-    ctx.fillRect(-2.2, 2.2 - 5.2 * lvl, 4.4, 5.2 * lvl);   // 水面
-    ctx.fillStyle = 'rgba(0,0,0,.12)'; ctx.fillRect(-2.6, -3.4, 5.2, 0.8);
-    ctx.restore();
-    ctx.fillStyle = skin; ctx.fillRect(x + d * 3 - 1.4, y - 4.5, 2.8, 3.4);   // コップを持つ手
-    ctx.fillStyle = 'rgba(160,220,245,.9)';             // 口からこぼれる雫
-    for (let i = 0; i < 2; i++) {
-      const ph = (rt * 1.9 + i * .5 + e.wob) % 1;
-      if (tilt > 0.5) { ctx.beginPath(); ctx.arc(x + d * 2.4, y - 3 + ph * 7, 1.2 * (1 - ph) + .5, 0, Math.PI * 2); ctx.fill(); }
+    // 水を受けに伸ばした両手（機械の側に差し出す）
+    ctx.fillStyle = skin;
+    ctx.fillRect(x - d * 5 - 1.2, y - 4.2, 2.4, 3.2);
+    ctx.fillRect(x - d * 2.5 - 1.2, y - 3.6, 2.4, 3.0);
+  } else if (e.pas.kind === 'toilet') {
+    /* トイレ（作者指定）。洋式は便座に腰かけて膝を抱える、ボットンは深くしゃがむ。
+       どちらも頭の上で「…」が明滅して、力んでいるのが分かる */
+    const boton = it.id === 'toilet_old';
+    ctx.strokeStyle = skin; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+    if (boton) {                                        // しゃがむ＝膝が両脇に張り出す
+      ctx.beginPath(); ctx.moveTo(x - 3, y + 1); ctx.lineTo(x - 6, y + 4); ctx.lineTo(x - 3, y + 7); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + 3, y + 1); ctx.lineTo(x + 6, y + 4); ctx.lineTo(x + 3, y + 7); ctx.stroke();
+    } else {                                            // 腰かける＝膝が手前にそろって出る
+      ctx.beginPath(); ctx.moveTo(x - 3, y + 2); ctx.lineTo(x - 4, y + 7); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + 3, y + 2); ctx.lineTo(x + 4, y + 7); ctx.stroke();
+      ctx.strokeStyle = skin; ctx.lineWidth = 1.8;      // 膝の上に置いた両ひじ
+      ctx.beginPath(); ctx.moveTo(x - 4, y - 3); ctx.lineTo(x - 5, y + 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + 4, y - 3); ctx.lineTo(x + 5, y + 2); ctx.stroke();
     }
+    const bl = Math.abs(Math.sin(rt * 1.8 + e.wob));
+    ctx.globalAlpha = 0.35 + bl * 0.6;
+    ctx.font = 'bold 9px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.lineWidth = 2.4; ctx.strokeStyle = 'rgba(255,255,255,.95)';
+    ctx.strokeText('…', x + 7, y - 13);
+    ctx.fillStyle = boton ? '#7a6a4a' : '#6a8fb8';
+    ctx.fillText('…', x + 7, y - 13);
+    ctx.globalAlpha = 1;
   } else if (e.pas.kind === 'fan') {
     // 扇風機の風。設備の側から3本の風が流れてきて、髪と巻きタオルの裾がなびく
     ctx.strokeStyle = 'rgba(214,242,250,.95)'; ctx.lineWidth = 1.5; ctx.lineCap = 'round';
@@ -7365,6 +7500,17 @@ function loadGame() {
       if (ok) kept.push(e); else G.cash += EQ.sink.price;
       return ok;
     });
+    /* トイレを足したのは後からなので、旧セーブには1つも無い（作者指定の初期設備なのに）。
+       まだ1つも持っていないセーブにだけ、親父の代からのボットン便所を脱衣所の右下に据える。
+       そこが埋まっていたら、脱衣所の空いているマスを1つ借りる */
+    if (!G.equip.some(e => TOILET_IDS.includes(e.id))) {
+      const taken = (tx, ty) => G.equip.some(o => covers(o, tx, ty));
+      let sp = !taken(CONF.W - 2, CONF.H - 2) ? { x: CONF.W - 2, y: CONF.H - 2 } : null;
+      for (let y = CONF.H - 2; y >= CONF.divideY && !sp; y--)
+        for (let x = CONF.W - 2; x >= 1 && !sp; x--) if (!taken(x, y)) sp = { x, y };
+      if (sp) G.equip.push({ uid: ++G.uidN, id: 'toilet_old', x: sp.x, y: sp.y, rot: 0, cond: 35,
+                             occ: [], temp: undefined, fault: undefined });
+    }
     return true;
   } catch (e) { return false; }
 }
