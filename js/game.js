@@ -2336,7 +2336,7 @@ const BIZ_CLEAN_MAX = 3;
    汚れが残っていようが、今日はもう動けない。掃除はバイトの仕事だと、絵で伝える */
 function playerAsleep() {
   const p = G.player;
-  if (G.phase !== 'prep' || !p || p.task) return false;
+  if (G.phase !== 'prep' || !p || p.task || p.moving) return false;
   if ((G.prepCleaned || 0) < PREP_CLEAN_MAX) return false;
   const t = tileOf(p), h = playerSpot();
   return t.x === h.x && t.y === h.y;
@@ -6179,13 +6179,16 @@ function drawChar(e, rt) {
 function drawCharBody(e, rt) {
   const inWater = e.kind === 'cust' && e.state === 'using' && (e.use.cat === 'furo' || e.use.cat === 'mizu');
   const bob = e.moving ? Math.sin(rt * 14 + e.wob) * 1.6 : 0;
-  // 番台についている間は、立ち位置ではなく番台そのものの上に描き、台の高さで胴を切る＝頭だけ出る
-  const post = atBandaiPost(e) ? bandai() : null;
+  // 番台についている間は、立ち位置ではなく番台そのものの上に描き、台の高さで胴を切る＝頭だけ出る。
+  // 寝ている夜も同じ扱い（atBandaiPost は番台の真横に立った時しか真にならないので、
+  // 番台の角に立っていると「立ったまま💤だけ出る」ことがあった）
+  const asleepHere = e.kind === 'player' && playerAsleep();
+  const post = (atBandaiPost(e) || asleepHere) ? bandai() : null;
   // 体重計は「乗る」もの（作者指定）。使っているあいだは台の真上に立たせ、板の厚みぶん少し持ち上げる
   const onScale = (e.kind === 'cust' && e.state === 'usingPas' && e.pas && e.pas.kind === 'scale') ? e.pas.item : null;
   const x = post ? post.x * T + T / 2 : onScale ? onScale.x * T + T / 2 : e.px;
   // 拭ける数を使い切った夜は、番台に突っ伏して寝ている（作者指定）＝台の高さまで沈める
-  const asleep = !!post && playerAsleep();
+  const asleep = !!post && asleepHere;
   const y = post ? post.y * T + (asleep ? 8 : 2) : onScale ? onScale.y * T + T / 2 - 3 : e.py + bob;
   if (post) {
     ctx.save();
