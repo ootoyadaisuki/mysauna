@@ -589,12 +589,45 @@ function updateRoach(rDt) {
   } else {
     const step = Math.min(ROACH_SPD * rDt, dist);
     r.px += dx / dist * step; r.py += dy / dist * step;
+    r.ang = Math.atan2(dy, dx);   // 進む向きに体を向ける（上下に動く時は縦になる）
     r.dir = dx >= 0 ? 1 : -1;
   }
   // いま乗っている汚れを「最優先で拭く」印にする
   for (const d of G.dirts) d.roach = (d.x === r.tx && d.y === r.ty);
 }
 function roachCount() { return G.roach ? 1 : 0; }
+/* 掃除しきった瞬間、そのマスの周り1マス以内にゴキブリがいたら仕留める（作者指定）。
+   「バシッ！」と一発、跡だけ残して消える。次に汚れが5つを超えれば、また別の1匹が現れる */
+function killRoachNear(w, tile) {
+  const r = G.roach;
+  if (!r || !tile) return;
+  if (Math.abs(r.tx - tile.x) > 1 || Math.abs(r.ty - tile.y) > 1) return;
+  G.roachSplat = { x: r.px, y: r.py, t: 1.4 };
+  G.roach = null;
+  for (const d of G.dirts) d.roach = false;
+  addSparkle(tile.x * T + T / 2, tile.y * T + T / 2);
+  Sfx.play('fix');
+  floaters.push({ x: tile.x * T + T / 2, y: tile.y * T + T / 2 - 12, text: 'バシッ！', t: 1.6 });
+  if (w) bubble(w, pick(w.kind === 'player' ? LINES.roachKillMe : LINES.roachKill), 3.6);
+  log('🪳 ゴキブリを仕留めた。……こいつが出る前に、掃除の手を増やそう');
+}
+// 仕留めたあとの跡（すぐ消える）
+function drawRoachSplat(rDt) {
+  const sp = G.roachSplat; if (!sp) return;
+  const a = clamp(sp.t / 1.4, 0, 1);
+  ctx.save(); ctx.globalAlpha = a * 0.8;
+  ctx.fillStyle = '#2b211a';
+  ctx.beginPath(); ctx.ellipse(sp.x, sp.y, 5.5 - a * 1.5, 3 - a * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#1e1712'; ctx.lineWidth = 0.9;
+  for (let i = 0; i < 6; i++) {                       // 潰れて飛び散った脚
+    const ang = i * Math.PI / 3 + 0.4;
+    ctx.beginPath(); ctx.moveTo(sp.x + Math.cos(ang) * 3, sp.y + Math.sin(ang) * 2);
+    ctx.lineTo(sp.x + Math.cos(ang) * (6 + (1 - a) * 3), sp.y + Math.sin(ang) * (4 + (1 - a) * 2)); ctx.stroke();
+  }
+  ctx.restore();
+  sp.t -= rDt;
+  if (sp.t <= 0) G.roachSplat = null;
+}
 function dirtCounts() {
   let thin = 0, thick = 0;
   for (const d of G.dirts) { if (isThickDirt(d)) thick++; else thin++; }
@@ -2313,6 +2346,7 @@ function maintain(w, dt, home) {
         const i = G.dirts.indexOf(w.target);
         if (i >= 0) G.dirts.splice(i, 1);
         if (w.kind === 'player') G.prepCleaned = (G.prepCleaned || 0) + 1;
+        killRoachNear(w, w.target);        // 拭いた場所のそばにいたら、その場で仕留める
         w.task = null; w.target = null;
       }
     }
@@ -5011,6 +5045,7 @@ function render(rt) {
   if (G.benz) drawBenz(rt);
   for (const d of G.dirts) drawDirt(d);
   if (G.roach) drawRoach(rt);                        // ゴキブリは床の上（設備の下）を這う
+  if (G.roachSplat) drawRoachSplat(1 / 60);           // 仕留めた跡
   const items = [...G.equip].sort((a, b) => a.y - b.y);
   for (const it of items) drawEquip(ctx, it, rt);
   if (G.placing) drawGhost(rt);
@@ -5354,9 +5389,10 @@ function drawDirt(d) {
 function drawRoach(rt) {
   const r = G.roach; if (!r) return;
   const cx = r.px, cy = r.py;
-  const dir = r.dir || 1;
+  const dir = 1;                                             // 体は常に進行方向（+x）向きに描き、canvasごと回す
   const moving = Math.hypot(r.tx * T + T / 2 - r.px, r.ty * T + T / 2 - r.py) > 1.5;
-  ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.sin(rt * 4) * (moving ? 0.12 : 0.03));
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.rotate((r.ang || 0) + Math.sin(rt * 4) * (moving ? 0.12 : 0.03));
   ctx.strokeStyle = '#1e1712'; ctx.lineWidth = 0.9;            // 脚（左右3本ずつ・小刻みに動く）
   for (let i = 0; i < 3; i++) {
     const ly = -1.8 + i * 1.8, kick = Math.sin(rt * 18 + i * 2) * (moving ? 1.1 : 0.3);
