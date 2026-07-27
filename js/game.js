@@ -2327,6 +2327,9 @@ function updatePlayer(p, dt) {
     return;
   }
   maintain(p, dt, playerSpot());
+  /* 番台に戻ってきても、すぐには寝ない。ひと息ついてから、ゆっくり崩れ落ちる（作者指定）。
+     いきなり突っ伏すと、一瞬で切り替わって見えてしまう */
+  p.dozeT = playerSpent() ? (p.dozeT || 0) + dt : 0;
 }
 /* 開店前に、主人公ひとりで拭いて回れる汚れの数（作者指定）。
    準備中は時間が無限に使えるので、ここに上限が無いと毎朝ぴかぴかになってしまう */
@@ -2337,13 +2340,20 @@ const PREP_CLEAN_MAX = 5;
 const BIZ_CLEAN_MAX = 3;
 /* 拭ける数を使い切って、番台まで戻ってきた夜＝そこで力尽きて寝ている（作者指定）。
    汚れが残っていようが、今日はもう動けない。掃除はバイトの仕事だと、絵で伝える */
-function playerAsleep() {
+function playerSpent() {
   const p = G.player;
   if (G.phase !== 'prep' || !p || p.task || p.moving) return false;
   if ((G.prepCleaned || 0) < PREP_CLEAN_MAX) return false;
   const t = tileOf(p), h = playerSpot();
   return t.x === h.x && t.y === h.y;
 }
+/* 番台に着いてから、実際に寝入るまでの間（秒）。ここで一拍おく＝いきなり寝ない */
+const DOZE_WAIT = 2.4;
+/* 崩れ落ちる動きにかける時間（秒）。0→1 で頭が台の高さまで沈む */
+const DOZE_FALL = 0.9;
+function playerAsleep() { return playerSpent() && (G.player.dozeT || 0) >= DOZE_WAIT; }
+/* 寝入り具合（0＝まだ座っている／1＝完全に突っ伏している） */
+function dozeAmt() { return clamp((((G.player && G.player.dozeT) || 0) - DOZE_WAIT) / DOZE_FALL, 0, 1); }
 // 番台でうとうとしている印。💤 がゆっくり浮かんで消える
 function drawSleep(p, rt) {
   const b = bandai();
@@ -2351,7 +2361,7 @@ function drawSleep(p, rt) {
   const y = b ? b.y * T - 2 : p.py - 26;
   for (let i = 0; i < 2; i++) {
     const ph = ((rt * 0.45 + i * 0.5) % 1);
-    ctx.globalAlpha = (1 - ph) * 0.9;
+    ctx.globalAlpha = (1 - ph) * 0.9 * dozeAmt();   // 突っ伏しきってから、じわりと出る
     ctx.font = `${8 + ph * 5}px "DotGothic16",sans-serif`;
     ctx.textAlign = 'center';
     ctx.lineWidth = 2.4; ctx.strokeStyle = 'rgba(255,255,255,.95)';
@@ -6190,9 +6200,11 @@ function drawCharBody(e, rt) {
   // 体重計は「乗る」もの（作者指定）。使っているあいだは台の真上に立たせ、板の厚みぶん少し持ち上げる
   const onScale = (e.kind === 'cust' && e.state === 'usingPas' && e.pas && e.pas.kind === 'scale') ? e.pas.item : null;
   const x = post ? post.x * T + T / 2 : onScale ? onScale.x * T + T / 2 : e.px;
-  // 拭ける数を使い切った夜は、番台に突っ伏して寝ている（作者指定）＝台の高さまで沈める
+  // 拭ける数を使い切った夜は、番台に突っ伏して寝ている（作者指定）＝台の高さまで沈める。
+  // 一気に沈めず、ひと息おいてから 0.9 秒かけて崩れ落ちる（dozeAmt）
   const asleep = !!post && asleepHere;
-  const y = post ? post.y * T + (asleep ? 8 : 2) : onScale ? onScale.y * T + T / 2 - 3 : e.py + bob;
+  const fall = asleep ? 6 * (1 - Math.cos(Math.PI * dozeAmt())) / 2 : 0;
+  const y = post ? post.y * T + 2 + fall : onScale ? onScale.y * T + T / 2 - 3 : e.py + bob;
   if (post) {
     ctx.save();
     ctx.beginPath(); ctx.rect((post.x - 1) * T, 0, T * 3, post.y * T + 5); ctx.clip();
