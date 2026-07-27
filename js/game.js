@@ -77,7 +77,7 @@ const KITO_APPEAR_REP = 39;                         // 鬼頭の集金が始ま�
 /* 以下の登場しきい値は、店の格のカーブ（GRADE_SCALE）を作者指定で上げ直したのに合わせて再換算した値。
    換算のしかたは「同じ充実度なら同じ相手が出る」＝旧しきい値を充実度に戻し、新しいカーブで評判に直した。
    狙い（作者指定）：黒田の決着がつく頃に評判75前後、玲奈への再戦の目標が評判90 */
-const KURODA_APPEAR_REP = 65;                       // 黒田が現れる評判（田所＋鬼頭の一件が片付いてから）
+const KURODA_APPEAR_REP = 65;                       // 【廃止】黒田が現れる評判の条件（作者指定で撤廃。順番と日数だけで登場する）
                                                     // 黒田の要求は高価な設備ばかりなので、中盤以降＝買える体力が付いてから現れる
 const KURODA_KEIEI_STAGE = 2;                       // 「数字で示す」を選んだ回数がこの値に達すると決戦の資格
 const KURODA_DEMAND_CLEAR = 2;                      // 黒田の課題をこの回数だけ達成すると決戦へ
@@ -3349,7 +3349,7 @@ function resolveTadokoro(kind, arg) {
     t.stage = Math.max(t.stage || 0, 1);
     t.nextDay = G.day + 1;
     // 鬼頭〜黒田のあいだの繋ぎで来ていた回は、その回数を数えて次を4日後に置く
-    if (t.fillerNow) { t.filler = (t.filler || 0) + 1; t.fillerDay = G.day + 4; t.fillerNow = false; }
+    if (t.fillerNow) { t.filler = (t.filler || 0) + 1; t.fillerDay = G.day + 3; t.fillerNow = false; }
   }
   dismissVisitor();
   updateTopbar(); saveGame();
@@ -4986,7 +4986,9 @@ function dueKuroda() {
   // ※「みかじめを払い続ける」結末を選んだ場合、以後も“付き合い”の集金は続くが、
   //   ミッションとしての鬼頭編はそこで終わっているので、その日を起点にしてよい
   const kitoEnd = G.flags.kitoEndDay || 0;
-  if (!k.met) return G.day >= (k.nextDay || 0) && G.rep >= KURODA_APPEAR_REP
+  /* 評判の縛り（KURODA_APPEAR_REP）は撤廃（作者指定）。田所と同じ理由で、
+     店の格が伸び悩むと物語まで止まってしまうため。順番（田所→鬼頭→10日）だけで進む */
+  if (!k.met) return G.day >= (k.nextDay || 0)
     && !!(G.tadokoro && G.tadokoro.resolved) && !!(G.kito && G.kito.resolved)
     && kitoEnd > 0 && G.day >= kitoEnd + KURODA_AFTER_KITO_DAYS;
   // 黒田も始まったら毎日来る＝提案→確認→提案→確認…（作者指定）。
@@ -5009,7 +5011,8 @@ function dueTadokoroFiller() {
   if (!(G.kito && G.kito.resolved)) return false;      // 鬼頭が片付くまでは出さない
   if (G.kuroda && G.kuroda.met) return false;          // 黒田が来たら、もう繋ぎは要らない
   if ((t.filler || 0) >= 2) return false;              // 2回で打ち止め
-  const start = (G.flags.kitoEndDay || 0) + 3;         // 決着の3日後から
+  // 決着の2日後と5日後＝黒田が現れる7日後より前に、2回とも終わるようにする
+  const start = (G.flags.kitoEndDay || 0) + 2;
   return G.day >= Math.max(start, t.fillerDay || 0);
 }
 function pickTodaysVisitor() {
