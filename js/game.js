@@ -2338,6 +2338,11 @@ const PREP_CLEAN_MAX = 5;
    受付を放り出して掃除し続けられるなら、やはりバイトを雇う理由が無くなる。
    ここを使い切ったら、汚れが残っていても番台に張り付く＝「人を雇え」の合図 */
 const BIZ_CLEAN_MAX = 3;
+/* 汚れ1つを拭き終えるまでの時間（秒）。バイトは主人公の2倍かかる（作者指定）。
+   雇った初日から床が一瞬で片づいてしまうと、人数を増やす意味も、
+   汚れを溜めない工夫（掃除しやすい配置・客を捌く速さ）も要らなくなる */
+const CLEAN_SEC = 7;
+function cleanSec(w) { return w.kind === 'player' ? CLEAN_SEC : CLEAN_SEC * 2; }
 /* 拭ける数を使い切って、番台まで戻ってきた夜＝そこで力尽きて寝ている（作者指定）。
    汚れが残っていようが、今日はもう動けない。掃除はバイトの仕事だと、絵で伝える */
 function playerSpent() {
@@ -2526,7 +2531,7 @@ function maintain(w, dt, home) {
         + (Math.abs(a.x - t0.x) + Math.abs(a.y - t0.y)) - (Math.abs(b.x - t0.x) + Math.abs(b.y - t0.y)));
       for (const d0 of sorted) {
         const pth = findPath(t0.x, t0.y, d0.x, d0.y);
-        if (pth) { w.task = 'clean'; w.target = d0; w.path = pth; w.timer = 7; break; }
+        if (pth) { w.task = 'clean'; w.target = d0; w.path = pth; w.timer = cleanSec(w); break; }
       }
       // どの汚れにも道が通っていない＝設備で通路を塞いでいる。赤字で知らせる
       if (!w.task) stuckBubble(w, '汚れの所まで行けない…');
