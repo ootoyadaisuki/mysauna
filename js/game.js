@@ -3385,10 +3385,9 @@ function openKurodaVisit() {
     if (alt && alt.key !== d.key) { openKuroda('swap', alt, d); return; }
   }
   if (d) { openKuroda('nag', d); return; }
-  /* 評判が目標（70）に届くまで、黒田は次の課題を出し続ける（作者指定）。
-     以前は2つ出したら打ち止めで、あとは日常の一幕を繰り返すだけだった */
+  // まだ基準に届いていない課題がある限り、黒田は次の宿題を出す（達成済みのものは出さない）
   const nd = pickDemand('kuroda');
-  if (nd && ((k.done || 0) < KURODA_DEMAND_CLEAR || G.rep < KURODA_GOAL_REP)) { openKuroda('ask', nd); return; }
+  if (nd) { openKuroda('ask', nd); return; }
   openKuroda('event');
 }
 const KURODA_TEXT = {
@@ -3509,7 +3508,7 @@ function resolveKuroda(kind, arg) {
     k.stage = (k.stage || 0) + 1;
     k.nextDay = G.day + 1;
     addRep(DEMAND_REP_GAIN + 1);
-    toast(`✅ 黒田の課題を達成した（${k.done}/${KURODA_DEMAND_CLEAR}）評判↑・数字↑`);
+    toast(`✅ 黒田の課題を達成した（残り${kurodaTodo().length}件）評判↑・数字↑`);
     log(`💼 黒田の課題を達成した（${demandLabel(arg)}）`);
   } else if (kind === 'hold') {
     k.nextDay = G.day + 1;
@@ -3526,7 +3525,9 @@ function resolveKuroda(kind, arg) {
       G.najimi = clamp(G.najimi + KURODA_KEIEI_GAIN_NAJIMI, 0, 100);
       follow = `黒田は湯気の向こうの常連たちを眺め、電卓をしまった。<br><br>「……情で湯は沸かないぞ。<br>だが、まあ。客のあの顔は、数字にならない資産だ。」<br><br><span class="opt-sub">（常連との絆↑。黒田はまだ納得していない）</span>`;
     }
-    k.nextDay = G.day + 1;
+    /* 出す宿題がもう無い＝鬼頭が片付いた時点で11の基準を全部満たしていた店。
+       同じことを言い渡さず、そのまま「認めた」へ持っていく（作者指定＝挨拶だけで終わる） */
+    k.nextDay = kurodaKessenOK() ? G.day : G.day + 1;
     $('kurodaTitle').textContent = '💼 黒田のひと言';
     $('kurodaInfo').innerHTML = follow;
     const box = $('kurodaChoices'); box.innerHTML = '';
@@ -4951,10 +4952,16 @@ function tadokoroKessenOK() {
 /* 黒田が認めるのは「評判が KURODA_GOAL_REP に届いた時」（作者指定）。
    課題は評価項目ひとつずつ＝言われた通りに直していけば、そのまま評判70に着地する。
    ここを目標に据えることで、黒田編を終えた店は玲奈（評判68）に必ず届く */
+/* 黒田が認めるのは「11の基準を全部満たした時」（作者指定）。
+   基準は評判70から逆算した表なので、満たした時点で評判は必ず70前後に乗り、
+   そのまま玲奈（評判68）に繋がる。鬼頭が片付いた時点で全部満たしていれば、
+   黒田の話は挨拶だけで終わる＝すでにやり切っている店に、同じ宿題は出さない */
 function kurodaKessenOK() {
   const k = G.kuroda;
-  return k.met && (k.done || 0) >= KURODA_DEMAND_CLEAR && k.stage >= KURODA_KEIEI_STAGE
-    && kurodaBiz().count >= 2 && G.rep >= KURODA_GOAL_REP;
+  if (!k || !k.met) return false;
+  /* 逆算表を全部満たすか、別の組み合わせで評判70に届いたか。
+     後者を残すのは保険＝どれか1項目がその店の間取りでは届かない、という詰みを作らないため */
+  return kurodaTodo().length === 0 || G.rep >= KURODA_GOAL_REP;
 }
 function dueTadokoro() {
   const t = G.tadokoro; if (!t || t.resolved) return false;
@@ -5121,24 +5128,44 @@ function resumeAfterVisit() {
 /* =========================================================
    田所・黒田の「無茶な要求」＝ミッション
    ========================================================= */
-/* 黒田の課題＝データ画面の10評価項目ひとつずつ（作者指定）。
-   「サウナが弱い」「脱衣所が弱い」と、いま凹んでいる項目を名指しで詰めてくる＝
-   言われた通りに直していけば、黒田編を終える頃には評判が KURODA_GOAL_REP に届く。
-   目標点は「引き受けた時点の点＋add」で、受けた瞬間に焼き付ける（goalOf）。
-   助言はデータ画面と同じ repAdvice＝いまの店を読んで「次の一手」を名指しする */
+/* 黒田の課題＝データ画面の10評価項目それぞれの「合格点」（作者指定）。
+   評判70に到達するところから逆算した表で、10項目の合計は72。
+   減点をゼロにしたうえでこの表を全部満たせば、評判は必ず70以上になる
+   （どんなセーブから始めても同じ表を使う＝到達できない店が出ない）。
+   すでに合格している項目は言い渡されない＝残っているものだけが課題になる */
+const KURODA_ITEM_GOALS = {
+  clean: 7, crowd: 7, cospa: 7, sauna: 8, furo: 7,
+  mizu: 7, datsui: 8, rest: 7, dosen: 8, omote: 6,
+};
 const KURODA_ITEM_DEMANDS = REP_ITEMS.map(it => ({
   key: `item_${it.key}`,
-  need: { type: 'item', key: it.key, add: 3 },
+  need: { type: 'item', key: it.key },
   ask: `データを見た。<b>${it.name}</b>が弱い。<br>そこを<b>{目標}</b>まで上げろ。客はちゃんと見てるぞ。`,
   get advice() { return repAdvice(it.key); },
   ok: `${it.name}が{目標}か。……数字で返してくるのは、悪くない。`,
 }));
+/* 減点はいくら項目を磨いても評判から直接引かれる＝ここを潰さないと70には届かない。
+   黒田の課題のひとつとして「マイナスを全部消せ」を出す */
+const KURODA_PEN_DEMAND = {
+  key: 'nopen',
+  need: { type: 'nopen' },
+  ask: 'いくら中身を磨いても、<b>マイナスを抱えたまま</b>じゃ数字は伸びん。<br>データの<b>評判の減点</b>を、ぜんぶ消せ。',
+  get advice() { return (repPenalties()[0] || {}).sub || 'データ画面の「評判の減点」を見ろ'; },
+  ok: 'マイナスがゼロか。……守りを固めた店は、そう簡単には落ちない。',
+};
+/* 黒田の課題ぜんぶ（評価10項目＋減点ゼロ）。この11個が「基準」で、
+   全部満たした時に黒田が認める＝そこから玲奈の話が始まる。
+   ※旧・経営課題（利益/単価/常連/現金…）は KURODA_DEMANDS に残してあるが、
+     合否の基準からは外した（達成しても評判70に効かないため。台詞は将来の別ミッション用） */
+function kurodaMissions() { return KURODA_ITEM_DEMANDS.concat([KURODA_PEN_DEMAND]); }
+// まだ達成していない黒田の課題（達成済みのものは言い渡されない）
+function kurodaTodo() { return kurodaMissions().filter(d => !demandMet(d)); }
 // いまのその項目の点（データ画面の評価と同じ数字）
 function itemScore(key) {
   const it = repScoreParts().items.find(i => i.key === key);
   return it ? it.v : 0;
 }
-function demandList(who) { return who === 'tadokoro' ? TADOKORO_DEMANDS : KURODA_DEMANDS.concat(KURODA_ITEM_DEMANDS); }
+function demandList(who) { return who === 'tadokoro' ? TADOKORO_DEMANDS : kurodaMissions(); }
 function demandOf(who) {
   const st = who === 'tadokoro' ? G.tadokoro : G.kuroda;
   if (!st || !st.demand) return null;
@@ -5154,8 +5181,8 @@ function computeGoal(d) {
   if (n.type === 'regular') return (G.regulars || 0) + n.add;
   if (n.type === 'profit' || n.type === 'tanka' || n.type === 'cash') return n.yen;
   if (n.type === 'sat') return n.v;
-  // 評価項目は「いまの点＋add」。ただし最低5点、最高9点（10点満点を要求すると届かない日が出る）
-  if (n.type === 'item') return clamp(Math.max(5, Math.ceil(itemScore(n.key)) + n.add), 0, 8);
+  // 評価項目の合格点は逆算表で固定（店の状態で目標が動かない＝どのセーブでも同じゴール）
+  if (n.type === 'item') return KURODA_ITEM_GOALS[n.key] || 7;
   return 0;
 }
 // いま有効な目標値（引き受け済みなら焼き付けた値、まだなら見込み値）
@@ -5176,6 +5203,7 @@ function demandMet(d) {
   if (n.type === 'tanka') return (ls.tanka || 0) >= g;
   if (n.type === 'sat') return (ls.avgSat || 0) >= g;
   if (n.type === 'item') return itemScore(n.key) >= g;
+  if (n.type === 'nopen') return repPenalties().length === 0;
   if (n.type === 'equip') return hasWorking(n.id);
   if (n.type === 'remove') return !hasEquip(n.id);
   if (n.type === 'opt') return cmpOp(G.opts[n.opt], n.op, n.v);
@@ -5192,6 +5220,7 @@ function demandLabel(d) {
   if (n.type === 'tanka') return `客単価を ${yen(g)} 以上にする`;
   if (n.type === 'sat') return `客の満足度を ${g}点 以上にする`;
   if (n.type === 'item') return `${(REP_ITEMS.find(i => i.key === n.key) || {}).name}を ${g}点 まで上げる`;
+  if (n.type === 'nopen') return '評判の減点をゼロにする';
   if (n.type === 'equip') return `【${EQ[n.id].name}】を置く`;
   if (n.type === 'remove') return `【${EQ[n.id].name}】を撤去する`;
   if (n.type === 'opt') return `入浴料を ¥${n.v} 以下にする`;
@@ -5245,17 +5274,17 @@ function pickDemand(who) {
       && (!d.only || !d.only.has || hasEquip(d.only.has)));
     return relaxed.length ? pick(relaxed) : null;
   }
-  /* 黒田は「評価項目の課題」と「経営の課題」を交互に出す（作者指定）。
-     項目の課題は、いちばん凹んでいるところを名指しする＝直す順番に迷わせない */
+  /* 黒田は「まだ基準に届いていない課題」だけを出す（作者指定）。
+     順番は合格点までの差がいちばん大きいところから＝どこから手を付けるかで迷わせない。
+     減点ゼロの課題は、減点が残っているうちは最優先（磨いても引かれてしまうので） */
   if (who === 'kuroda') {
-    const items = cands.filter(d => d.need.type === 'item');
-    const biz = cands.filter(d => d.need.type !== 'item');
-    const wantItem = ((st.done || 0) % 2) === 0;
-    const pool = (wantItem ? items : biz).length ? (wantItem ? items : biz) : cands;
-    if (pool === items || (wantItem && pool.length && pool[0].need.type === 'item')) {
-      return pool.slice().sort((a, b) => itemScore(a.need.key) - itemScore(b.need.key))[0];
-    }
-    return pick(pool);
+    const todo = kurodaTodo().filter(d => d.key !== st.lastKey);
+    const list = todo.length ? todo : kurodaTodo();
+    if (!list.length) return null;
+    const pen = list.find(d => d.need.type === 'nopen');
+    if (pen) return pen;
+    return list.slice().sort((a, b) =>
+      (itemScore(a.need.key) - goalOf(a)) - (itemScore(b.need.key) - goalOf(b)))[0];
   }
   return pick(cands);
 }
@@ -5264,6 +5293,7 @@ function fillGoal(text, d) {
   const n = d.need, g = goalOf(d);
   const label = (n.type === 'rep' || n.type === 'sat') ? `${g}`
     : n.type === 'item' ? `${g}点`
+    : n.type === 'nopen' ? '0'
     : n.type === 'regular' ? `${g}人`
     : yen(g);
   return String(text || '').replace(/\{目標\}/g, label);
@@ -5280,6 +5310,7 @@ function demandNow(d) {
   if (n.type === 'tanka') return ls.paid ? `昨日 ${yen(ls.tanka || 0)}` : 'まだ営業していない';
   if (n.type === 'sat') return ls.paid ? `昨日 ${ls.avgSat || 0}点` : 'まだ営業していない';
   if (n.type === 'item') return `いま ${itemScore(n.key)}点`;
+  if (n.type === 'nopen') { const p2 = repPenalties(); return p2.length ? `いま −${p2.reduce((a, b) => a + b.v, 0)}点（${p2.length}件）` : 'いま 減点なし'; }
   return '';
 }
 /* 準備画面や「データ」に出す、いま抱えている宿題の1行 */
@@ -8097,6 +8128,16 @@ function renderData() {
     }
     if (sp.bonus) r += row(sp.bonus > 0 ? '街での出来事（加点）' : '街での出来事（減点）',
       `${sp.bonus > 0 ? '+' : ''}${sp.bonus}`, sp.bonus < 0 ? 'minus' : '');
+    /* 黒田の合格表（作者指定）。11の基準を全部満たせば黒田が認め、そこから玲奈の話が始まる＝
+       あと何が残っているのかを、いつでもここで確かめられるようにしておく */
+    if (G.kuroda && G.kuroda.met && !G.kuroda.resolved) {
+      const todoN = kurodaTodo().length;
+      r += sec(`💼 黒田の合格表（残り${todoN}件 / 全${kurodaMissions().length}件）`);
+      for (const d of kurodaMissions()) {
+        const ok = demandMet(d);
+        r += row(`${ok ? '✅' : '⬜'} ${demandLabel(d)}`, ok ? '達成' : demandNow(d), ok ? '' : 'minus');
+      }
+    }
     /* 「品揃え」の行は削除した（作者指定）。種類の数は、お風呂・サウナ・水風呂のバーに入っている */
     const lacks = [];
     if (!hasWorking('cooler')) lacks.push('冷水機');
