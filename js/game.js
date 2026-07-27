@@ -2326,6 +2326,10 @@ function updatePlayer(p, dt) {
 /* 開店前に、主人公ひとりで拭いて回れる汚れの数（作者指定）。
    準備中は時間が無限に使えるので、ここに上限が無いと毎朝ぴかぴかになってしまう */
 const PREP_CLEAN_MAX = 5;
+/* 営業中、バイトが誰も居ない日に、主人公が番台を離れて拭ける数（作者指定）。
+   受付を放り出して掃除し続けられるなら、やはりバイトを雇う理由が無くなる。
+   ここを使い切ったら、汚れが残っていても番台に張り付く＝「人を雇え」の合図 */
+const BIZ_CLEAN_MAX = 3;
 /* 拭ける数を使い切って、番台まで戻ってきた夜＝そこで力尽きて寝ている（作者指定）。
    汚れが残っていようが、今日はもう動けない。掃除はバイトの仕事だと、絵で伝える */
 function playerAsleep() {
@@ -2471,13 +2475,20 @@ function maintain(w, dt, home) {
        その日は受付も掃除も声かけも全部ひとりで背負う。開店前の「5つで手が止まる」上限は
        夜の話なので、営業中には掛けない */
     const soloPlayer = w.kind === 'player' && G.phase === 'biz';
-    // 主人公が開店前に拭ける数には限りがある（それ以上は番台で待つ＝バイトの仕事）
-    const tired = !soloPlayer && w.kind === 'player' && (G.prepCleaned || 0) >= PREP_CLEAN_MAX;
-    // 拭ける数を使い切ったのに、まだ汚れが残っている＝そこで音を上げる（1晩に1回だけ）
+    /* 主人公が拭ける数には限りがある。夜（準備中）は PREP_CLEAN_MAX、
+       営業中に番台を離れて拭けるのは BIZ_CLEAN_MAX まで（作者指定）。
+       ここに上限が無いと、客の少ない序盤は主人公ひとりで床が全部片づいてしまい、
+       汚れも、ゴキブリも、バイトを雇う理由も丸ごと消える */
+    const tired = w.kind === 'player' && (soloPlayer
+      ? (G.bizCleaned || 0) >= BIZ_CLEAN_MAX
+      : (G.prepCleaned || 0) >= PREP_CLEAN_MAX);
+    // 拭ける数を使い切ったのに、まだ汚れが残っている＝そこで音を上げる（1回だけ）
     if (tired && G.dirts.length && !G.tiredSaid) {
       G.tiredSaid = true;
-      bubble(w, pick(LINES.prepTired), 5.0);
-      log(`🧹 ${PREP_CLEAN_MAX}つ拭いたところで手が止まった。残り${G.dirts.length}つはバイトの仕事だ`);
+      bubble(w, pick(soloPlayer ? LINES.bizTired : LINES.prepTired), 5.0);
+      log(soloPlayer
+        ? `🧹 ${BIZ_CLEAN_MAX}つ拭いたところで番台に戻された。ひとりでは、これ以上は手が回らない`
+        : `🧹 ${PREP_CLEAN_MAX}つ拭いたところで手が止まった。残り${G.dirts.length}つはバイトの仕事だ`);
     }
     const avail = tired ? [] : G.dirts.filter(d => !claimedBy(d, w));
     if (avail.length) {
@@ -2507,7 +2518,10 @@ function maintain(w, dt, home) {
       if (w.timer <= 0) {
         const i = G.dirts.indexOf(w.target);
         if (i >= 0) G.dirts.splice(i, 1);
-        if (w.kind === 'player') G.prepCleaned = (G.prepCleaned || 0) + 1;
+        if (w.kind === 'player') {
+          if (G.phase === 'biz') G.bizCleaned = (G.bizCleaned || 0) + 1;
+          else G.prepCleaned = (G.prepCleaned || 0) + 1;
+        }
         killRoachNear(w, w.target);        // 拭いた場所のそばにいたら、その場で仕留める
         w.task = null; w.target = null;
       }
@@ -2540,6 +2554,8 @@ function rosterWages() { return G.roster.reduce((a, e) => a + (e.wage || CONF.st
 function startDay() {
   G.phase = 'biz';
   G.minutes = 0;
+  G.bizCleaned = 0;                        // 営業中に主人公が拭いた数（バイト0人の日だけ増える）
+  G.tiredSaid = false;                     // 「これ以上は手が回らない」の独り言は1日1回
   for (const d of G.dirts) d.t = -9999;    // 前日から持ち越した汚れは、開店の時点で「放置」扱い
   refreshDead();                 // 開店前に、道が通っていない設備を洗い直す
   G.today = newToday();
