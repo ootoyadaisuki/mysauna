@@ -64,7 +64,7 @@ const G = {
   solved: null,              // 4つの対立の解決フラグ {tadokoro,yakuza,kuroda,reina}＋親父和解oyaji。全対立解決＋親父和解で復活エンド
 };
 function newKito() { return { met: false, encounters: 0, paid: 0, paidTotal: 0, refused: 0, destroyed: 0, resolved: false, outcome: null, ally: false, nextShowdownDay: 0, lastAllyDay: 0, showdowns: 0 }; }
-function newTadokoro() { return { hello: false, met: false, stage: 0, resolved: false, ally: false, nextDay: 0, demand: null, done: 0, doneKeys: [], holdCount: 0 }; }
+function newTadokoro() { return { hello: false, met: false, stage: 0, resolved: false, ally: false, nextDay: 0, demand: null, done: 0, doneKeys: [], holdCount: 0, filler: 0, fillerDay: 0 }; }
 function newKuroda() { return { met: false, stage: 0, resolved: false, ally: false, nextDay: 0, demand: null, done: 0, doneKeys: [], lastKey: null, discountKey: null, discountDay: 0 }; }
 function newReina() { return { met: false, metDay: 0, stage: 0, resolved: false, ally: false, nextDay: 0, poachDone: false, duel: 'none', duelDay: 0, lost: 0 }; }
 function newSolved() { return { tadokoro: false, yakuza: false, kuroda: false, reina: false, oyaji: false }; }
@@ -3177,6 +3177,13 @@ function bathCutThen(scenes, flagKey, next) {
   Sfx.bgmStop();
   Story.play(scenes, next);
 }
+/* 鬼頭のあと、黒田が来るまでの繋ぎの一幕（作者指定）。
+   1度目は「古参とサウナーの衝突」、2度目は「田所の、不器用な手伝い（水漏れ）」を1回ずつ */
+function openTadokoroFiller() {
+  const t = G.tadokoro;
+  t.fillerNow = true;
+  openTadokoro((t.filler || 0) === 0 ? 'eventA' : 'eventB');
+}
 function openTadokoroVisit() {
   const t = G.tadokoro;
   // 名乗り（hello）は初日の夜に会話画面だけで済ませる（afterReport）。ここには hello 前では来ない
@@ -3189,10 +3196,6 @@ function openTadokoroVisit() {
   if (d) { openTadokoro((t.holdCount || 0) >= 1 ? 'nagFinal' : 'nag', d); return; }
   const nd = pickDemand('tadokoro');
   if (nd) { openTadokoro('ask', nd); return; }
-  /* 注文を全部こなしたのに、まだ認めてもらえない時は、あと何が足りないのかを本人に言わせる（作者指定）。
-     ここが黙ったままだと、同じ日常の一幕が延々と繰り返され、
-     鬼頭の一件（田所が割って入るのは「認められたあと」）まで止まって見える */
-  if ((t.done || 0) >= TADOKORO_DEMAND_CLEAR && !tadokoroKessenOK()) { openTadokoro('waiting'); return; }
   openTadokoro(Math.random() < 0.5 ? 'eventA' : 'eventB');   // 要求が尽きたら、日常の一幕（共存を問う）
 }
 const TADOKORO_TEXT = {
@@ -3274,23 +3277,6 @@ function openTadokoro(kind, d) {
     $('tadokoroModal').classList.remove('hidden');
     return;
   }
-  /* 注文は全部こなした。あとは「客がついてくるか」だけ＝残りの条件を数字で見せる（作者指定）。
-     何をすれば話が進むのか分からないまま、同じ場面を繰り返させない */
-  if (kind === 'waiting') {
-    const needRep = Math.max(0, TADOKORO_KESSEN_REP - Math.floor(G.rep));
-    const needNaj = Math.max(0, TADOKORO_KESSEN_NAJIMI - Math.floor(G.najimi));
-    const lack = [needRep ? `<b>評判あと${needRep}</b>` : '', needNaj ? `<b>常連との絆あと${needNaj}</b>` : '']
-      .filter(Boolean).join('　');
-    $('tadokoroTitle').textContent = '🧓 田所は、まだ見ている';
-    $('tadokoroInfo').innerHTML = `田所が湯上がりに番台の前で足を止め、店をぐるりと見回した。<br><br>` +
-      `「注文はもう無い。${TADOKORO_DEMAND_CLEAR}つとも、ちゃんとやりおったな。<br>` +
-      `……だがな、店ってのは、わし一人が納得すりゃいい話じゃない。<br>` +
-      `<b>この湯に、街の客がついてくるかどうかだ。</b>それを見てから、わしは口をきく。」<br><br>` +
-      `<span class="mika-note">📌 田所が認めるまで　${lack || 'もう目前だ'}</span>`;
-    addBtn('とじる', '注文はすべて済んでいる。あとは店の評判を上げる', () => resolveTadokoro('waiting'));
-    $('tadokoroModal').classList.remove('hidden');
-    return;
-  }
   const TX = TADOKORO_TEXT[kind];
   $('tadokoroTitle').textContent = TX.title;
   $('tadokoroInfo').innerHTML = shopify(TX.info);
@@ -3345,9 +3331,6 @@ function resolveTadokoro(kind, arg) {
     addRep(DEMAND_REP_GAIN);
     toast(`✅ 田所の注文をこなした（${t.done}/${TADOKORO_DEMAND_CLEAR}）常連との絆↑・評判↑`);
     log(`🧓 田所の注文をこなした（${demandLabel(arg)}）`);
-  } else if (kind === 'waiting') {
-    // 待ちの一幕は間を空ける＝毎日のように同じ話を聞かされない（作者指定）
-    t.nextDay = G.day + irand(3, 5);
   } else if (kind === 'hold') {
     // フェーズ2：1回目の未達成はまだ猶予（軽い減点のみ）。次に来た時も未達成なら罰ゲームへ
     t.holdCount = (t.holdCount || 0) + 1;
@@ -3365,6 +3348,8 @@ function resolveTadokoro(kind, arg) {
     else { addRep(3); toast('サウナ路線で評判↑（田所は渋い顔だ）'); }
     t.stage = Math.max(t.stage || 0, 1);
     t.nextDay = G.day + 1;
+    // 鬼頭〜黒田のあいだの繋ぎで来ていた回は、その回数を数えて次を4日後に置く
+    if (t.fillerNow) { t.filler = (t.filler || 0) + 1; t.fillerDay = G.day + 4; t.fillerNow = false; }
   }
   dismissVisitor();
   updateTopbar(); saveGame();
@@ -4952,10 +4937,13 @@ function maybeTadokoroKessenNight() {
   bathCutThen(STORY_TADOKORO_BOND, 'bathTadokoroBond', () => openTadokoro('kessen'));
   return true;
 }
+/* 田所が認める条件は「注文を5つこなした」だけ（作者指定で評判52・絆55の縛りは撤廃）。
+   評判の縛りがあると、店の格が伸び悩んだ時点で田所編も鬼頭編もまとめて止まってしまう＝
+   プレイヤーの手でどうにもできない行き止まりになっていた。
+   ここから【注文5つ × みかじめ2回】で、3回目の集金に田所が割って入る */
 function tadokoroKessenOK() {
   const t = G.tadokoro;
-  return t.met && (t.done || 0) >= TADOKORO_DEMAND_CLEAR
-    && G.najimi >= TADOKORO_KESSEN_NAJIMI && G.rep >= TADOKORO_KESSEN_REP;
+  return t.met && (t.done || 0) >= TADOKORO_DEMAND_CLEAR;
 }
 function kurodaKessenOK() {
   const k = G.kuroda;
@@ -5012,6 +5000,18 @@ function dueReina() {
      ここを空けてしまうと、客足が半減したまま何日も何も起きない時間ができる */
   return G.day >= (r.nextDay || 0);
 }
+/* 鬼頭が片付いてから黒田が現れるまでの繋ぎ（作者指定）。
+   仲間になった田所が2度だけ顔を出す＝1度目は古参とサウナーの衝突、2度目は水漏れの手伝い。
+   ここを空けておくと、10日ぶん「誰も来ない日」が続いて物語が止まって見える */
+function dueTadokoroFiller() {
+  const t = G.tadokoro;
+  if (!t || !t.resolved || !t.met) return false;
+  if (!(G.kito && G.kito.resolved)) return false;      // 鬼頭が片付くまでは出さない
+  if (G.kuroda && G.kuroda.met) return false;          // 黒田が来たら、もう繋ぎは要らない
+  if ((t.filler || 0) >= 2) return false;              // 2回で打ち止め
+  const start = (G.flags.kitoEndDay || 0) + 3;         // 決着の3日後から
+  return G.day >= Math.max(start, t.fillerDay || 0);
+}
 function pickTodaysVisitor() {
   if (dueTadokoroConsult()) return 'tadokoroConsult';   // みかじめ2回の翌日、田所が異変を察して来る（最優先）
   if (dueKitoThanks()) return 'kitoThanks';             // お断りを下ろした翌日、鬼頭が礼を言いに来る
@@ -5030,6 +5030,7 @@ function pickTodaysVisitor() {
   if (mikaDue) { G.flags.lastDuo = 'mikajime'; return 'mikajime'; }
   if (tadoDue) { G.flags.lastDuo = 'tadokoro'; return 'tadokoro'; }
   if (dueKuroda()) return 'kuroda';
+  if (dueTadokoroFiller()) return 'tadokoroFiller';     // 鬼頭のあと、黒田が来るまでの繋ぎ
   if (dueReina()) return 'reina';
   return null;
 }
@@ -5076,11 +5077,12 @@ function startVisit(key) {
     } });
     return;
   }
-  const who = key === 'tadokoroConsult' ? 'tadokoro' : key === 'kitoThanks' ? 'kito' : key;
+  const who = (key === 'tadokoroConsult' || key === 'tadokoroFiller') ? 'tadokoro' : key === 'kitoThanks' ? 'kito' : key;
   const n = makeNpc(who);
   walkNpcTo(n, npcSpot());
   n.onArrive = () => {
     if (key === 'tadokoro') openTadokoroVisit();
+    else if (key === 'tadokoroFiller') openTadokoroFiller();
     else if (key === 'tadokoroConsult') openTadokoroConsult();
     else if (key === 'kitoThanks') openKitoThanks();
     else if (key === 'kuroda') openKurodaVisit();
