@@ -30,7 +30,7 @@ const G = {
   minutes: 0,                // 9:00からの経過(分)
   speedIdx: 0, paused: false,
   customers: [], payQueue: [],
-  player: null, staff: [],
+  player: null, staff: [], roach: null,   // ゴキブリ1匹（汚れが5つを超えると現れる・保存しない）
   spawnQueue: [],
   adBoost: 0, adBought: {},
   placing: null, selected: null,
@@ -549,17 +549,52 @@ function lockersFull() { return lockersInUse() >= lockerCapacity(); }
    薄い＝落ちたばかり／濃い＝dirtOldMin ぶん放置され、こびり付いたもの。
    t が無い・未来の汚れ（前日からの持ち越し）は最初から濃い扱い */
 function isThickDirt(d) { return d.t == null || d.t > G.minutes || G.minutes - d.t >= CONF.dirtOldMin; }
-/* ゴキブリ（作者指定）。こびり付いた汚れが5つ以上たまると、古いものから順に湧く。
-   掃除は必ずゴキブリの付いた汚れからで、客が近くを通ると悲鳴が上がる＝
-   「放っておくと、ただ点が下がるだけでは済まない」ことを絵で見せる */
+/* ゴキブリ（作者指定）。こびり付いた汚れが5つ以上たまると、浴室に1匹現れる。
+   出てくるのは汚れの無いマス＝どこからともなく湧く。そのあとは浴室じゅうを
+   （何も置かれていない床も、汚れの上も）歩き回る。汚れを5つ未満まで拭けば消える。
+   掃除は、そのとき居座っている汚れが最優先で、客が近くを通ると悲鳴が上がる */
 const ROACH_FROM = 5;
-function syncRoaches() {
-  const thick = G.dirts.filter(isThickDirt).sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
-  const n = thick.length >= ROACH_FROM ? Math.min(thick.length - (ROACH_FROM - 1), 6) : 0;
-  for (const d of G.dirts) d.roach = false;
-  for (let i = 0; i < n; i++) thick[i].roach = true;
+const ROACH_SPD = 58;                 // 実時間1秒あたりに進むピクセル数（すばしっこく走る）
+// 浴室の、客も設備も無いマス（ゴキブリはここを歩き回る）
+function roachTiles(noDirt) {
+  const out = [];
+  for (let y = 1; y < CONF.divideY; y++)
+    for (let x = 1; x < CONF.W - 1; x++) {
+      if (!walkable(x, y)) continue;
+      if (noDirt && G.dirts.some(d => d.x === x && d.y === y)) continue;
+      out.push({ x, y });
+    }
+  return out;
 }
-function roachCount() { return G.dirts.filter(d => d.roach).length; }
+function updateRoach(rDt) {
+  if (G.phase !== 'biz' && G.phase !== 'prep') { G.roach = null; return; }
+  if (dirtCounts().thick < ROACH_FROM) { G.roach = null; for (const d of G.dirts) d.roach = false; return; }
+  if (!G.roach) {
+    const start = pick(roachTiles(true) || []) || pick(roachTiles(false));   // 汚れの無いマスから現れる
+    if (!start) return;
+    G.roach = { px: start.x * T + T / 2, py: start.y * T + T / 2, tx: start.x, ty: start.y, wait: 0 };
+  }
+  const r = G.roach;
+  const gx = r.tx * T + T / 2, gy = r.ty * T + T / 2;
+  const dx = gx - r.px, dy = gy - r.py, dist = Math.hypot(dx, dy);
+  if (dist < 1.5) {
+    r.px = gx; r.py = gy;
+    r.wait -= rDt;
+    if (r.wait <= 0) {                                    // 次に向かうマスを選ぶ（となりのマスを優先）
+      const near = roachTiles(false).filter(t => Math.abs(t.x - r.tx) + Math.abs(t.y - r.ty) === 1);
+      const t = near.length ? pick(near) : pick(roachTiles(false));
+      if (t) { r.tx = t.x; r.ty = t.y; }
+      r.wait = rand(0.05, 0.45);                          // 時々ぴたりと止まる（すぐまた走り出す）
+    }
+  } else {
+    const step = Math.min(ROACH_SPD * rDt, dist);
+    r.px += dx / dist * step; r.py += dy / dist * step;
+    r.dir = dx >= 0 ? 1 : -1;
+  }
+  // いま乗っている汚れを「最優先で拭く」印にする
+  for (const d of G.dirts) d.roach = (d.x === r.tx && d.y === r.ty);
+}
+function roachCount() { return G.roach ? 1 : 0; }
 function dirtCounts() {
   let thin = 0, thick = 0;
   for (const d of G.dirts) { if (isThickDirt(d)) thick++; else thin++; }
@@ -2415,7 +2450,6 @@ function updateBiz(dt) {
   const dcNow = dirtCounts();
   G.today.dirtSum += dcNow.thick * dt;        // 薄い汚れは数えない（作者指定）
   G.today.dirtN += dt;
-  syncRoaches();                              // こびり付いた汚れが5つを超えたらゴキブリが湧く
   while (G.spawnQueue.length && G.spawnQueue[0] <= G.minutes) {
     G.spawnQueue.shift();
     spawnCustomer();
@@ -4159,7 +4193,6 @@ function enterPrep() {
   G.customers = []; G.payQueue = [];
   G.player = makePlayer();         // 準備中の主人公は掃除して回る（1日に拭ける数は PREP_CLEAN_MAX まで）
   G.prepCleaned = 0;               // 今夜これから拭いた数
-  syncRoaches();                   // 夜のあいだも、こびり付いた汚れにはゴキブリが出ている
   G.tiredSaid = false;             // 「もう動けない」の独り言は1晩に1回
   // 銀行融資は廃止（作者指定）。サラ金はその場で現金が出るので、振込待ちという状態はもう無い
   G.staff = [];                    // バイトは準備中いなくなる。営業開始で戻る（作者指定）
@@ -4977,6 +5010,7 @@ function render(rt) {
   drawFloorAndWalls(rt);
   if (G.benz) drawBenz(rt);
   for (const d of G.dirts) drawDirt(d);
+  if (G.roach) drawRoach(rt);                        // ゴキブリは床の上（設備の下）を這う
   const items = [...G.equip].sort((a, b) => a.y - b.y);
   for (const it of items) drawEquip(ctx, it, rt);
   if (G.placing) drawGhost(rt);
@@ -5314,21 +5348,18 @@ function drawDirt(d) {
   ctx.ellipse(d.x * T + T / 2, d.y * T + T / 2, 9, 6, 0, 0, Math.PI * 2);
   ctx.ellipse(d.x * T + T / 2 - 6, d.y * T + T / 2 + 4, 5, 3, 0, 0, Math.PI * 2);
   ctx.fill();
-  if (d.roach) drawRoach(d);
 }
-/* ゴキブリ1匹。汚れの上をちょろちょろ這い回る（作者指定）。
-   卵形の黒い胴・脚6本・長い触角。動きは時間から作るので、毎フレーム飛び回ったりはしない */
-function drawRoach(d) {
-  const rt = Date.now() / 1000;
-  const seed = d.x * 7.3 + d.y * 3.1;
-  const a = rt * 0.9 + seed;                                   // 這う向き（ゆっくり回る）
-  const cx = d.x * T + T / 2 + Math.cos(a) * 7 + Math.sin(rt * 5 + seed) * 1.2;
-  const cy = d.y * T + T / 2 + Math.sin(a * 1.3) * 5;
-  const dir = Math.cos(a * 1.3) >= 0 ? 1 : -1;
-  ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.sin(a) * 0.5);
+/* ゴキブリ1匹。浴室の床を歩き回る（作者指定）。
+   卵形の黒い胴・脚6本・長い触角。進む向きに体を向け、脚は小刻みに動く */
+function drawRoach(rt) {
+  const r = G.roach; if (!r) return;
+  const cx = r.px, cy = r.py;
+  const dir = r.dir || 1;
+  const moving = Math.hypot(r.tx * T + T / 2 - r.px, r.ty * T + T / 2 - r.py) > 1.5;
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.sin(rt * 4) * (moving ? 0.12 : 0.03));
   ctx.strokeStyle = '#1e1712'; ctx.lineWidth = 0.9;            // 脚（左右3本ずつ・小刻みに動く）
   for (let i = 0; i < 3; i++) {
-    const ly = -1.8 + i * 1.8, kick = Math.sin(rt * 18 + i * 2 + seed) * 1.1;
+    const ly = -1.8 + i * 1.8, kick = Math.sin(rt * 18 + i * 2) * (moving ? 1.1 : 0.3);
     ctx.beginPath(); ctx.moveTo(-1, ly); ctx.lineTo(-4, ly + kick); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(1, ly); ctx.lineTo(4, ly - kick); ctx.stroke();
   }
@@ -6446,6 +6477,7 @@ function drawGhost(rt) {
 let lastTs = 0;
 function frame(ts) {
   const rDt = Math.min((ts - lastTs) / 1000, .1);
+  updateRoach(rDt);                                  // ゴキブリは実時間で歩き回る
   lastTs = ts;
   const rt = ts / 1000;
   // 今フレームで進んだゲーム内の分数（吹き出しの寿命にも使う）
