@@ -10,9 +10,9 @@ const fs = require('fs');
 const path = require('path');
 const { renderPng, pngSize, ROOT } = require('./render-png');
 
-/* 1024pxで組む。「俺の」は2文字、「サウナ」は3文字なので、
-   1行目を少し大きくして左右の幅をそろえる（そうしないと上下でズレて締まらない） */
-const LOGO = (size1, size2, extra = '') => `<!doctype html><meta charset="utf-8">
+/* 1024pxで組む。「俺」と「サウナ」を大きく、間の「の」だけ小さくして主役を立てる。
+   k で全体の倍率を変える（アダプティブアイコンは外周が削られるので小さめに組む） */
+const LOGO = (k, extra = '') => `<!doctype html><meta charset="utf-8">
 <link rel="stylesheet" href="/css/font-dotgothic16.css">
 <style>
   html,body{margin:0;width:1024px;height:1024px;overflow:hidden}
@@ -24,19 +24,24 @@ const LOGO = (size1, size2, extra = '') => `<!doctype html><meta charset="utf-8"
   }
   .t{
     font-family:'DotGothic16',sans-serif; color:#ffd98a;
-    text-align:center; letter-spacing:.02em; line-height:1.0;
+    text-align:center; letter-spacing:.02em;
     /* ロゴと同じ、下に厚みのある立体感 */
-    text-shadow:0 18px 0 #6b3a12, 0 26px 40px rgba(0,0,0,.55);
+    text-shadow:0 ${Math.round(18 * k)}px 0 #6b3a12, 0 ${Math.round(26 * k)}px ${Math.round(40 * k)}px rgba(0,0,0,.55);
   }
-  .t span{display:block}
-  .a{font-size:${size1}px}
-  .b{font-size:${size2}px}
+  /* 「の」は「俺」の右下に寄り添わせる */
+  .r1{display:flex;align-items:flex-end;justify-content:center;line-height:.92}
+  .ore{font-size:${Math.round(440 * k)}px}
+  .no{font-size:${Math.round(210 * k)}px;margin-left:${Math.round(10 * k)}px;margin-bottom:${Math.round(24 * k)}px}
+  .r2{display:block;font-size:${Math.round(300 * k)}px;line-height:1.0;margin-top:${Math.round(10 * k)}px}
 </style>
-<div class="t"><span class="a">俺の</span><span class="b">サウナ</span></div>`;
+<div class="t">
+  <div class="r1"><span class="ore">俺</span><span class="no">の</span></div>
+  <span class="r2">サウナ</span>
+</div>`;
 
-const HTML = LOGO(360, 300);
-/* 前景だけの版。アダプティブアイコンは外周が削られるので、文字を小さめにして中央に寄せる */
-const HTML_FG = LOGO(252, 210, 'background:transparent;');
+const HTML = LOGO(1);
+/* 前景だけの版。外周18%ぶんが削られても文字が残るように7割の大きさで組む */
+const HTML_FG = LOGO(0.7, 'background:transparent;');
 
 const IOS = path.join(ROOT, 'ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png');
 const AND = path.join(ROOT, 'android/app/src/main/res');
