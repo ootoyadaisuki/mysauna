@@ -3307,7 +3307,7 @@ function resolveTadokoro(kind, arg) {
   const t = G.tadokoro;
   $('tadokoroModal').classList.add('hidden');
   if (kind === 'hello') {
-    t.hello = true; t.nextDay = G.day + irand(2, 4);
+    t.hello = true; t.nextDay = G.day + irand(0, 1);
     G.najimi = clamp(G.najimi + 2, 0, 100);          // 顔を合わせただけでも、常連との糸は繋がる
     log('🧓 古株の田所源造と顔を合わせた。「憩いの場を壊してくれるな」');
     toast('🧓 田所源造――親父さんの代からの常連だ');
@@ -4426,7 +4426,9 @@ function afterCareOK(finishedDay, tadokoroNightHello) {
   if (tadokoroNightHello) {
     G.flags.bathTadokoroMeet = true; scenes.push(...STORY_TADOKORO_MEET);
     const t2 = G.tadokoro;
-    t2.hello = true; t2.nextDay = G.day + irand(2, 4);
+    // 名乗った翌日か、その次の日にはもう小言を言いに来る（作者指定＝名乗り以降ずっと出ないのは間延び）。
+    // ここでの G.day は「明日」＝ irand(0,1) で 名乗りの翌日／翌々日
+    t2.hello = true; t2.nextDay = G.day + irand(0, 1);
     G.najimi = clamp(G.najimi + 2, 0, 100);
   }
   // 親父の小言（STORY_LOAN）は、資金ショートで灰田に駆け込んだ日に流れる
@@ -7566,6 +7568,10 @@ function loadGame() {
     G.premium = d.premium || { autoRepair: false };   // 課金コンテンツの所持状況（オート修理）
     G.kito = { ...newKito(), ...(d.kito || {}) };
     G.tadokoro = { ...newTadokoro(), ...(d.tadokoro || {}) };
+    /* 名乗ったのに次の来訪が先すぎるセーブを引き上げる。旧版は名乗りの2〜4日後を予約していて、
+       最悪4日ぶん「田所が出てこない日」が続いた。読み込み時に翌日へ寄せて待ちを解消する */
+    if (G.tadokoro.hello && !G.tadokoro.met && (G.tadokoro.nextDay || 0) > G.day)
+      G.tadokoro.nextDay = G.day;
     G.kuroda = { ...newKuroda(), ...(d.kuroda || {}) };
     G.reina = { ...newReina(), ...(d.reina || {}) };
     G.yami = { ...newYami(), ...(d.yami || {}) };
