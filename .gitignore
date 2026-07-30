@@ -1,2 +1,11 @@
 .DS_Store
 *.log
+
+# Capacitor / iOS
+node_modules/
+www/
+ios/App/Pods/
+ios/App/App/public/
+ios/DerivedData/
+scenes-preview.html
+shots/

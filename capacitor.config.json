@@ -1,0 +1,13 @@
+{
+  "appId": "com.contena.orenosauna",
+  "appName": "俺のサウナ",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#1a140f",
+    "limitsNavigationsToAppBoundDomains": true
+  },
+  "server": {
+    "iosScheme": "capacitor"
+  }
+}

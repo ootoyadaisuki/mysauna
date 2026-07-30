@@ -3687,7 +3687,7 @@ function maybeReinaCinematic() {
     if (left === 2 && !G.flags.duelTV2B) {
       G.flags.duelTV2B = true;
       // テロップに屋号は入れない（作者指定）。絵の中の文字は、どの屋号でも通る言い方にしておく
-      StoryArt.tvTicker = '町の杉で組んだ特注サウナ　連日の大行列';
+      StoryArt.tvTicker = '街の銭湯が特注サウナ!?連日の大行列';
       Story.play(STORY_DUEL_TV2B, () => {
         StoryArt.tvTicker = null;
         log(`📺 テレビが【${EQ.sauna_sp.name}】と世界一の熱波師を特集。店の盛況が街に流れた`);
@@ -4027,15 +4027,21 @@ function renderMenu(confirming) {
   box.appendChild(menuBtn(Sfx.on ? '🔊 効果音 ON' : '🔇 効果音 OFF', '', () => { Sfx.toggle(); renderMenu(false); }));
   box.appendChild(menuBtn(Sfx.music ? '🎵 BGM ON' : '🎵 BGM OFF', '', () => { Sfx.toggleMusic(); renderMenu(false); }));
   /* オート修理＝課金コンテンツ（作者指定）。耐久5%で自動で修理業者が来る。修理費は手動と同じ。
-     ※ストア（App Store / Google Play）の決済連携は未実装＝今はタップで即有効になる開発用スタブ */
+     v1.0（初回リリース）では売り場を出さない。理由：
+     ・ストア（App Store / Google Play）の決済連携が未実装で、「購入」と書いて金を取らない画面になる
+     ・App Store には「App内課金なし」で申告しており、画面に「課金」の文字があると記載と食い違う
+     決済を実装したら PREMIUM_SALE = true にすれば、下の購入ボタンがそのまま戻る。
+     すでに持っている店（開発中に押した／将来の購入者）は、下の ON/OFF がちゃんと出る */
   if (!(G.premium && G.premium.autoRepair)) {
-    box.appendChild(menuBtn('🔧 オート修理を購入（課金・準備中）', '', () => {
-      G.premium = G.premium || {};
-      G.premium.autoRepair = true; G.premium.autoRepairOn = true;
-      toast('🔧 オート修理を購入した！ 耐久5%で自動で業者が来る（費用は手動と同額）');
-      log('🔧 オート修理を購入した。以後、傷んだ設備には自動で業者が来る');
-      saveGame(); renderMenu(false);
-    }));
+    if (PREMIUM_SALE) {
+      box.appendChild(menuBtn('🔧 オート修理を購入', '', () => {
+        G.premium = G.premium || {};
+        G.premium.autoRepair = true; G.premium.autoRepairOn = true;
+        toast('🔧 オート修理を購入した！ 耐久5%で自動で業者が来る（費用は手動と同額）');
+        log('🔧 オート修理を購入した。以後、傷んだ設備には自動で業者が来る');
+        saveGame(); renderMenu(false);
+      }));
+    }
   } else {
     const on = G.premium.autoRepairOn !== false;
     box.appendChild(menuBtn(on ? '🔧 オート修理 ON（購入済み）' : '🔧 オート修理 OFF（購入済み）', '', () => {
@@ -4738,6 +4744,9 @@ function finishFix(n) {
    修理は手動が基本＝壊れたら設備をタップして【🔧 修理】で業者を呼ぶ。
    「オート修理」を購入した店だけ、耐久が5%まで減った設備に自動で業者が来る（修理費は手動と同じ） */
 const AUTO_REPAIR_COND = 5;   // オート修理が発動する耐久(%)
+/* 課金の売り場を出すか。決済（StoreKit / Google Play Billing）を実装した版で true にする。
+   false の間、オート修理は「まだ世に出していない機能」＝App Store の「課金なし」の申告と一致する */
+const PREMIUM_SALE = false;
 function autoRepairEnabled() { return !!(G.premium && G.premium.autoRepair && G.premium.autoRepairOn !== false); }
 /* 傷んだ設備を見つけたら、勝手に業者を呼ぶ（オート修理を購入した店だけ。同時に来るのは1人まで）。
    修理代が払えない日は業者が来てくれない＝壊れたまま営業することになる */

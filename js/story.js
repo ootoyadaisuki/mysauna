@@ -61,7 +61,13 @@ const StoryArt = {
     p(60, 150, 240, 12, '#1a1512');                   // テレビ台
     p(70, 30, 220, 122, '#111');                      // テレビ枠
     p(78, 38, 204, 100, '#8fd0ee');                   // 画面（空）
-    if (screen) screen.call(this, ctx, p);
+    // 画面の中身は必ず画面の枠内に収める（振り上げたタオルなどが黒縁にはみ出さないように）
+    if (screen) {
+      ctx.save();
+      ctx.beginPath(); ctx.rect(78, 38, 204, 100); ctx.clip();
+      screen.call(this, ctx, p);
+      ctx.restore();
+    }
     p(78, 118, 204, 20, 'rgba(20,30,60,.9)');         // 下部テロップ
     ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
     // テロップは場面ごとに差し替える（開業のニュースか、投票対決の開始か）
@@ -142,20 +148,28 @@ const StoryArt = {
       for (let i = 0; i < 4; i++) p(164 + i * 9, 74, 7, 6, i % 2 ? '#8a6a4a' : '#6f5540');
       ctx.fillStyle = `rgba(255,170,70,${0.3 + 0.28 * Math.sin(t * 5)})`;
       ctx.fillRect(160, 86, 40, 26);
-      // 中央に立つ熱波師（法被・鉢巻。大タオルが左右に振れる）
-      const sw = Math.sin(t * 5) * 16;
-      p(172, 48, 16, 30, '#c9502a'); p(172, 48, 3, 30, '#7a2a12'); p(185, 48, 3, 30, '#7a2a12');
-      p(174, 36, 12, 13, '#d8a878'); p(174, 34, 12, 5, '#f4f0e6');
-      ctx.fillStyle = '#fff';
-      ctx.save(); ctx.translate(180, 52); ctx.rotate(sw * 0.03);
-      ctx.fillRect(0, -3, 34, 6); ctx.restore();
+      /* 中央に立つ熱波師（法被・鉢巻）。大タオルを左右に仰ぐ（作者指定）。
+         鉢巻の上まで画面に収まる高さに置き、タオルは頭上ではなく肩の高さで左右に振り抜く
+         ＝真上に振り上げるとタオルが画面の外へ出てしまうため（作者指定で頭は必ず全部見せる） */
+      p(172, 60, 16, 28, '#c9502a'); p(172, 60, 3, 28, '#7a2a12'); p(185, 60, 3, 28, '#7a2a12');
+      p(174, 48, 12, 13, '#d8a878'); p(174, 45, 12, 5, '#f4f0e6');   // 顔と鉢巻（上端45＝画面の上38より下）
+      const swing = Math.sin(t * 3);
+      const dir = swing >= 0 ? 1 : -1, amt = Math.abs(swing);
+      ctx.save(); ctx.translate(180, 65);   // 軸は肩の高さ＝タオルが顔にかぶらない
+      ctx.rotate(dir > 0 ? -0.4 * amt : Math.PI + 0.4 * amt);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, -3.5, 12 + 20 * amt, 7);   // 振り出すほど伸びる＝仰ぐ勢い
+      ctx.fillStyle = '#cfe0e8'; ctx.fillRect(0, -3.5, 12 + 20 * amt, 2);
+      ctx.restore();
+      // 振った先に流れる風（振っている方向に短い線を3本）
+      ctx.fillStyle = `rgba(255,255,255,${0.12 + 0.2 * amt})`;
+      for (let i = 0; i < 3; i++) ctx.fillRect(180 + dir * (18 + i * 8), 66 + i * 8, 10 * dir, 2);
       for (let i = 0; i < 3; i++) {                    // 舞う熱気
         const ph = (t * 0.8 + i * 0.33) % 1;
         ctx.fillStyle = `rgba(255,220,180,${0.45 * (1 - ph)})`;
         ctx.fillRect(150 + i * 30, 84 - ph * 26, 5, 5);
       }
       // テロップに屋号は入れない（作者指定＝店の名前はプレイヤーが決めるものなので、絵に焼き込まない）
-    }, '町の杉で組んだ特注サウナ　世界一の熱波師');
+    }, '街の銭湯が特注サウナ!?連日の大行列');
   },
   /* 再戦のテレビ②-後半：店の表。暖簾の前に行列ができている */
   yunagiQueue(ctx) {
