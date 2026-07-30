@@ -148,18 +148,21 @@ const StoryArt = {
       for (let i = 0; i < 4; i++) p(164 + i * 9, 74, 7, 6, i % 2 ? '#8a6a4a' : '#6f5540');
       ctx.fillStyle = `rgba(255,170,70,${0.3 + 0.28 * Math.sin(t * 5)})`;
       ctx.fillRect(160, 86, 40, 26);
-      /* 中央に立つ熱波師（法被・鉢巻）。大タオルを頭上で左右に仰ぐ（作者指定）＝
-         真上を軸に±60度ほど振らせると、右の客・左の客へ順に風を送っているように見える */
-      p(172, 48, 16, 30, '#c9502a'); p(172, 48, 3, 30, '#7a2a12'); p(185, 48, 3, 30, '#7a2a12');
-      p(174, 36, 12, 13, '#d8a878'); p(174, 34, 12, 5, '#f4f0e6');
+      /* 中央に立つ熱波師（法被・鉢巻）。大タオルを左右に仰ぐ（作者指定）。
+         鉢巻の上まで画面に収まる高さに置き、タオルは頭上ではなく肩の高さで左右に振り抜く
+         ＝真上に振り上げるとタオルが画面の外へ出てしまうため（作者指定で頭は必ず全部見せる） */
+      p(172, 60, 16, 28, '#c9502a'); p(172, 60, 3, 28, '#7a2a12'); p(185, 60, 3, 28, '#7a2a12');
+      p(174, 48, 12, 13, '#d8a878'); p(174, 45, 12, 5, '#f4f0e6');   // 顔と鉢巻（上端45＝画面の上38より下）
       const swing = Math.sin(t * 3);
-      ctx.save(); ctx.translate(180, 46); ctx.rotate(-Math.PI / 2 + swing * 1.1);
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, -3.5, 30, 7);
-      ctx.fillStyle = '#cfe0e8'; ctx.fillRect(0, -3.5, 30, 2);       // タオルの折り目
+      const dir = swing >= 0 ? 1 : -1, amt = Math.abs(swing);
+      ctx.save(); ctx.translate(180, 65);   // 軸は肩の高さ＝タオルが顔にかぶらない
+      ctx.rotate(dir > 0 ? -0.4 * amt : Math.PI + 0.4 * amt);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, -3.5, 12 + 20 * amt, 7);   // 振り出すほど伸びる＝仰ぐ勢い
+      ctx.fillStyle = '#cfe0e8'; ctx.fillRect(0, -3.5, 12 + 20 * amt, 2);
       ctx.restore();
       // 振った先に流れる風（振っている方向に短い線を3本）
-      ctx.fillStyle = 'rgba(255,255,255,.28)';
-      for (let i = 0; i < 3; i++) ctx.fillRect(180 + swing * (20 + i * 6), 56 + i * 8, 10 * Math.sign(swing || 1), 2);
+      ctx.fillStyle = `rgba(255,255,255,${0.12 + 0.2 * amt})`;
+      for (let i = 0; i < 3; i++) ctx.fillRect(180 + dir * (18 + i * 8), 66 + i * 8, 10 * dir, 2);
       for (let i = 0; i < 3; i++) {                    // 舞う熱気
         const ph = (t * 0.8 + i * 0.33) % 1;
         ctx.fillStyle = `rgba(255,220,180,${0.45 * (1 - ph)})`;
