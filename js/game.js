@@ -3687,7 +3687,7 @@ function maybeReinaCinematic() {
     if (left === 2 && !G.flags.duelTV2B) {
       G.flags.duelTV2B = true;
       // テロップに屋号は入れない（作者指定）。絵の中の文字は、どの屋号でも通る言い方にしておく
-      StoryArt.tvTicker = '町の杉で組んだ特注サウナ　連日の大行列';
+      StoryArt.tvTicker = '街の銭湯が特注サウナ!?連日の大行列';
       Story.play(STORY_DUEL_TV2B, () => {
         StoryArt.tvTicker = null;
         log(`📺 テレビが【${EQ.sauna_sp.name}】と世界一の熱波師を特集。店の盛況が街に流れた`);
