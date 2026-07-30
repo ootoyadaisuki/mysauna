@@ -7862,6 +7862,72 @@ function initUI() {
   $('btnMikaPay').onclick = payMikajime;
   $('btnMikaRefuse').onclick = refuseMikajime;
   $('btnMikaPayoff').onclick = payoffFromMika;
+  // URLに ?reina を付けて開くと、玲奈編の直前から始まる（作者の見直し用）
+  if (/(^|[?&])reina(&|=|$)/.test(location.search)) devStartReina();
+}
+
+/* ============ 玲奈編から遊ぶ（?reina）============
+   ゲームオーバーでセーブが消えても、玲奈編の入り口を何度でも作り直せるようにしてある。
+   田所・鬼頭・黒田まで片付いた「いい感じの店」を組み、玲奈はまだ現れていない状態から始まる＝
+   1日ぶん営業を回した夜に、テレビが蒼天SPAを特集するところから物語が動く */
+/* 通路は y3・y6・y8 の3本と x6 の1本。設備はその間の島に置く＝どれも通路に面していて、
+   「⚠ 客が近づけない」が出ない。(8,1)〜(10,2) は空けてある＝夕凪湯スペシャル（3×2）の置き場 */
+const DEV_REINA_LAYOUT = [
+  // 浴室（y1〜6）
+  ['sauna1', 1, 1], ['sauna_mist', 3, 1], ['cooler', 5, 1], ['matrack', 5, 2], ['akarack', 7, 1],
+  ['bath1', 1, 4], ['bath_denki', 3, 4], ['bath_yuzu', 3, 5], ['wash1', 5, 4], ['wash1', 5, 5],
+  ['mizu1', 7, 4], ['mizu_single', 7, 5], ['chair1', 9, 4], ['chair2', 10, 4],
+  ['chair1', 9, 5], ['bench1', 10, 5], ['wash1', 11, 4], ['wash1', 11, 5],
+  // 脱衣所（y7〜9）
+  ['sink', 1, 7], ['vend2', 3, 7], ['vend1', 4, 7], ['gacha', 5, 7],
+  ['locker2', 7, 7], ['locker1', 9, 7], ['locker1', 10, 7], ['locker1', 11, 7],
+  ['fan_bath', 1, 9], ['shogi', 2, 9], ['scale', 3, 9], ['ehon', 4, 9], ['bandai', 5, 9],
+  ['locker1', 7, 9], ['massage', 8, 9], ['toilet1', 9, 9], ['plant1', 10, 9], ['locker1', 11, 9],
+  // 壁掛け
+  ['poster', 0, 8], ['tv', 12, 8],
+];
+function devStartReina() {
+  resetState();
+  G.equip = [];
+  for (const [id, x, y] of DEV_REINA_LAYOUT) {
+    const d = EQ[id]; if (!d) continue;
+    G.equip.push({ uid: ++G.uidN, id, x, y, rot: 0, cond: 100, temp: d.temp, occ: Array(d.cap || 0).fill(null) });
+  }
+  refreshDead();
+  G.dirts = [];
+  G.day = 60; G.cash = 3500000; G.debt = 0; G.najimi = 100; G.regulars = 45;
+  G.opts = { ...DEFAULT_OPTS, fee: 800, saunaFee: 400, towel: 'paid', towelPrice: 300,
+    tebura: true, teburaPrice: 400, soapMode: 'sell', shampooPrice: 150, bodysoapPrice: 150,
+    kidFee: 300, banYakuza: true, timeLimit: 120, dryerFee: 20, lotionOn: true };
+  G.roster = [
+    { pid:'shufu', name:'主婦', maji:5, spd:3, aiso:4, desc:'家事20年のプロ。汚れは見逃さない', wage:10900, days:40, skill:100, sulk:false, raiseAsk:false, raiseAmt:400, raiseNo:0 },
+    { pid:'gakusei', name:'学生', maji:4, spd:5, aiso:4, desc:'体力自慢の大学生。動きが速い', wage:10200, days:20, skill:80, sulk:false, raiseAsk:false, raiseAmt:300, raiseNo:0 },
+  ];
+  G.staffCount = G.roster.length;
+  G.premium = { autoRepair: true, autoRepairOn: true };
+  /* 直近7日ぶんの採点を黒田の合格ラインで埋める＝初日から評判72。
+     ここを空にすると1日ぶんの採点だけで評判が決まり、玲奈の登場条件（68）を割りうる */
+  G.repHist = Array.from({ length: REP_DAYS }, () => ({ ...KURODA_ITEM_GOALS }));
+  G.repBonus = 0; G.rep = repScoreParts().total;
+  // 田所・鬼頭・黒田は決着済み。玲奈だけが残っている
+  G.tadokoro = { ...newTadokoro(), hello: true, met: true, resolved: true, ally: true, done: TADOKORO_DEMAND_CLEAR };
+  G.kito = { ...newKito(), met: true, paid: 2, paidTotal: 2, resolved: true, outcome: 'tadokoroHelp' };
+  G.kuroda = { ...newKuroda(), met: true, resolved: true, ally: true };
+  G.yami = { ...newYami(), met: true, debt: 0 };
+  G.solved = { tadokoro: true, yakuza: true, kuroda: true, reina: false, oyaji: false };
+  G.reina = newReina();
+  G.flags = { intro: true, tut: true, s1: true, father: true, careNag: true, bankIntro: true,
+    tadokoroMet: true, bathTadokoroMeet: true, bathTadokoroBond: true, tadokoroConsulted: true,
+    bathKitoMeet: true, kitoEndDay: G.day - 20, kitoAfterKazoku: true, kitoAfterKinpatsu: true, lastMikaDay: G.day - 20,
+    kurodaMet: true, bathKurodaMeet: true, bathKurodaBond: true, missionCoolUntil: 0 };
+  // 治療費は12日後＝玲奈編の5日間と重ならない
+  G.careNext = G.day + 12; G.careCount = 4; G.careAmt = 0;
+  G.nappa = null;
+  $('title').classList.add('hidden');
+  $('game-ui').classList.remove('hidden');
+  enterPrep();
+  saveGame();
+  toast('🧪 玲奈編の直前から開始（評判72・現金350万）');
 }
 
 /* ============ 運営メニュー（料金・アメニティ・スタッフ） ============ */
