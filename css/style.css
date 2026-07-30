@@ -113,6 +113,8 @@ body {
 }
 #btnMenu:active { background:#7a5c46; }
 #uiCash { color:#ffd98a; }
+/* 資金がマイナスの日は赤で出す（0で隠さない） */
+#uiCash.minus { color:#ff8a7a; }
 #uiClock { color:#9fd8ff; }
 #uiRep { color:#ffb3c8; }
 
