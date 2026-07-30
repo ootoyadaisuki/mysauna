@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>俺のサウナ</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<!-- ドット文字は同梱（外部読み込みをやめた）。アプリ内はドメイン制限があってGoogle Fontsが届かないし、
+     機内モードでも同じ字で遊べる。ライセンスは SIL Open Font License 1.1（assets/fonts/OFL.txt） -->
+<link rel="stylesheet" href="css/font-dotgothic16.css">
 <link rel="stylesheet" href="css/style.css">
 <!-- PWA -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -289,7 +290,10 @@
 <script>
   /* 開発中（localhost）はキャッシュの仕組みを一切挟まない＝直したものが必ずすぐ画面に出る。
      オフライン対応（サービスワーカー）は本番のドメインで動かす時だけ入れる */
-  if ('serviceWorker' in navigator) {
+  /* iOSアプリ（Capacitor）の中では、ファイルは端末の中から配信されるのでサービスワーカーは要らない。
+     入れると古いキャッシュを掴んで「更新したのに前の画面が出る」が起きるので、ここで手を引く */
+  const NATIVE_APP = location.protocol === 'capacitor:' || !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  if ('serviceWorker' in navigator && !NATIVE_APP) {
     if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
       // 以前 localhost で入れてしまったサービスワーカーと、そのキャッシュを片付ける
       navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
