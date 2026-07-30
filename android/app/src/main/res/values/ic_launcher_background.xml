@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#C9A86A</color>
+    <!-- アダプティブアイコンの背景。アイコン本体と同じ濃い茶色にそろえる -->
+    <color name="ic_launcher_background">#34210F</color>
 </resources>

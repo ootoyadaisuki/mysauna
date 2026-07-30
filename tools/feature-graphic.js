@@ -22,27 +22,20 @@ const HTML = `<!doctype html><meta charset="utf-8">
     font-family:'DotGothic16',sans-serif; color:#f4e6c8;
     background:
       radial-gradient(120% 90% at 22% 40%, #6b4a2e 0%, #3a2617 55%, #1e140c 100%);
-    display:flex; align-items:center; padding:0 64px; box-sizing:border-box;
+    display:flex; align-items:center; justify-content:center; padding:0 96px; box-sizing:border-box;
   }
   /* 板張りの横線をうっすら重ねて銭湯の壁に見せる */
   body::before{content:'';position:absolute;inset:0;
     background:repeating-linear-gradient(180deg,rgba(0,0,0,.18) 0 2px,transparent 2px 26px);}
-  .wrap{position:relative;display:flex;align-items:center;gap:44px;width:100%}
-  .mark{width:200px;height:200px;flex:none;border-radius:38px;overflow:hidden;
-        box-shadow:0 10px 0 rgba(0,0,0,.35)}
-  .mark img{width:100%;height:100%;display:block}
-  h1{margin:0;font-size:86px;letter-spacing:.06em;color:#ffd98a;white-space:nowrap;
+  .wrap{position:relative;display:flex;align-items:center;justify-content:center;text-align:center}
+  h1{margin:0;font-size:96px;letter-spacing:.06em;color:#ffd98a;white-space:nowrap;
      text-shadow:0 6px 0 #6b3a12, 0 10px 22px rgba(0,0,0,.5)}
-  p{margin:16px 0 0;font-size:27px;line-height:1.55;color:#f0e2c4;white-space:nowrap}
-  .tag{margin-top:20px;font-size:23px;color:#d9c9a6;white-space:nowrap}
-  .tag span{border:2px solid #8a6b45;border-radius:8px;padding:5px 14px;margin-right:12px}
+  p{margin:22px 0 0;font-size:29px;line-height:1.6;color:#f0e2c4;white-space:nowrap}
 </style>
 <div class="wrap">
-  <div class="mark"><img src="/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png"></div>
   <div>
     <h1>俺のサウナ</h1>
     <p>たぶん世界初、サウナの経営シミュレーション。<br>あなただけのオリジナルサウナを作ろう。</p>
-    <div class="tag"><span>広告なし</span><span>課金なし</span><span>オフラインOK</span></div>
   </div>
 </div>`;
 
