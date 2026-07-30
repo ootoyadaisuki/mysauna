@@ -9,3 +9,11 @@ ios/App/App/public/
 ios/DerivedData/
 scenes-preview.html
 shots/
+
+# Android
+android/keystore.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/assets/public/
