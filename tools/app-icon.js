@@ -12,7 +12,7 @@ const { renderPng, pngSize, ROOT } = require('./render-png');
 
 /* 1024pxで組む。「俺」と「サウナ」を大きく、間の「の」だけ小さくして主役を立てる。
    k で全体の倍率を変える（アダプティブアイコンは外周が削られるので小さめに組む） */
-const LOGO = (k, extra = '') => `<!doctype html><meta charset="utf-8">
+const LOGO = (k, extra = '', shiftY = 0) => `<!doctype html><meta charset="utf-8">
 <link rel="stylesheet" href="/css/font-dotgothic16.css">
 <style>
   html,body{margin:0;width:1024px;height:1024px;overflow:hidden}
@@ -25,23 +25,26 @@ const LOGO = (k, extra = '') => `<!doctype html><meta charset="utf-8">
   .t{
     font-family:'DotGothic16',sans-serif; color:#ffd98a;
     text-align:center; letter-spacing:.02em;
+    /* フォントの行送りの余白と下向きの影のぶん、文字が下寄りに見えるので測って戻す */
+    transform:translateY(${shiftY}px);
     /* ロゴと同じ、下に厚みのある立体感 */
     text-shadow:0 ${Math.round(18 * k)}px 0 #6b3a12, 0 ${Math.round(26 * k)}px ${Math.round(40 * k)}px rgba(0,0,0,.55);
   }
   /* 「の」は「俺」の右下に寄り添わせる */
-  .r1{display:flex;align-items:flex-end;justify-content:center;line-height:.92}
+  .r1{display:flex;align-items:flex-end;justify-content:center;line-height:1.0}
   .ore{font-size:${Math.round(440 * k)}px}
   .no{font-size:${Math.round(210 * k)}px;margin-left:${Math.round(10 * k)}px;margin-bottom:${Math.round(24 * k)}px}
-  .r2{display:block;font-size:${Math.round(300 * k)}px;line-height:1.0;margin-top:${Math.round(10 * k)}px}
+  /* 「俺」の左足が「サ」に被らないよう、上下の行を離す */
+  .r2{display:block;font-size:${Math.round(300 * k)}px;line-height:1.0;margin-top:${Math.round(60 * k)}px}
 </style>
 <div class="t">
   <div class="r1"><span class="ore">俺</span><span class="no">の</span></div>
   <span class="r2">サウナ</span>
 </div>`;
 
-const HTML = LOGO(1);
+   // 上下の余白がそろう大きさ
 /* 前景だけの版。外周18%ぶんが削られても文字が残るように7割の大きさで組む */
-const HTML_FG = LOGO(0.7, 'background:transparent;');
+
 
 const IOS = path.join(ROOT, 'ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png');
 const AND = path.join(ROOT, 'android/app/src/main/res');
@@ -65,8 +68,35 @@ im.save(${JSON.stringify(dst)})
   execFileSync('python3', ['-c', code]);
 }
 
+/* 一度そのまま描いて、金色の文字が実際に占める上下を測る。
+   影まで数えると薄いボケの端を拾うので、文字の色だけを見る。
+   上下の余白がそろう位置までの移動量を返す */
+async function centerShift(html, port, cdpPort) {
+  const buf = await renderPng({ html, width: 1024, height: 1024, wait: 3000, port, cdpPort });
+  const tmp = path.join(require('os').tmpdir(), `sauna-bbox-${port}.png`);
+  fs.writeFileSync(tmp, buf);
+  const { execFileSync } = require('child_process');
+  const out = execFileSync('python3', ['-c', `
+from PIL import Image
+im = Image.open(${JSON.stringify(tmp)}).convert('RGB')
+W, H = im.size
+px = im.load()
+rows = [y for y in range(H) if any(px[x, y][0] > 150 and px[x, y][1] > 120 for x in range(W))]
+print(rows[0], H - 1 - rows[-1])
+`]).toString().trim().split(/\s+/).map(Number);
+  fs.rmSync(tmp, { force: true });
+  const [top, bottom] = out;                 // 上の余白・下の余白
+  return { shift: Math.round((bottom - top) / 2), top, bottom };
+}
+
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
+
+  const K = 0.94, K_FG = 0.67;
+  const m = await centerShift(LOGO(K), 8971, 9371);
+  console.log(`  測った余白 上${m.top}px / 下${m.bottom}px → ${m.shift}px 動かす`);
+  const HTML = LOGO(K, '', m.shift);
+  const HTML_FG = LOGO(K_FG, 'background:transparent;', Math.round(m.shift * K_FG / K));
 
   const base = await renderPng({ html: HTML, width: 1024, height: 1024, wait: 3000 });
   const full = path.join(OUT, 'appicon-1024.png');
