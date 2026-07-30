@@ -83,6 +83,8 @@ const KURODA_KEIEI_STAGE = 2;                       // 「数字で示す」を�
 const KURODA_DEMAND_CLEAR = 2;                      // 黒田の課題は最低この回数（それ以降は評判が目標に届くまで出し続ける）
 const KURODA_GOAL_REP = 70;                         // 黒田編を終えた時の評判の目安（作者指定）＝ここに届いたら黒田が認める
 const KURODA_DEMAND_GIVEUP = 15;                    // この日数たっても届かない課題は、黒田が別の手に切り替える
+const KURODA_NAG_DAYS = 3;                          // 課題が未達なら、黒田が次に来るのは3日後（作者指定＝毎日来ると煩わしい）
+const KURODA_MISS_SWAP = 3;                         // 3回続けて未達だったら、黒田が別の課題に差し替える（作者指定）
 const DEMAND_NAJIMI_GAIN = 12;                      // 田所の要求を叶えたときに伸びる常連との絆
 const DEMAND_REP_GAIN = 3;                          // 要求を叶えたときの評判の伸び
 const KURODA_CASH_OK = 500000;                      // 健全経営の基準＝手元資金50万（＋資金ショートしていないこと）
@@ -3380,7 +3382,9 @@ function openKurodaVisit() {
   /* 届かない課題を永久に抱え込ませない（作者指定の狙い＝黒田編で待つだけの区間を作らない）。
      引き受けてから KURODA_DEMAND_GIVEUP 日たっても届かなければ、黒田が別の手を出し直す。
      通しシムでは「評判+3」「満足度65」が店の作りしだいで何十日も届かず、そこで止まっていた */
-  if (d && (G.day - (k.demandDay || 0)) >= KURODA_DEMAND_GIVEUP) {
+  /* 同じ課題で3回続けて空振りしたら、日数を待たずに別の手へ切り替える（作者指定）。
+     3回来て3回とも届いていない＝その店の作りでは無理な筋、という見立て */
+  if (d && ((G.day - (k.demandDay || 0)) >= KURODA_DEMAND_GIVEUP || (k.miss || 0) >= KURODA_MISS_SWAP)) {
     const alt = pickDemand('kuroda');
     if (alt && alt.key !== d.key) { openKuroda('swap', alt, d); return; }
   }
@@ -3488,6 +3492,7 @@ function resolveKuroda(kind, arg) {
     k.demand = arg.key; k.lastKey = arg.key;
     k.goal = computeGoal(arg);                    // 目標値はここで確定＝あとから逃げない
     k.demandDay = G.day;                          // 出し直しの判定に使う（届かないまま抱え込ませない）
+    k.miss = 0;                                   // 空振りの回数はここから数え直す
     k.nextDay = G.day + 1;                        // 引き受けたら、黒田は翌日に確かめに来る（作者指定）
     // 黒田が話を通した品は、その日のうちだけ30%引きで入る（作者指定）
     k.discountKey = arg.need.type === 'equip' ? arg.need.id : null;
@@ -3506,21 +3511,29 @@ function resolveKuroda(kind, arg) {
     k.done = (k.done || 0) + 1; k.demand = null; k.goal = null;
     k.discountKey = null;                    // 揃ったら口利きの割引はおしまい
     k.stage = (k.stage || 0) + 1;
-    k.nextDay = G.day + 1;
+    k.miss = 0;
+    k.nextDay = G.day + 1;                   // 果たした翌日には、次の課題を持って来る（作者指定）
     addRep(DEMAND_REP_GAIN + 1);
     toast(`✅ 黒田の課題を達成した（残り${kurodaTodo().length}件）評判↑・数字↑`);
     log(`💼 黒田の課題を達成した（${demandLabel(arg)}）`);
   } else if (kind === 'hold') {
-    k.nextDay = G.day + 1;
+    // 未達のまま帰った＝次に来るのは3日後（作者指定）。空振りを数えて3回で別の課題に切り替える
+    k.miss = (k.miss || 0) + 1;
+    k.nextDay = G.day + KURODA_NAG_DAYS;
   } else {
-    // フェーズ3：選択のあとにもうひと言（作者指定）。「数字で示す」は直近の収支を見て小言／賛辞が返ってくる
+    /* 選択のあとにもうひと言（作者指定）。ここは何を選んでも、どんな経営状況でも必ず小言で終わる。
+       この場面のあとはプレイヤーが黒田の指示を聞く側に回るので、「認めた」空気を作らない。
+       借金 → 赤字 → 黒字の順に、刺さるところを突く */
     let follow;
     if (arg === 'suuji') {
       k.stage = (k.stage || 0) + 1;
       const last = G.recentProfits && G.recentProfits.length ? G.recentProfits[G.recentProfits.length - 1] : 0;
-      follow = last < 0
+      const debt = (G.yami ? G.yami.debt : 0) + (G.debt || 0);
+      follow = debt > 0
+        ? `黒田は帳面をめくり、借入の行で指を止めた。<br><br>「……おい。<b>借金があるじゃないか。</b><br>${yen(debt)}。この規模の店で、これは軽くないぞ。<br>数字で語るなら、まずここを消してから言え。」<br><br><span class="opt-sub">（数字を積む姿勢↑。借金を抱えた店の言葉は、黒田には届かない）</span>`
+        : last < 0
         ? `黒田は日報を一瞥して、電卓を叩く手を止めた。<br><br>「……<b>全然ダメじゃないか。</b>昨日の収支、赤字だぞ。数字は嘘をつかない。」<br><br><span class="opt-sub">（数字を積む姿勢↑。だが認めさせるには黒字を見せるしかない）</span>`
-        : `黒田は日報にしばらく目を落とし、ふんと鼻を鳴らした。<br><br>「ほう……<b>お前なりに頑張ってるじゃないか。せいぜい頑張れ。</b>」<br><br><span class="opt-sub">（数字を積む姿勢↑＝決戦に近づく）</span>`;
+        : `黒田は日報にしばらく目を落とし、ふんと鼻を鳴らした。<br><br>「ほう、黒字か。……<b>だが一日の数字だ。これを何ヶ月続けられる？</b><br>続かない黒字は、ただの偶然だぞ。」<br><br><span class="opt-sub">（数字を積む姿勢↑。黒田はまだ認めていない）</span>`;
     } else {
       G.najimi = clamp(G.najimi + KURODA_KEIEI_GAIN_NAJIMI, 0, 100);
       follow = `黒田は湯気の向こうの常連たちを眺め、電卓をしまった。<br><br>「……情で湯は沸かないぞ。<br>だが、まあ。客のあの顔は、数字にならない資産だ。」<br><br><span class="opt-sub">（常連との絆↑。黒田はまだ納得していない）</span>`;
@@ -4041,7 +4054,13 @@ function applyDailyWear() {
 
 /* 親父の治療費がまだ続いているか。和解ゲートは廃止（作者指定）＝治療費は第1章のエンディングまで
    15日ごとに続く固定費。親父の復活＝和解はエンディング（玲奈撃破後）で描く */
-function careOn() { return !(G.flags && G.flags.ended); }
+/* 治療費は「玲奈編が終わるまで」の重石（作者指定）。玲奈の一件が片付いたら、
+   母からの電話も病院での支払いも起きない＝終盤は自由営業に金を回せる */
+function careOn() {
+  if (G.flags && G.flags.ended) return false;
+  if (G.solved && G.solved.reina) return false;
+  return !(G.reina && G.reina.resolved);
+}
 /* 営業結果を確認したあと、病院へお見舞いに行く一幕。ここで実際に治療費を払い（所持金を削り）、
    次回（15日後）を予約し、親父と話す。親父のセリフは支払い回数(G.careCount)で3段階に和らげる。
    ※支払いを営業収支と分けたので、金の増減はこの場面で起きる（closeDayでは引かない） */
@@ -4183,7 +4202,8 @@ function closeDay() {
   /* 資金ショート → 頼れるのは灰田だけ（銀行は貸してくれない）。10万刻みで足りるぶんだけ自動で借りる。
      限度は100万＝ここで借り切ってしまうと、次に足りなくなった日は本当に打つ手がない */
   while (G.cash < 0 && G.yami.debt < CONF.sarakinMax) { G.cash += CONF.sarakinUnit; G.yami.debt += CONF.sarakinUnit; t.autoYami += CONF.sarakinUnit; G.yami.met = true; }
-  if (G.cash < 0) { G.cash = 0; t.unpaid = true; addRep(-2); }   // どこも貸してくれない日は、店の信用が落ちる
+  // どこも貸してくれない日は、店の信用が落ちる。マイナスは0で隠さず、そのまま残す（作者指定）
+  if (G.cash < 0) { t.unpaid = true; addRep(-2); }
   // 設備の傷み（1日ぶん）
   const brokeToday = applyDailyWear();
   const profit = bathRev + saunaRev + milkRev + t.amenRev + t.towelRev + t.akasuriRev + t.soapRev + t.teburaRev
@@ -4687,7 +4707,7 @@ function finishFix(n) {
     // 支払いは直し終わってから。業者の頭の上に金額を出して、そのぶん現金が減る
     const fee = n.fee ?? fixFee(it);
     it.fault = null;                                               // 直ったので故障の規模は持ち越さない
-    G.cash = Math.max(0, G.cash - fee);
+    G.cash -= fee;                                                 // 足りなければマイナスのまま出す（作者指定）
     if (G.phase === 'biz' && G.today) G.today.repairCost += fee;   // 日報の「修理業者への支払い」に載る
     else G.invFix += fee;                                          // 準備中に直したぶんは「設備投資」の行に載る
     addFloater(n.px, n.py - 30, '-' + yen(fee));
@@ -4951,19 +4971,14 @@ function tadokoroKessenOK() {
   const t = G.tadokoro;
   return t.met && (t.done || 0) >= TADOKORO_DEMAND_CLEAR;
 }
-/* 黒田が認めるのは「評判が KURODA_GOAL_REP に届いた時」（作者指定）。
-   課題は評価項目ひとつずつ＝言われた通りに直していけば、そのまま評判70に着地する。
-   ここを目標に据えることで、黒田編を終えた店は玲奈（評判68）に必ず届く */
-/* 黒田が認めるのは「11の基準を全部満たした時」（作者指定）。
-   基準は評判70から逆算した表なので、満たした時点で評判は必ず70前後に乗り、
-   そのまま玲奈（評判68）に繋がる。鬼頭が片付いた時点で全部満たしていれば、
-   黒田の話は挨拶だけで終わる＝すでにやり切っている店に、同じ宿題は出さない */
+/* 黒田が認めるのは「出す課題がもう無くなった時」（作者指定）。
+   課題は評判70から逆算した11の基準（評価10項目＋減点ゼロ）で、満たすほど評判が70に近づく。
+   評判70に届いた時点で評価の課題は役目を終え、最後に「手元資金50万」だけが残る。
+   それも済んでいれば挨拶だけで終わる＝すでにやり切っている店に、同じ宿題は出さない */
 function kurodaKessenOK() {
   const k = G.kuroda;
   if (!k || !k.met) return false;
-  /* 逆算表を全部満たすか、別の組み合わせで評判70に届いたか。
-     後者を残すのは保険＝どれか1項目がその店の間取りでは届かない、という詰みを作らないため */
-  return kurodaTodo().length === 0 || G.rep >= KURODA_GOAL_REP;
+  return kurodaTodo().length === 0;
 }
 function dueTadokoro() {
   const t = G.tadokoro; if (!t || t.resolved) return false;
@@ -5161,14 +5176,31 @@ const KURODA_PEN_DEMAND = {
    ※旧・経営課題（利益/単価/常連/現金…）は KURODA_DEMANDS に残してあるが、
      合否の基準からは外した（達成しても評判70に効かないため。台詞は将来の別ミッション用） */
 function kurodaMissions() { return KURODA_ITEM_DEMANDS.concat([KURODA_PEN_DEMAND]); }
-// まだ達成していない黒田の課題（達成済みのものは言い渡されない）
-function kurodaTodo() { return kurodaMissions().filter(d => !demandMet(d)); }
+/* 評判が目標に届いたあとの“最後の課題”（作者指定）＝手元資金50万円。
+   評価をいくら磨いても、金が残っていなければ経営ではない――という黒田の締めくくり。
+   すでに50万あれば言い渡されずに、そのまま認められる */
+const KURODA_CASH_GOAL = 500000;
+const KURODA_CASH_DEMAND = {
+  key: 'cash50',
+  need: { type: 'cash', yen: KURODA_CASH_GOAL },
+  ask: `評判は届いた。だが最後に一つ。<br><b>手元に{目標}</b>、残してみせろ。<br>売上が立つ店と、金が残る店は別物だ。`,
+  advice: '設備を買う手を止めて、数日ぶんの利益を手元に積め',
+  ok: '{目標}か。……売上じゃなく、手元に残す。それができる奴は少ない。',
+};
+// 評判が目標に届いた（＝評価の課題は役目を終えた）か
+function kurodaFinalPhase() { return G.rep >= KURODA_GOAL_REP || kurodaMissions().every(demandMet); }
+/* まだ達成していない黒田の課題（達成済みのものは言い渡されない）。
+   評判70に届いたら、残っている評価項目ではなく「資金50万」の一本に切り替わる */
+function kurodaTodo() {
+  if (kurodaFinalPhase()) return demandMet(KURODA_CASH_DEMAND) ? [] : [KURODA_CASH_DEMAND];
+  return kurodaMissions().filter(d => !demandMet(d));
+}
 // いまのその項目の点（データ画面の評価と同じ数字）
 function itemScore(key) {
   const it = repScoreParts().items.find(i => i.key === key);
   return it ? it.v : 0;
 }
-function demandList(who) { return who === 'tadokoro' ? TADOKORO_DEMANDS : kurodaMissions(); }
+function demandList(who) { return who === 'tadokoro' ? TADOKORO_DEMANDS : kurodaMissions().concat([KURODA_CASH_DEMAND]); }
 function demandOf(who) {
   const st = who === 'tadokoro' ? G.tadokoro : G.kuroda;
   if (!st || !st.demand) return null;
@@ -7059,7 +7091,10 @@ function updateTopbar() {
   } else $('uiClock').textContent = '準備中 🌙';
   // 借金の表示はサラ金の残債（銀行融資は廃止）
   const sDebt = G.yami ? G.yami.debt : 0;
-  $('uiCash').textContent = yen(G.cash) + (sDebt ? ` (借金${(sDebt / 10000) | 0}万)` : '');
+  // 資金がマイナスの日は、赤字の額をそのまま出す（0で隠さない＝作者指定）
+  $('uiCash').textContent = (G.cash < 0 ? '−' + yen(-G.cash) : yen(G.cash))
+    + (sDebt ? ` (借金${(sDebt / 10000) | 0}万)` : '');
+  $('uiCash').classList.toggle('minus', G.cash < 0);
   syncRep();   // 減点は即時反映＝運営メニューで直したその場で数字が戻る
   $('uiRep').textContent = repCounting() ? '評判 集計中' : `評判 ${G.rep}`;
 }
@@ -7475,8 +7510,11 @@ function openStaffPanel(emp) {
 
 /* 夜の賃上げ相談（closeDayでraiseAskが立った子から順に）。断ると辞めるか、ふてくされる */
 function maybeStaffRaise() {
+  // 相談は1日ひとりまで（作者指定）。2人が同じ夜に並んで頼みに来ると、断る側が理不尽になる
+  if (G.flags.raiseDay === G.day) return;
   const emp = G.roster.find(e => e.raiseAsk);
   if (!emp) return;
+  G.flags.raiseDay = G.day;
   emp.raiseAsk = false;
   const amt = emp.raiseAmt || 300;              // 要求額は¥100〜¥500（作者指定）
   const noCount = emp.raiseNo || 0;             // ここまで連続で断った回数（3回で辞める）
@@ -7795,6 +7833,19 @@ function initUI() {
       // 立派な（金のかかる）設備を入れると、親父がぼやく（安い小物＝観葉植物やイスには反応しない）
       if (EQ[p.id].price >= 200000 && Math.random() < 0.6) oyajiNag('equip', 2.4);
       if (p.onPlaced) p.onPlaced();
+      /* 決戦仕様の一台は、夜を待たずに据えた“その場”で火入れの一幕へ（作者指定）。
+         組み上げた瞬間がいちばん見せたい場面なので、閉店後まで持ち越さない */
+      if (p.id === 'sauna_sp' && !G.flags.spFired) {
+        G.flags.spFired = true;
+        endPlacing();
+        refreshDead(); updateTopbar(); renderShop(); saveGame();
+        Story.play(STORY_NAPPA_FIRE, () => {
+          log(`🔥 【${EQ.sauna_sp.name}】に火が入った。熱波師が中央に立ち、六つの席へ左右に風を送る`);
+          saveGame();
+          openRematchPrompt();
+        });
+        return;
+      }
       // 「やめる」を押すまで同じものを続けて置ける（ととのいイスや牛乳をまとめて並べる用）
       if (p.once) endPlacing();
       else if (G.cash < eqPrice(p.id)) { toast('資金が足りない…（ここまで）'); endPlacing(); }
@@ -8204,9 +8255,13 @@ function renderData() {
     /* 黒田の合格表（作者指定）。11の基準を全部満たせば黒田が認め、そこから玲奈の話が始まる＝
        あと何が残っているのかを、いつでもここで確かめられるようにしておく */
     if (G.kuroda && G.kuroda.met && !G.kuroda.resolved) {
+      // 評判が目標に届いたら、表は「最後の課題＝手元資金」だけに切り替わる（作者指定）
+      const list = kurodaFinalPhase() ? [KURODA_CASH_DEMAND] : kurodaMissions();
       const todoN = kurodaTodo().length;
-      r += sec(`💼 黒田の合格表（残り${todoN}件 / 全${kurodaMissions().length}件）`);
-      for (const d of kurodaMissions()) {
+      r += sec(kurodaFinalPhase()
+        ? `💼 黒田の合格表（最後の課題／評判${KURODA_GOAL_REP}達成）`
+        : `💼 黒田の合格表（残り${todoN}件 / 全${list.length}件）`);
+      for (const d of list) {
         const ok = demandMet(d);
         r += row(`${ok ? '✅' : '⬜'} ${demandLabel(d)}`, ok ? '達成' : demandNow(d), ok ? '' : 'minus');
       }

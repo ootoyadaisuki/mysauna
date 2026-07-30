@@ -52,23 +52,149 @@ const StoryArt = {
 
   // 病室の共通部分（鍵の有無だけを呼び出し側で分ける）
   /* フェーズ3：夜の居間のテレビ。蒼天SPAのオープン特集が流れている */
-  tvnews(ctx) {
+  /* 夜の居間とテレビの“枠”は共通。画面の中身だけを渡して描き分ける
+     （開業ニュース／夕凪湯と蒼天SPAの並び／玲奈の顔／決戦仕様のサウナ） */
+  tvFrame(ctx, screen, defTicker) {
     const p = this.px.bind(this, ctx);
     p(0, 0, 360, 200, '#241d18');                     // 夜の居間
     p(0, 160, 360, 40, '#3a2f26');                    // 畳
     p(60, 150, 240, 12, '#1a1512');                   // テレビ台
     p(70, 30, 220, 122, '#111');                      // テレビ枠
     p(78, 38, 204, 100, '#8fd0ee');                   // 画面（空）
-    p(120, 58, 120, 80, '#3a7bd5');                   // 青いガラスの巨大施設
-    p(126, 64, 108, 62, '#bfe3f2');
-    for (let i = 0; i < 5; i++) p(130 + i * 21, 68, 14, 52, '#7fb8e8');
-    p(150, 44, 60, 12, '#2a5aa8');                    // 屋上のサイン
+    if (screen) screen.call(this, ctx, p);
     p(78, 118, 204, 20, 'rgba(20,30,60,.9)');         // 下部テロップ
     ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
     // テロップは場面ごとに差し替える（開業のニュースか、投票対決の開始か）
-    ctx.fillText(this.tvTicker || '駅前に「蒼天SPA」グランドオープン！', 180, 132);
+    ctx.fillText(this.tvTicker || defTicker, 180, 132);
     p(140, 168, 80, 8, '#5a4632');                    // ちゃぶ台
     p(172, 161, 10, 7, '#cfd8d4');                    // 湯呑み
+  },
+  tvnews(ctx) {
+    this.tvFrame(ctx, function (c, p) {
+      p(120, 58, 120, 80, '#3a7bd5');                 // 青いガラスの巨大施設
+      p(126, 64, 108, 62, '#bfe3f2');
+      for (let i = 0; i < 5; i++) p(130 + i * 21, 68, 14, 52, '#7fb8e8');
+      p(150, 44, 60, 12, '#2a5aa8');                  // 屋上のサイン
+    }, '駅前に「蒼天SPA」グランドオープン！');
+  },
+  /* 初戦のテレビ①：画面を左右に割って、うちの暖簾と蒼天SPAを並べて映す（作者指定） */
+  tvVersus(ctx) {
+    this.tvFrame(ctx, function (c, p) {
+      const t = Date.now() / 1000;
+      p(78, 38, 102, 80, '#2a2018');                  // 左半分＝夜の路地
+      p(180, 38, 102, 80, '#0e1a2e');                 // 右半分＝駅前
+      // 左：夕凪湯（低くて、あたたかい）
+      p(92, 74, 74, 44, '#8a5a34'); p(88, 66, 82, 10, '#5a3b22');
+      p(100, 84, 16, 12, '#ffcf8a'); p(142, 84, 16, 12, '#ffcf8a');
+      p(118, 100, 22, 18, '#1f3a6b');
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('ゆ', 129, 114);
+      for (let i = 0; i < 3; i++) {   // 立ちのぼる湯気
+        const ph = (t * 0.5 + i * 0.4) % 1;
+        ctx.fillStyle = `rgba(255,236,205,${0.55 * (1 - ph)})`;
+        ctx.fillRect(102 + i * 22, 64 - ph * 18, 5, 5);
+      }
+      // 右：蒼天SPA（高くて、冷たい）
+      p(200, 44, 66, 74, '#3a5a86'); p(200, 44, 66, 5, '#557aa8');
+      for (let ry = 0; ry < 5; ry++) for (let cx = 0; cx < 4; cx++) {
+        const lit = ((ry + cx + Math.floor(t * 2)) % 3 === 0);
+        p(206 + cx * 15, 54 + ry * 12, 10, 7, lit ? '#e8f6ff' : '#9fc4e6');
+      }
+      // 中央の仕切りと「対」
+      p(179, 38, 3, 80, '#111');
+      ctx.fillStyle = '#ffd76a'; ctx.font = 'bold 18px sans-serif';
+      ctx.fillText('対', 180, 86);
+    }, 'サウナ天下分け目　投票対決はじまる');
+  },
+  /* 初戦のテレビ②：中間発表で玲奈が喋る場面＝画面いっぱいに玲奈の顔（作者指定） */
+  tvReina(ctx) {
+    this.tvFrame(ctx, function (c, p) {
+      p(78, 38, 204, 80, '#cfe6f2');                  // 蒼天の館内（明るいガラス）
+      for (let i = 0; i < 6; i++) p(84 + i * 34, 42, 22, 74, '#b7d8ea');
+      // 顔のアップ（首から上だけを大きく）
+      p(150, 96, 60, 22, '#b3273a');                  // 赤いドレスの肩
+      p(154, 44, 52, 56, '#f2d3b8');                  // 顔
+      p(150, 38, 60, 16, '#e8c24a');                  // 金髪
+      p(146, 46, 10, 60, '#e8c24a'); p(204, 46, 10, 60, '#e8c24a');   // ロング
+      p(166, 66, 8, 6, '#4a3520'); p(188, 66, 8, 6, '#4a3520');       // 目
+      p(164, 60, 12, 3, '#8a6a3a'); p(186, 60, 12, 3, '#8a6a3a');     // 眉
+      p(174, 84, 12, 4, '#a34a5a');                   // 口（薄く笑っている）
+      p(78, 38, 40, 12, 'rgba(20,30,60,.85)');        // 左上の局ロゴ
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText('生中継', 82, 47);
+      ctx.textAlign = 'center';
+    }, '蒼天SPA 桐生玲奈 開発責任者');
+  },
+  /* 再戦のテレビ②-前半：決戦仕様のサウナ室の映像（石を六席が囲み、熱波師が中央でタオルを振る） */
+  tvSpecial(ctx) {
+    this.tvFrame(ctx, function (c, p) {
+      const t = Date.now() / 1000;
+      p(78, 38, 204, 80, '#5a3a22');                  // 杉のサウナ室（横板張り）
+      for (let i = 0; i < 10; i++) p(78, 40 + i * 8, 204, 2, '#6a4628');
+      // 石を囲む六席（左右に3つずつ）。座っている客の背中も入れて“満席”に見せる
+      for (const [bx, i] of [[84, 0], [104, 1], [124, 2], [218, 3], [238, 4], [258, 5]]) {
+        p(bx, 92, 20, 22, '#6a4628'); p(bx, 90, 20, 3, '#7a5636');
+        p(bx + 4, 76, 12, 16, ['#d8a878', '#e8c8a8', '#c99a70'][i % 3]);   // 背中
+        p(bx + 4, 72, 12, 5, '#2a2320');                                    // 頭
+      }
+      // 中央の石積み（焼けて照っている）
+      p(158, 84, 44, 30, '#3f3f3f'); p(162, 78, 36, 8, '#565656');
+      for (let i = 0; i < 4; i++) p(164 + i * 9, 74, 7, 6, i % 2 ? '#8a6a4a' : '#6f5540');
+      ctx.fillStyle = `rgba(255,170,70,${0.3 + 0.28 * Math.sin(t * 5)})`;
+      ctx.fillRect(160, 86, 40, 26);
+      // 中央に立つ熱波師（法被・鉢巻。大タオルが左右に振れる）
+      const sw = Math.sin(t * 5) * 16;
+      p(172, 48, 16, 30, '#c9502a'); p(172, 48, 3, 30, '#7a2a12'); p(185, 48, 3, 30, '#7a2a12');
+      p(174, 36, 12, 13, '#d8a878'); p(174, 34, 12, 5, '#f4f0e6');
+      ctx.fillStyle = '#fff';
+      ctx.save(); ctx.translate(180, 52); ctx.rotate(sw * 0.03);
+      ctx.fillRect(0, -3, 34, 6); ctx.restore();
+      for (let i = 0; i < 3; i++) {                    // 舞う熱気
+        const ph = (t * 0.8 + i * 0.33) % 1;
+        ctx.fillStyle = `rgba(255,220,180,${0.45 * (1 - ph)})`;
+        ctx.fillRect(150 + i * 30, 84 - ph * 26, 5, 5);
+      }
+    }, `${(typeof G !== 'undefined' && G.name) || '夕凪湯'}スペシャル　世界一の熱波師`);
+  },
+  /* 再戦のテレビ②-後半：店の表。暖簾の前に行列ができている */
+  yunagiQueue(ctx) {
+    const p = this.px.bind(this, ctx);
+    const t = Date.now() / 1000;
+    const g = ctx.createLinearGradient(0, 0, 0, 130);
+    g.addColorStop(0, '#1d2740'); g.addColorStop(1, '#4a3a30');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 360, 130);
+    p(0, 130, 360, 70, '#3a332c');                    // アスファルト
+    p(0, 130, 360, 4, '#4a423a');
+    // 店（正面）
+    p(60, 34, 240, 96, '#8a5a34'); p(52, 22, 256, 14, '#5a3b22');
+    p(76, 52, 44, 30, '#ffcf8a'); p(240, 52, 44, 30, '#ffcf8a');   // 灯る窓
+    p(150, 86, 60, 44, '#1f3a6b');                    // 暖簾
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 26px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('ゆ', 180, 120);
+    for (let i = 0; i < 4; i++) {                     // 湯気
+      const ph = (t * 0.4 + i * 0.25) % 1;
+      ctx.fillStyle = `rgba(255,236,205,${0.5 * (1 - ph)})`;
+      ctx.fillRect(90 + i * 50, 20 - ph * 18, 7, 7);
+    }
+    // 行列（暖簾の前から右へ延びていく）
+    for (let i = 0; i < 12; i++) {
+      const x = 196 + i * 13, base = 160 + (i % 3) * 6, bob = Math.sin(t * 1.6 + i) * 1.2;
+      const cloth = ['#3a4a6a', '#6a4a3a', '#4a5a4a', '#5a3a4a'][i % 4];
+      ctx.fillStyle = 'rgba(0,0,0,.22)';
+      ctx.beginPath(); ctx.ellipse(x, base + bob + 1, 7, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+      p(x - 5, base - 18 + bob, 10, 18, cloth);
+      p(x - 4, base - 27 + bob, 8, 9, '#e8c8a8');
+      p(x - 4, base - 28 + bob, 8, 4, '#2a2a2a');
+    }
+    // 行列は左側にも折り返している（列の頭が暖簾に吸い込まれていく形）
+    for (let i = 0; i < 5; i++) {
+      const x = 150 - i * 14, base = 178, bob = Math.sin(t * 1.6 + i * 1.7) * 1.2;
+      ctx.fillStyle = 'rgba(0,0,0,.22)';
+      ctx.beginPath(); ctx.ellipse(x, base + bob + 1, 7, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+      p(x - 5, base - 18 + bob, 10, 18, ['#4a4a5a', '#5a4a3a', '#3a4a4a'][i % 3]);
+      p(x - 4, base - 27 + bob, 8, 9, '#e8c8a8');
+      p(x - 4, base - 28 + bob, 8, 4, '#2a2a2a');
+    }
   },
   hospitalRoom(ctx) {
     const p = this.px.bind(this, ctx);
@@ -992,7 +1118,8 @@ const StoryArt = {
 };
 
 // 湯気や水面を動かしたい“動く一枚絵”（このキーの間だけ再描画ループを回す）
-const STORY_ANIM_ARTS = new Set(['souten', 'soutenBldg', 'soutenBath', 'bathTadokoro', 'bathKuroda', 'bathKito', 'duel', 'grave']);
+const STORY_ANIM_ARTS = new Set(['souten', 'soutenBldg', 'soutenBath', 'bathTadokoro', 'bathKuroda', 'bathKito', 'duel', 'grave',
+  'tvVersus', 'tvSpecial', 'yunagiQueue']);
 
 const Story = {
   queue: [], sceneIdx: 0, lineIdx: 0, typing: false, typeTimer: null, onEnd: null, artTimer: null,
