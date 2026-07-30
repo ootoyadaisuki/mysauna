@@ -893,6 +893,14 @@ const StoryArt = {
       p(x - 9, base - 64, 18, 3, '#f4f0e6');                                      // 鉢巻
       eye(d);
       p(x - 16, base - 50, 10, 26, '#fff'); p(x - 16, base - 50, 10, 4, '#cfe0e8');  // 肩の大タオル
+    } else if (who === 'joren') {         // 常連の若い衆＝作業着・短髪・首にタオル（応援の場面用）
+      p(x - 8, base - 26, 7, 26, '#3e4a3a'); p(x + 1, base - 26, 7, 26, '#3e4a3a');
+      p(x - 10, base - 47, 20, 24, '#5a6a4a'); p(x - 10, base - 26, 20, 3, '#46543a');
+      p(x - 14, base - 45, 4, 20, '#5a6a4a'); p(x + 10, base - 45, 4, 20, '#5a6a4a');
+      p(x - 13, base - 27, 3, 6, '#e0b892'); p(x + 10, base - 27, 3, 6, '#e0b892');
+      p(x - 9, base - 70, 18, 23, '#e0b892'); p(x - 9, base - 72, 18, 7, '#2a2320');
+      p(x - 10, base - 48, 20, 4, '#f4f0e6');                                     // 首のタオル
+      eye(d); p(x - 3, base - 54, 6, 1.6, '#8a5a4a');                             // 笑っている口
     } else if (who === 'banker') {        // 信金の担当者＝グレーのスーツ・眼鏡
       p(x - 8, base - 26, 7, 26, '#4a4e56'); p(x + 1, base - 26, 7, 26, '#4a4e56');
       p(x - 10, base - 47, 20, 24, '#5c6470'); p(x - 3, base - 47, 6, 22, '#e8e2d6'); p(x - 1, base - 47, 2, 15, '#3a5a7a');
@@ -1066,6 +1074,34 @@ const StoryArt = {
     this.figStand(ctx, 302, 168, 'kuroda', -1);
   },
 
+  /* ── 常連たちの応援（特別映像③-1.5）：開店前の脱衣所に常連がずらり。
+     手前に田所と主人公、その後ろに顔ぶれを詰めて“人が戻ってきた”を絵で見せる */
+  jorenOuen(ctx) {
+    const p = this.px.bind(this, ctx);
+    const t = Date.now() / 1000;
+    this.datsuiNight(ctx);
+    // 奥に並ぶ常連（小さく・少しずつ揺れる＝ざわめき）
+    const back = [
+      [40, '#6a5a48', '#e6e6e6'], [78, '#4a5a6a', '#3a3a3a'], [116, '#6a4a3a', '#2a2a2a'],
+      [232, '#4a6a5a', '#dcdcdc'], [270, '#5a4a6a', '#2a2a2a'], [308, '#6a6a4a', '#3a3a3a'],
+    ];
+    for (const [x, cloth, hair] of back) {
+      const bob = Math.sin(t * 2 + x) * 1.2;
+      ctx.fillStyle = 'rgba(0,0,0,.20)';
+      ctx.beginPath(); ctx.ellipse(x, 146 + bob, 12, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+      p(x - 9, 112 + bob, 18, 32, cloth);                 // 胴
+      p(x - 12, 116 + bob, 4, 18, cloth); p(x + 8, 116 + bob, 4, 18, cloth);   // 腕
+      p(x - 8, 92 + bob, 16, 21, '#e6c3a6');              // 顔
+      p(x - 8, 90 + bob, 16, 7, hair);                    // 髪
+      p(x - 5, 100 + bob, 3, 2.5, '#2a2320'); p(x + 2, 100 + bob, 3, 2.5, '#2a2320');
+      p(x - 3, 107 + bob, 6, 1.6, '#8a5a4a');             // 笑っている口
+    }
+    // 手前：田所（左）と主人公（中央）、若い衆（右）
+    this.figStand(ctx, 96, 188, 'tadokoro', 1);
+    this.figStand(ctx, 176, 190, 'hero', 1);
+    this.figStand(ctx, 262, 188, 'joren', -1);
+  },
+
   // 投票対決：夕凪湯（あたたかい・小）vs 蒼天SPA（冷たいガラス・大）。報道バナー・群衆・綱引き票バー。
   // 票数は window.DUEL = {yu, so, t0} をアートが読み、カウントアップ＆バーが最終比率へイージング（アニメ）。
   duel(ctx) {
@@ -1119,7 +1155,7 @@ const StoryArt = {
 
 // 湯気や水面を動かしたい“動く一枚絵”（このキーの間だけ再描画ループを回す）
 const STORY_ANIM_ARTS = new Set(['souten', 'soutenBldg', 'soutenBath', 'bathTadokoro', 'bathKuroda', 'bathKito', 'duel', 'grave',
-  'tvVersus', 'tvSpecial', 'yunagiQueue']);
+  'tvVersus', 'tvSpecial', 'yunagiQueue', 'jorenOuen']);
 
 const Story = {
   queue: [], sceneIdx: 0, lineIdx: 0, typing: false, typeTimer: null, onEnd: null, artTimer: null,

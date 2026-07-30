@@ -3591,6 +3591,9 @@ function soutenGuestCap() {
   const r = G.reina;
   if (!r || !r.met || r.resolved) return Infinity;
   if (hasWorking('sauna_sp')) return Infinity;                     // 決戦仕様の一台が据わったら完全復帰
+  /* 常連たちが応援に来た日に上限は解ける（作者指定）。ここを塞いだままだと、
+     上限30人＝固定費割れの赤字なので、決戦仕様の一台の代金がいつまでも貯まらない */
+  if (G.flags.reinaOuen) return Infinity;
   if ((r.lost || 0) >= 1) return REINA_CAP_SHOCK;                  // 初戦敗北後は再び30人
   if (G.day - (r.metDay || 0) < 3) return REINA_CAP_SHOCK;         // 出会いから3日間
   return REINA_CAP_DUEL;                                            // 以降、初戦の敗北までは50人
@@ -3735,15 +3738,23 @@ function maybeReinaCinematic() {
       G.flags.reinaRematch = 2;
       G.nappa = { hired: true };            // ※台が据わるまでは振れない（nappaOn は設備も見る）
       G.flags.nappaDay = G.day;
+      /* 熱波師が加わった翌日、常連たちが押しかけて応援してくれる（作者指定）。
+         この場面で蒼天SPAに吸われていた客足が完全に戻る＝再戦の金を作れる状態になる */
       Story.play(STORY_NAPPA_MEET, () => {
-        openSpecialCatalog();
-        saveGame();
+        Story.play(STORY_JOREN_OUEN, () => {
+          G.flags.reinaOuen = true;
+          toast('🤝 常連が戻ってきた！ 客数の上限が解けた');
+          log(`🤝 常連たちが${G.name}を応援しに来た。蒼天SPAに流れていた客足が戻った（客数の上限が解けた）`);
+          G.najimi = clamp(G.najimi + 5, 0, 100);
+          openSpecialCatalog();
+          updateTopbar(); saveGame();
+        });
       });
       return true;
     }
     if (step === 2) {
       if (!hasWorking('sauna_sp')) {
-        /* 常連たちのカンパ（作者指定）。自力で百万まで積んだ夜にだけ起きて、二百万に足りない分を街が埋める。
+        /* 常連たちのカンパ（作者指定）。自力で八十万まで積んだ夜にだけ起きて、百二十万に足りない分（最大40万）を街が埋める。
            ＝「資本の力ではない、この店の戦い方」を、玲奈の2,000万と対にして見せる場面 */
         if (!G.flags.kampaDone && G.cash >= KAMPA_TRIGGER && G.cash < EQ.sauna_sp.price) {
           G.flags.kampaDone = true;
@@ -3889,8 +3900,8 @@ function openSpecialCatalog() {
   updateTopbar(); saveGame();
 }
 /* 常連たちのカンパ（作者指定）。自力でここまで積んだら、足りない分を街が出してくれる */
-const KAMPA_TRIGGER = 1000000;
-const KAMPA_MAX = 1000000;
+const KAMPA_TRIGGER = 800000;
+const KAMPA_MAX = 400000;
 // （旧）挑戦状のモーダルから受けて立つ導線。いまは挑戦状→テレビ放送で自動的に始まるので使われない
 function acceptReinaDuel() {
   $('reinaModal').classList.add('hidden');
