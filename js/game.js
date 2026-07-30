@@ -70,7 +70,7 @@ function newReina() { return { met: false, metDay: 0, stage: 0, resolved: false,
 function newSolved() { return { tadokoro: false, yakuza: false, kuroda: false, reina: false, oyaji: false }; }
 // 親父の和解ゲージ（OYAJI_CLEAR_AT / OYAJI_CARE_GAIN）は廃止（作者指定）。態度は評判連動＝STORY_CARE_PAID
 const TADOKORO_HELLO_DAY = 4;                       // 田所の名乗り＝4日目の営業終了後（作者指定。2〜3日目の母の電話と重ねない）
-const TADOKORO_APPEAR_REP = 30;                     // 田所が現れる評判（いちばん最初のライバル）
+// 「田所が現れる評判30」の縛りは撤廃（作者指定）。サウナを置いた翌日から、いつでも来る
 const TADOKORO_KESSEN_NAJIMI = 55, TADOKORO_KESSEN_REP = 52, TADOKORO_KYOZON_GAIN = 18;  // 田所が認める条件と、共存の選択で伸びる絆
 const TADOKORO_DEMAND_CLEAR = 5;                    // 田所の要求をこの回数だけ叶えると、認めさせる資格（作者指定で3→5）
 const KITO_APPEAR_REP = 39;                         // 鬼頭の集金が始まる評判（新評判方式＝繁盛の匂いがし始めた店にヤクザが来る）
@@ -4968,7 +4968,8 @@ function dueTadokoro() {
   // 顔合わせ（名乗り）は昼の飛び込み来訪ではなく、1日目の営業終了後の夜に流す（作者指定）。
   // よって hello 前は昼の来訪者には選ばない
   if (!t.hello) return false;
-  if (!t.met) return G.day >= (t.nextDay || 0) && hasCat('sauna') && G.rep >= TADOKORO_APPEAR_REP;
+  // 評判の縛りは撤廃（作者指定）。サウナに手を出した店を見て、小言を言いに来る――それだけが条件
+  if (!t.met) return G.day >= (t.nextDay || 0) && hasCat('sauna');
   if (tadokoroKessenOK()) return false;   // 「認める」場面は昼ではなく、その日の営業終了後の夜に流す（作者指定）
   // 田所ミッションが始まったら、以降は毎日来る＝要求→確認→要求→確認…（作者指定）。
   // 途中でクールダウンは挟まない（挟むのは鬼頭編の終了後＝黒田編が始まる前だけ）
