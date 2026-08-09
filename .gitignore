@@ -17,3 +17,7 @@ android/build/
 android/app/build/
 android/local.properties
 android/app/src/main/assets/public/
+
+# 生成画像の原本（96MB）。絵はコード描画へ移行済み＝ゲームからは参照しない。
+# ディスクには残すが、git履歴には入れない
+assets/story/_原本/

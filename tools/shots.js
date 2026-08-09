@@ -44,8 +44,42 @@ const STAGES = [
     wait: 800,
   },
   {
-    name: 'catalog', url: '/?reina',
-    setup: `(() => { shopTab = 'sauna'; renderShop(); })()`, wait: 1200,
+    /* 客の声がいっせいに上がっている絵（作者指定 8/7。旧・設備カタログは
+       2枚目の営業中とカタログ部分が丸かぶりで、並べる意味が薄かったので差し替え）。
+       開店して賑わわせ、絵を止めてから、**いま各自がしていることに合った台詞**を吹き出しにする。
+       湯に浸かっている客に「ととのった」と言わせない＝その場に噛み合う声だけを出す */
+    name: 'koe', url: '/?reina',
+    setup: `(async () => {
+      $('btnOpen').click(); $('btnSpeed').click(); $('btnSpeed').click();
+      /* 賑わうまで待つ（時間で切ると、たまたま客が捌けた瞬間に当たって4人しか居ない絵になる）。
+         場内10人を上限60秒で待ち、それ以上は待たない */
+      for (let i = 0; i < 120; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        if (i > 40 && G.customers.length >= 10) break;
+      }
+      G.paused = true;                       // 絵を止める＝声が消えないうちに撮る
+      const say = (c) => {
+        const d = c.use ? EQ[c.use.item.id] : null;
+        const cat = d ? d.cat : null;
+        const t = c.use ? (c.use.item.temp ?? d.temp) : 0;
+        if (cat === 'furo')  return d.old ? LINES.bathOld : (d.temp ?? 42) <= 40 ? LINES.furoNuruYoi
+                                          : (d.temp ?? 42) >= 43 ? LINES.furoAtsu : LINES.bathGood;
+        if (cat === 'sauna') return d.gentle ? LINES.saunaMist : t >= 95 ? LINES.saunaGoodHot : LINES.saunaGood;
+        if (cat === 'mizu')  return t <= 14 ? LINES.mizuKinkin : LINES.mizuGood;
+        if (cat === 'wash')  return d.old ? LINES.washOld : LINES.washGood;
+        if (cat === 'rest')  return c.gotTotonoi ? LINES.totonoi : LINES.rest;
+        if (c.state === 'toPay' || c.state === 'pay') return LINES.pay;
+        return LINES.bathGood;
+      };
+      for (const c of G.customers) {
+        const pool = say(c); if (!pool || !pool.length) continue;
+        bubble(c, pool[Math.floor(Math.random() * pool.length)], 999);
+      }
+      /* 下のカタログは2枚目と同じ「サウナ」タブだと丸かぶりになるので、脱衣所に切り替える
+         （畳んでしまうと画面の下半分が空っぽになる＝それはそれで見栄えが悪い） */
+      shopTab = 'datsui'; renderShop();
+    })()`,
+    wait: 900,
   },
   {
     name: 'data', url: '/?reina',
@@ -66,12 +100,16 @@ const STAGES = [
     wait: 1200,
   },
   {
-    name: 'tv', url: '/?reina',
-    setup: `(() => {
-      StoryArt.tvTicker = 'サウナ天下分け目 投票対決　勝負は5日間！';
-      Story.play(STORY_DUEL_TV, () => {});
-    })()`,
-    wait: 3200,
+    /* 求人広告を出した2日後の朝＝面接（作者指定 8/7。旧・テレビのニュースと差し替え）。
+       戻したくなったら、この中身を下の2行に差し替える（撮れていた絵は shots/old/06_tv.png）：
+         StoryArt.tvTicker = 'サウナ天下分け目 投票対決　勝負は5日間！';
+         Story.play(STORY_DUEL_TV, () => {});      // wait: 3200
+       同じく旧・設備カタログ（3枚目）は shots/old/03_catalog.png ＝
+         setup: (() => { shopTab = 'sauna'; renderShop(); })()  // wait: 1200
+       ふだんは `G.jobAdDay` を待って朝に開くが、ここは面接の画面そのものを見せたいので直接開く */
+    name: 'job', url: '/?reina',
+    setup: `(() => { openJobModal(); })()`,
+    wait: 1200,
   },
   {
     name: 'duel', url: '/?reina',
@@ -81,6 +119,21 @@ const STAGES = [
       Story.play(STORY_DUEL_WIN, () => {});
     })()`,
     wait: 3200,
+  },
+  /* ここから下は「App Storeに並べる7枚」ではなく、審査に添える説明用の絵。
+     App内課金（オート修理）の審査には「どこで売っているか分かる画面」を1枚出す決まりがある。
+     ヘッドレスのChromeにはストアが無い＝ふだんは売り場が出ないので、
+     ここでだけ「ストアにつながっている状態」のふりをさせて撮る（ゲーム本体はいじらない）。
+       撮り方: SHOTS=8 OUT=shots-iap node tools/shots.js */
+  {
+    name: 'iap', url: '/?reina',
+    setup: `(() => {
+      IAP.available = () => true;
+      IAP.price = () => '￥300';
+      G.premium = { autoRepair: false, autoRepairOn: true };  // ?reina の店は買った状態で始まるので、買う前に戻す
+      openMenu();
+    })()`,
+    wait: 900,
   },
 ];
 

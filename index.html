@@ -28,15 +28,21 @@
       <!-- 章の選択 -->
       <div id="titleChapters">
         <button id="btnChapter1" class="big-btn">夕凪湯 再建記</button>
+        <!-- 第2章のボタン。文字は読み込まれている第2章の名前から入れる（game.js）＝
+             章の束を入れ替えても、ここを書き直さなくていい。読み込みが無ければロックのまま -->
         <button id="btnChapter2" class="big-btn locked">独立開業編<span class="soon">（近日公開！）</span></button>
       </div>
       <!-- 第1章を選んだあとの「はじめから／つづきから」 -->
       <div id="titleStart" class="hidden">
-        <p class="title-sub">― 夕凪湯 再建記 ―</p>
+        <p class="title-sub" id="titleSub">― 夕凪湯 再建記 ―</p>
         <button id="btnNewGame" class="big-btn">はじめから</button>
         <button id="btnContinue" class="big-btn hidden">つづきから</button>
+        <!-- セーブがある章でだけ出す注意書き（押す前に気づけるように） -->
+        <p class="title-sub hidden" id="newGameWarn">※「はじめから」を選ぶと、いまのセーブデータは消えます</p>
         <button id="btnChapterBack" class="sm-btn">← 章を選ぶ</button>
       </div>
+      <!-- サウナ施設のオーナー向けの案内（ゲーム化のご相談） -->
+      <button id="btnForOwners" class="title-link">♨ サウナ施設の方へ</button>
     </div>
   </div>
 
@@ -53,14 +59,11 @@
   <!-- 屋号入力 -->
   <div id="nameModal" class="overlay hidden">
     <div class="modal">
-      <h2>銭湯の屋号を決めよう</h2>
-      <p class="modal-note">のれんに書く名前だ。親父の「夕凪湯」のままでもいい。</p>
+      <!-- 見出し・説明・候補は章ごとに差し替える（openNameModal）。ここは第1章の初期値 -->
+      <h2 id="nameTitle">銭湯の屋号を決めよう</h2>
+      <p class="modal-note" id="nameNote">のれんに書く名前だ。親父の「夕凪湯」のままでもいい。</p>
       <input id="nameInput" type="text" maxlength="10" value="夕凪湯">
-      <div class="name-suggests">
-        <button class="chip" data-name="夕凪湯">夕凪湯</button>
-        <button class="chip" data-name="サウナ夕凪">サウナ夕凪</button>
-        <button class="chip" data-name="俺のサウナ">俺のサウナ</button>
-      </div>
+      <div class="name-suggests" id="nameSuggests"></div>
       <button id="btnNameOk" class="big-btn">これでいく</button>
     </div>
   </div>
@@ -74,9 +77,30 @@
       <span id="uiRep">評判 10</span>
       <button id="btnMenu" title="メニュー">☰</button>
     </div>
+    <!-- ゲージの帯（第2章）。**体力と妻の機嫌は常時出す**（作者指定）＝
+         倒れるのが事故ではなく、自分の判断だと分かるように -->
+    <div id="gaugeBar" class="hidden">
+      <!-- 並びは 体力 → ストレス → 妻の機嫌（作者指定 8/2）。
+           自分のことが先、家のことが最後 -->
+      <span id="uiStam" class="hidden"><b>体力</b></span>
+      <span id="uiStress" class="hidden"><b>ストレス</b></span>
+      <span id="uiMood" class="hidden"><b>機嫌</b></span>
+    </div>
+    <!-- 上の一行。いま何をすればいいかを、短く一行だけ出す（第2章） -->
+    <div id="tip" class="hidden"></div>
     <div id="canvasWrap">
       <canvas id="game"></canvas>
+      <!-- 第2章の【館内案内図】。区画をタップするとその部屋へ入る。第1章（区画1つ）では出さない -->
+      <canvas id="guide" class="hidden"></canvas>
       <div id="hint" class="hidden"></div>
+      <!-- 第2章の帯：案内図へ戻る／店と家の行き来。
+           ⚠ **キャンバスの上に重ねる**（作者指定 8/8）＝帯のぶん(52px)の縦を
+              フロア画面に返すため。第1章は areaCount()>1 でないと出さないので隠れたまま -->
+      <div id="areaBar" class="hidden">
+        <button id="btnToGuide" class="sm-btn">← 外に出る</button>
+        <span id="areaLabel"></span>
+        <button id="btnHome" class="sm-btn hidden">🏠 家へ</button>
+      </div>
     </div>
     <div id="panel">
 
@@ -97,11 +121,22 @@
       <div id="prepPanel" class="hidden">
         <div class="prep-actions">
           <button id="btnOpen" class="big-btn open-btn">🏮 営業開始</button>
+          <!-- 臨時休業（第2章）。いつでも押せるが、常連が減って評判も落ちる -->
+          <button id="btnKyugyo" class="sm-btn hidden">🚪 臨時休業</button>
+          <button id="btnMission" class="sm-btn hidden">📌 注文</button>
+          <button id="btnStaffMgr" class="sm-btn hidden">👥 バイト</button>
           <button id="btnManage" class="sm-btn">⚙ 運営</button>
           <button id="btnData" class="sm-btn">📊 データ</button>
           <button id="btnSenden" class="sm-btn">📰 広告</button>
           <button id="btnLoan" class="sm-btn">🏦 融資</button>
         </div>
+      </div>
+
+      <!-- 外観アイテム（第2章）＝ビルの外観を見ているときだけ、下に並ぶ。
+           各階の設備カタログと同じ場所・同じ並びで「買う」ものを見せる -->
+      <div id="gaikanPanel" class="hidden">
+        <div id="shopTabsG"></div>
+        <div id="gaikanList" class="shop-list"></div>
       </div>
 
       <!-- 設備カタログ（準備中・営業中どちらでも表示する） -->
@@ -119,7 +154,17 @@
           <button id="btnSell" class="sm-btn">💸 売却</button>
           <button id="btnSelClose" class="sm-btn">とじる</button>
         </div>
+        <!-- 第2章：残置物の始末（マップ上で1つずつ決める） -->
+        <div class="sel-actions" id="zanchiActions">
+          <button id="btnZanSell" class="sm-btn ok">💸 売る</button>
+          <button id="btnZanGone" class="sm-btn">🗑 撤去</button>
+          <button id="btnZanKeep" class="sm-btn">✋ 残す</button>
+          <button id="btnZanClose" class="sm-btn">とじる</button>
+        </div>
       </div>
+
+      <!-- 設備の詳細（第2章）＝置く前に読む場所。カタログの行から説明を移した先 -->
+      <div id="placeInfo" class="hidden"></div>
 
       <!-- 配置確認バー -->
       <div id="confirmBar" class="hidden">
@@ -132,11 +177,33 @@
   </div>
 
   <!-- メニュー（保存・トップ画面へ・外部リンク） -->
+  <!-- 第2章の週報は廃止した（第1章と同じ「1日ごと・日報」に戻したため） -->
+
+  <!-- 第2章の開業準備（残置物の引き算・基礎工事・開業）。第1章では一度も開かない -->
+  <div id="kaigyoModal" class="overlay hidden">
+    <div class="modal kaigyo">
+      <h2>🏗 開業準備</h2>
+      <div id="kaigyoBody"></div>
+      <button id="btnKaigyoClose" class="big-btn">とじる</button>
+    </div>
+  </div>
+
   <div id="menuModal" class="overlay hidden">
     <div class="modal">
       <h2>☰ メニュー</h2>
       <p id="menuInfo" class="modal-note"></p>
       <div id="menuBody"></div>
+    </div>
+  </div>
+
+  <!-- 「はじめから」の確認（セーブがある章だけ出る）。ブラウザの confirm は
+       環境によっては黙って false を返す＝押しても始まらない、になるので自前の画面にした -->
+  <div id="newGameModal" class="overlay hidden">
+    <div class="modal">
+      <h2>⚠ はじめから</h2>
+      <p id="newGameInfo" class="modal-note"></p>
+      <button id="btnNewGameYes" class="big-btn danger">はじめからやり直す</button>
+      <button id="btnNewGameNo" class="big-btn">やめる</button>
     </div>
   </div>
 
@@ -172,6 +239,26 @@
     </div>
   </div>
 
+  <!-- 妻のひと言（第2章「横浜編」）＝金の使いどころで、決める前に一度止まる -->
+  <!-- 定休日（第2章）。店を開けない日に、その一日をどう使うかを決める -->
+  <div id="offdayModal" class="overlay hidden">
+    <div class="modal manage">
+      <h2 id="offdayTitle">🚪 定休日</h2>
+      <p class="modal-note" id="offdayNote"></p>
+      <div id="offdayBody"></div>
+      <button id="btnOffdayClose" class="big-btn hidden">とじる</button>
+    </div>
+  </div>
+
+  <div id="wifeModal" class="overlay hidden">
+    <div class="modal">
+      <h2 id="wifeName">奈津</h2>
+      <p class="modal-note" id="wifeLine"></p>
+      <button id="btnWifeGo" class="big-btn">それでも、やる</button>
+      <button id="btnWifeNo" class="sm-btn">……やめておく</button>
+    </div>
+  </div>
+
   <!-- データ（営業データ・客の評価・関係性の計器盤） -->
   <div id="dataModal" class="overlay hidden">
     <div class="modal manage">
@@ -188,11 +275,13 @@
     <div class="modal">
       <h2>資金繰り</h2>
       <p id="loanCash" class="modal-note"></p>
-      <div class="loan-sec">
-        <div class="loan-sec-title">🏦 銀行から借りる</div>
-        <p class="modal-note">「申し訳ありませんが、<b>審査は通りません</b>。……失礼ですが、赤字の銭湯さんですので。」<br>—— 信用金庫 融資担当</p>
+      <!-- 第1章＝信用金庫に門前払い／第2章＝公庫の追加融資（審査あり・2週間） -->
+      <div class="loan-sec" id="loanSecBank">
+        <div class="loan-sec-title" id="loanBankTitle">🏦 銀行から借りる</div>
+        <p class="modal-note" id="loanInfoBank">「申し訳ありませんが、<b>審査は通りません</b>。……失礼ですが、赤字の銭湯さんですので。」<br>—— 信用金庫 融資担当</p>
+        <div id="koukoAmts" class="loan-amts"></div>
       </div>
-      <div class="loan-sec yami">
+      <div class="loan-sec yami" id="loanSecYami">
         <div class="loan-sec-title">💳 灰田ファイナンス（サラ金）</div>
         <p id="loanInfoYami" class="modal-note"></p>
         <!-- 借入額は10万円刻みで自由に選べる（作者指定）。一度に限度額いっぱいまで借りてもいい -->
@@ -273,6 +362,34 @@
   </div>
 
   <!-- スタッフ個別（給料変更・クビ）と賃上げ相談 -->
+  <!-- 第2章：桑田芳雄（旧ゆらぎの常連）の注文 -->
+  <div id="kuwataModal" class="overlay hidden">
+    <div class="modal mikajime">
+      <h2 id="kuwataTitle">🧓 桑田芳雄</h2>
+      <p id="kuwataInfo" class="modal-note"></p>
+      <div id="kuwataChoices"></div>
+    </div>
+  </div>
+
+  <!-- 第2章：注文（ミッション）の一覧 -->
+  <div id="missionModal" class="overlay hidden">
+    <div class="modal wide">
+      <h2>📌 注文</h2>
+      <div id="missionBody"></div>
+      <button id="btnMissionClose" class="big-btn">とじる</button>
+    </div>
+  </div>
+
+  <!-- 第2章：バイト管理（部屋ごとの配置・スキル・給料・求人） -->
+  <div id="staffMgrModal" class="overlay hidden">
+    <div class="modal wide">
+      <h2>👥 バイト</h2>
+      <div id="staffMgrBody"></div>
+      <button id="btnStaffMgrJob" class="big-btn">📰 求人広告を出す</button>
+      <button id="btnStaffMgrClose" class="big-btn">とじる</button>
+    </div>
+  </div>
+
   <div id="staffModal" class="overlay hidden">
     <div class="modal">
       <h2 id="staffTitle"></h2>
@@ -285,8 +402,67 @@
 </div>
 <script src="js/sfx.js"></script>
 <script src="js/data.js"></script>
+<script src="js/chapter.js"></script>
+<!-- App内課金（オート修理）。ストアが無いブラウザでは何もしない＝売り場も出ない -->
+<script src="js/iap.js"></script>
+
+<!-- ══════════ 第2章はここで束ごと入れ替える ══════════
+     第2章は「横浜編」に決定（設計＝CHAPTER2_B.md）。
+     旧・候補1「独立開業編（地方の居抜き物件）」は **保留** ＝ ファイルは1つも消していない。
+     読み込まないだけなので、下のコメントを外せばそのまま元どおり動く（セーブも別キーで残っている）。 -->
+
+<!-- 【いま使う】第2章「横浜編」／js/ch2b/（設計＝CHAPTER2_B.md） -->
+<script src="js/ch2b/data_y.js"></script>
+<script src="js/ch2b/rules_y.js"></script>
+<script src="js/ch2b/offday_y.js"></script>
+<script src="js/ch2b/battle_y.js"></script>
+<!-- エンディング5種（判定・台本・発火）。battle_y.js の b.result を使うのでそのあと -->
+<script src="js/ch2b/ending_y.js"></script>
+<script src="js/ch2b/art_y.js"></script>
+<script src="js/ch2b/custcard_y.js"></script>
+<script src="js/ch2b/uriage_y.js"></script>
+<script src="js/ch2b/shokudo_y.js"></script>
+<script src="js/ch2b/eqinfo_y.js"></script>
+
+<!-- 【保留中】旧・候補1「独立開業編」（設計＝CHAPTER2.md／台本＝CHAPTER2_SCRIPT.md）
+     ── 戻すときは、この囲みを外すだけ ──
+<script src="js/ch2/data2.js"></script>
+<script src="js/ch2/rules2.js"></script>
+<script src="js/ch2/week2.js"></script>
+<script src="js/ch2/mission2.js"></script>
+<script src="js/ch2/shokudo2.js"></script>
+<script src="js/ch2/art_eq2.js"></script>
+-->
 <script src="js/story.js"></script>
+<!-- 第2章「横浜編」のライバル5軒の館内図（StoryArt に足すので story.js のあと） -->
+<script src="js/ch2b/rival_art_y.js"></script>
+<!-- 休みの日の行き先（妻とのデート・買い出し・野毛）。STORY_IMG を使うので story.js のあと -->
+<script src="js/ch2b/odekake_y.js"></script>
+<!-- 月曜＝定休日の強制イベント。odekake_y.js の行き先をそのまま使うので、そのあと -->
+<script src="js/ch2b/monday_y.js"></script>
+<!-- 【保留中】候補1の一枚絵と台本（上と一緒に戻す）
+<script src="js/ch2/art2.js"></script>
+<script src="js/ch2/story2.js"></script>
+-->
 <script src="js/game.js"></script>
+<script>
+  /* 章の見張り（開発サーバーのときだけ読み込む）。
+     配信するアプリ（Capacitor／本番ドメイン）には一切入らない＝
+     プレイヤーの端末にテスト用のコードを持ち込まない。
+     コンソールで guardAll() と打つと、全部の章が控えたときのままかを機械が確かめる */
+  (function () {
+    const dev = location.protocol === 'http:'
+      && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+      && location.port !== '';
+    if (!dev) return;
+    for (const src of ['js/dev/ch-baselines.js', 'js/dev/chapterGuard.js', 'js/dev/play100.js',
+                       'js/dev/chapterDiff.js']) {
+      const s = document.createElement('script');
+      s.src = src; s.defer = false;
+      document.head.appendChild(s);
+    }
+  })();
+</script>
 <script>
   /* 開発中（localhost）はキャッシュの仕組みを一切挟まない＝直したものが必ずすぐ画面に出る。
      オフライン対応（サービスワーカー）は本番のドメインで動かす時だけ入れる */

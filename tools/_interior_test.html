@@ -1,0 +1,1666 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>t</title>
+<style>body{margin:0;background:#17110d;padding:8px}
+canvas{width:100%;image-rendering:pixelated;display:block;border:3px solid #6b533c}</style></head><body>
+<canvas id="c" width="360" height="200"></canvas>
+<script>const STORY_ANIM_ARTS=new Set();
+const StoryArt={px(ctx,x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(x,y,w,h);},
+ draw(ctx,k){ctx.save();ctx.imageSmoothingEnabled=false;ctx.clearRect(0,0,360,200);(this[k]||function(){}).call(this,ctx);ctx.restore();}};</script>
+<script>'use strict';
+
+/* ============================================================
+   ライバル5軒の館内図（第2章「横浜編」）
+   ------------------------------------------------------------
+   第1章の蒼天SPA（story.js の souten）と同じ作り＝**360×200の見下ろし一枚絵**を
+   コードで描く。休みの日に他店へ行くと、この絵が出る。
+
+   **絵は数字の説明図でもある。**（CHAPTER2_B.md §7-3）
+     天空スパ  … サウナは巨大だが**水風呂が一槽だけ**（行列を描く）
+     楽園スパ  … 何でもあるが**サウナが一室だけ**（マンガの壁が主役）
+     ハマサウナ… 設備は一級だが**厨房が無い**（空いた床を描く）
+     スパ・ルミナ… 露天は豪華だが**休憩の椅子が足りない**（満席を描く）
+     福来湯    … 昭和の銭湯。**掃除が行き届いていない**（汚れを描く）
+
+   ※店名・人物・台詞はすべて架空。実在施設は「そういう強さの店が横浜にある」
+     という設計の借用にとどめる
+   ============================================================ */
+
+(function () {
+  const P = (ctx, x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
+  const T = () => Date.now() / 1000;
+
+  /* ── 共通の部品 ───────────────────────────────── */
+  // 湯気（立ちのぼって消える）
+  function wisp(ctx, x, y, n, a) {
+    const t = T();
+    for (let i = 0; i < n; i++) {
+      const seed = x * 0.7 + i * 13, rise = (t * 9 + seed * 5) % 15, sway = Math.sin(t * 2 + seed) * 2;
+      ctx.fillStyle = `rgba(255,255,255,${(a * (1 - rise / 15)).toFixed(3)})`;
+      ctx.fillRect(Math.round(x + i * 5 + sway), Math.round(y - rise), 3, 5);
+    }
+  }
+  // 水面のさざ波
+  function ripple(ctx, x, y, w, col) {
+    const t = T();
+    ctx.strokeStyle = col || 'rgba(255,255,255,.38)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i <= w; i += 3) {
+      const yy = y + Math.sin(i * 0.3 + t * 3 + x * 0.2) * 1.4;
+      i === 0 ? ctx.moveTo(x + i, yy) : ctx.lineTo(x + i, yy);
+    }
+    ctx.stroke();
+  }
+  // 枠のある区画（石／タイル／レンガ／大理石）
+  function frame(ctx, x, y, w, h, inner, edge) {
+    P(ctx, x - 1, y - 1, w + 2, h + 2, '#211a13');
+    P(ctx, x, y, w, h, edge || '#6b6155');
+    P(ctx, x + 3, y + 3, w - 6, h - 6, inner);
+  }
+  // 湯船
+  function basin(ctx, x, y, w, h, inner, style) {
+    frame(ctx, x, y, w, h, inner);
+    const ix = x + 3, iy = y + 3, iw = w - 6, ih = h - 6, t = T();
+    ripple(ctx, ix + 2, iy + ih * 0.4, iw - 4);
+    if (ih > 20) ripple(ctx, ix + 2, iy + ih * 0.74, iw - 4);
+    wisp(ctx, ix + 4, iy + 5, 2, .22);
+    if (style === 'jet') {
+      for (let i = 0; i < Math.floor(iw / 9); i++) {
+        const off = (t * 18 + i * 5) % Math.max(1, ih - 4);
+        P(ctx, ix + 4 + i * 9, Math.round(iy + ih - 3 - off), 2, 4, 'rgba(255,255,255,.5)');
+      }
+    } else if (style === 'electric') {
+      for (let i = 0; i < 5; i++) {
+        const pu = 0.4 + 0.5 * Math.sin(t * 5 + i * 1.3);
+        P(ctx, Math.round(ix + 5 + i * ((iw - 8) / 4)), iy + Math.round(ih / 2) - 1, 3, 3,
+          `rgba(180,220,255,${pu.toFixed(2)})`);
+      }
+    } else if (style === 'soda') {   // 炭酸泉＝細かい泡が上がる
+      const span = Math.max(1, ih - 6);
+      for (let i = 0; i < Math.floor(iw / 8); i++) {
+        const rise = (t * 10 + i * 11) % span, al = .55 * (1 - rise / span);
+        P(ctx, Math.round(ix + 5 + i * 8), Math.round(iy + ih - 3 - rise), 2, 2, `rgba(255,255,255,${al.toFixed(3)})`);
+      }
+    } else if (style === 'lie') {    // 寝湯＝仕切りと寝ている人
+      ctx.strokeStyle = 'rgba(255,255,255,.28)'; ctx.lineWidth = 1;
+      const n = Math.max(1, Math.floor(iw / 15));
+      for (let i = 1; i < n; i++) { ctx.beginPath(); ctx.moveTo(ix + i * 15, iy); ctx.lineTo(ix + i * 15, iy + ih); ctx.stroke(); }
+      ctx.fillStyle = 'rgba(40,60,80,.45)';
+      for (let i = 0; i < n; i++) { ctx.beginPath(); ctx.ellipse(ix + 7 + i * 15, iy + ih / 2, 4, 2, 0, 0, Math.PI * 2); ctx.fill(); }
+    }
+  }
+  // 水風呂
+  function plunge(ctx, x, y, w, h, inner) {
+    frame(ctx, x, y, w, h, inner || '#5fb6e0');
+    const ix = x + 3, iy = y + 3, iw = w - 6, ih = h - 6;
+    ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 1;
+    ctx.strokeRect(ix + 1, iy + 1, iw - 2, ih - 2);
+    ripple(ctx, ix + 2, iy + ih * 0.5, iw - 4);
+  }
+  // サウナ室（ひな壇と熱源）。kind で照明と石の色が変わる
+  function sauna(ctx, x, y, w, h, kind, seats) {
+    const inner = { hot: '#5a2c22', wood: '#7a5330', dark: '#2e2620', steam: '#3a5250',
+                    tea: '#3c5236', gold: '#8a5a2a', showa: '#6a4a2c' }[kind] || '#5a3a24';
+    frame(ctx, x, y, w, h, inner, '#3a2a1c');
+    const ix = x + 3, iy = y + 3, iw = w - 6, ih = h - 6, t = T();
+    // ひな壇（板の段）
+    ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.lineWidth = 1;
+    for (let ly = iy + 7; ly < iy + ih - 2; ly += 7) {
+      ctx.beginPath(); ctx.moveTo(ix, ly); ctx.lineTo(ix + iw, ly); ctx.stroke();
+    }
+    // 熱源（ストーブ）
+    const sx = ix + iw / 2, sy = iy + ih - 8;
+    P(ctx, sx - 5, sy - 5, 10, 10, '#241812');
+    const glow = kind === 'steam' ? '#9fe0d8' : kind === 'tea' ? '#9fd47a' : '#ff8a3a';
+    ctx.fillStyle = glow;
+    for (let i = 0; i < 4; i++) P(ctx, sx - 4 + (i % 2) * 4, sy - 4 + Math.floor(i / 2) * 4, 3, 3, glow);
+    ctx.fillStyle = `rgba(255,140,50,${(0.16 + 0.1 * Math.sin(t * 5)).toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(sx, sy, 11, 0, Math.PI * 2); ctx.fill();
+    wisp(ctx, sx - 5, sy - 9, 3, kind === 'steam' || kind === 'tea' ? .5 : .3);
+    // 座っている人（席数のぶん、点で並べる）
+    if (seats) {
+      ctx.fillStyle = 'rgba(240,210,170,.85)';
+      const cols = Math.min(seats, Math.max(2, Math.floor((iw - 6) / 6)));
+      const rows = Math.ceil(seats / cols);
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        if (r * cols + c >= seats) break;
+        ctx.fillRect(ix + 3 + c * 6, iy + 3 + r * 7, 3, 4);
+      }
+    }
+  }
+  // ととのいイス（1脚）
+  function chair(ctx, x, y, occupied) {
+    P(ctx, x, y, 7, 9, '#c8b48a'); P(ctx, x, y, 7, 3, '#a8916a');
+    if (occupied) { P(ctx, x + 1, y + 2, 5, 6, '#e8c39a'); P(ctx, x + 1, y + 1, 5, 2, '#3b2d24'); }
+  }
+  // 寝椅子（フルフラット）
+  function lounger(ctx, x, y, occupied) {
+    P(ctx, x, y, 16, 7, '#b58a54'); P(ctx, x, y, 4, 7, '#8a6238');
+    ctx.strokeStyle = 'rgba(50,34,16,.5)'; ctx.lineWidth = 1; ctx.strokeRect(x, y, 16, 7);
+    if (occupied) { ctx.fillStyle = 'rgba(240,215,180,.9)'; ctx.beginPath(); ctx.ellipse(x + 9, y + 3.5, 5, 2.4, 0, 0, Math.PI * 2); ctx.fill(); }
+  }
+  // カラン（洗い場）1つ
+  function karan(ctx, x, y) {
+    P(ctx, x, y, 6, 8, '#cfd6dc'); P(ctx, x + 1, y + 1, 4, 3, '#9fb4c4'); P(ctx, x + 2, y + 5, 2, 2, '#7a8a96');
+  }
+  function karanRow(ctx, x, y, n, gap) {
+    for (let i = 0; i < n; i++) karan(ctx, x + i * (gap || 8), y);
+  }
+  // 観葉植物
+  function plant(ctx, x, y) {
+    P(ctx, x, y, 4, 4, '#33502c'); P(ctx, x + 2, y - 2, 3, 3, '#4a6a38'); P(ctx, x - 1, y + 1, 3, 3, '#3c5a30');
+  }
+  // 人（立っている・並んでいる）
+  function person(ctx, x, y, col) {
+    P(ctx, x, y, 5, 7, col || '#5a6b8a'); P(ctx, x, y - 4, 5, 4, '#e8c39a'); P(ctx, x, y - 5, 5, 2, '#3b2d24');
+  }
+  // 部屋の名札
+  function label(ctx, x, y, text, col) {
+    ctx.font = '7px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    const w = ctx.measureText(text).width + 6;
+    ctx.fillRect(x - w / 2, y - 7, w, 9);
+    ctx.fillStyle = col || '#f5ead8'; ctx.fillText(text, x, y);
+    ctx.textAlign = 'left';
+  }
+  // 夜景の見える窓（横に長い）
+  function nightWindow(ctx, x, y, w, h) {
+    P(ctx, x, y, w, h, '#0b1020');
+    for (let i = 0; i < Math.floor(w / 7); i++) {
+      const bh = 6 + ((i * 37) % 14);
+      P(ctx, x + 2 + i * 7, y + h - bh, 5, bh, i % 3 ? '#1a2440' : '#22304e');
+      for (let k = 0; k < 3; k++) {
+        if (((i * 7 + k * 13) % 5) < 2) P(ctx, x + 3 + i * 7, y + h - bh + 2 + k * 4, 2, 2, '#ffd98a');
+      }
+    }
+    ctx.strokeStyle = '#3a4a66'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+  }
+  // 床（種類ごとの地）
+  function floorBase(ctx, col, gridCol, gap) {
+    P(ctx, 0, 0, 360, 200, col);
+    ctx.strokeStyle = gridCol; ctx.lineWidth = 1;
+    const g = gap || 15;
+    for (let x = 0; x < 360; x += g) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 200); ctx.stroke(); }
+    for (let y = 0; y < 200; y += g) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(360, y); ctx.stroke(); }
+    ctx.strokeStyle = '#201810'; ctx.lineWidth = 4; ctx.strokeRect(2, 2, 356, 196);
+  }
+  // レンガの床・壁（ハマサウナ）
+  function brickBase(ctx) {
+    P(ctx, 0, 0, 360, 200, '#8a5a48');
+    ctx.strokeStyle = 'rgba(40,20,14,.35)'; ctx.lineWidth = 1;
+    for (let y = 0; y < 200; y += 9) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(360, y); ctx.stroke();
+      for (let x = (y / 9) % 2 ? 0 : 11; x < 360; x += 22) {
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 9); ctx.stroke();
+      }
+    }
+    ctx.strokeStyle = '#2a1610'; ctx.lineWidth = 4; ctx.strokeRect(2, 2, 356, 196);
+  }
+
+  function y_tenku_bath(ctx) {
+    const t = T();
+    // ── 夜空（扇の外は空。ここは14階なので、窓の外に街がある）
+    P(ctx, 0, 0, 360, 200, '#0b1020');
+    for (let i = 0; i < 70; i++) P(ctx, (i * 53) % 360, (i * 29) % 200, 1, 1, 'rgba(255,255,255,.25)');
+    // 窓の外の街並み（扇の外周に沿って）
+    for (let i = 0; i < 26; i++) {
+      const a = -1.25 + (i / 25) * 2.5, r = 352;
+      const bx = Math.round(4 + Math.cos(a) * r), by = Math.round(100 + Math.sin(a) * r * 0.52);
+      const bh = 8 + ((i * 37) % 16);
+      P(ctx, bx, by - bh / 2, 6, bh, i % 3 ? '#1a2440' : '#22304e');
+      for (let k = 0; k < 3; k++) if (((i * 7 + k * 13) % 5) < 2) P(ctx, bx + 1, by - bh / 2 + 2 + k * 4, 2, 2, '#ffd98a');
+    }
+
+    /* ── 扇形の床。要（かなめ）は左端、外周のカーブが窓側 ── */
+    const CX = 4, CY = 100, R = 338, A0 = -1.16, A1 = 1.16, SQ = 0.52;
+    const fan = (rad, expand) => {
+      ctx.beginPath(); ctx.moveTo(CX, CY);
+      for (let a = A0; a <= A1 + 0.001; a += 0.04) ctx.lineTo(CX + Math.cos(a) * rad, CY + Math.sin(a) * rad * SQ);
+      ctx.closePath();
+      if (expand) ctx.lineWidth = expand;
+    };
+    // 床（タイル）
+    fan(R); ctx.fillStyle = '#b9b0a2'; ctx.fill();
+    ctx.save(); ctx.clip();
+    ctx.strokeStyle = 'rgba(90,80,66,.22)'; ctx.lineWidth = 1;
+    for (let x = 0; x < 360; x += 13) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 200); ctx.stroke(); }
+    for (let y = 0; y < 200; y += 13) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(360, y); ctx.stroke(); }
+    ctx.restore();
+    /* ここから先の設備は**扇の内側だけに描く**（はみ出したぶんは切る＝部屋の境目になる） */
+    ctx.save(); fan(R); ctx.clip();
+
+    /* ── 入口（左の要）。段差・壺のかけ湯・シャワー・裏に垢すり ── */
+    P(ctx, 6, 76, 16, 48, '#6b533c');                                  // 入口の通路
+    ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(8, 84 + i * 12); ctx.lineTo(22, 84 + i * 12); ctx.stroke(); }
+    label(ctx, 14, 74, '段差', '#ffd0a0');
+    // 壺のかけ湯（丸い壺が2つ）
+    for (let i = 0; i < 2; i++) {
+      const px = 34, py = 84 + i * 26;
+      ctx.fillStyle = '#4a3a2c'; ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#5fb0d8'; ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill();
+      wisp(ctx, px - 3, py - 6, 2, .3);
+    }
+    label(ctx, 34, 128, '壺のかけ湯');
+    // シャワー
+    karanRow(ctx, 48, 78, 3, 9); karanRow(ctx, 48, 92, 3, 9);
+    label(ctx, 58, 114, 'シャワー');
+    // 垢すり（シャワーの裏・別料金）
+    P(ctx, 46, 126, 32, 18, '#8fa3b4'); P(ctx, 49, 129, 26, 12, '#cfd6dc');
+    label(ctx, 62, 156, '垢すり（別料金）');
+
+    /* ── 上：サウナ2室と、そのあいだの八角形の檜の湯 ── */
+    // メインサウナ（丸太椅子・大型ストーブ2台・熱波）
+    frame(ctx, 88, 12, 106, 56, '#5a2c22', '#3a2a1c');
+    ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.lineWidth = 1;
+    for (let ly = 22; ly < 66; ly += 8) { ctx.beginPath(); ctx.moveTo(91, ly); ctx.lineTo(191, ly); ctx.stroke(); }
+    for (let i = 0; i < 2; i++) {   // 大型ストーブ2台
+      const sx = 112 + i * 58, sy = 56;
+      P(ctx, sx - 6, sy - 7, 12, 13, '#241812');
+      for (let k = 0; k < 6; k++) P(ctx, sx - 5 + (k % 2) * 5, sy - 6 + Math.floor(k / 2) * 4, 4, 3, '#ff8a3a');
+      ctx.fillStyle = `rgba(255,140,50,${(0.18 + 0.1 * Math.sin(t * 5 + i)).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(sx, sy, 13, 0, Math.PI * 2); ctx.fill();
+      wisp(ctx, sx - 5, sy - 11, 3, .3);
+    }
+    for (let i = 0; i < 5; i++) {   // 丸太椅子
+      ctx.fillStyle = '#8a6238';
+      ctx.beginPath(); ctx.ellipse(100 + i * 21, 30, 6, 4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(60,40,20,.6)'; ctx.lineWidth = 1; ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(240,210,170,.85)';
+    for (let i = 0; i < 16; i++) ctx.fillRect(93 + (i % 8) * 12, 40 + Math.floor(i / 8) * 8, 3, 4);
+    label(ctx, 141, 66, 'メインサウナ（丸太椅子・ストーブ2台）', '#ffd0a0');
+
+    // 八角形の檜カルシウム温泉（2室のあいだ）
+    const oct = (cx, cy, r) => {
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = Math.PI / 8 + i * Math.PI / 4;
+        const px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r * 0.72;
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    };
+    oct(224, 40, 28); ctx.fillStyle = '#211a13'; ctx.fill();
+    oct(224, 40, 25); ctx.fillStyle = '#8a6a3a'; ctx.fill();
+    oct(224, 40, 20); ctx.fillStyle = '#c8934a'; ctx.fill();
+    ripple(ctx, 208, 38, 32); ripple(ctx, 210, 48, 28);
+    wisp(ctx, 214, 32, 3, .3);
+    P(ctx, 222, 62, 4, 6, '#5a3f28');                                  // 専用の機械
+    label(ctx, 224, 76, '檜カルシウム温泉', '#ffe0a0');
+
+    // ロウリュサウナ（斜めの座面・セルフ）
+    frame(ctx, 256, 12, 96, 56, '#7a5330', '#3a2a1c');
+    ctx.save();
+    ctx.beginPath(); ctx.rect(259, 15, 90, 50); ctx.clip();
+    ctx.strokeStyle = 'rgba(0,0,0,.3)'; ctx.lineWidth = 5;            // **斜めに走る座面**
+    for (let i = -2; i < 7; i++) {
+      ctx.beginPath(); ctx.moveTo(259 + i * 16, 66); ctx.lineTo(259 + i * 16 + 34, 14); ctx.stroke();
+    }
+    ctx.restore();
+    P(ctx, 336, 52, 10, 12, '#241812');
+    for (let k = 0; k < 4; k++) P(ctx, 337 + (k % 2) * 4, 53 + Math.floor(k / 2) * 5, 3, 4, '#ff8a3a');
+    wisp(ctx, 334, 48, 3, .4);
+    ctx.fillStyle = 'rgba(240,210,170,.85)';
+    for (let i = 0; i < 7; i++) ctx.fillRect(266 + i * 11, 24 + (i % 3) * 8, 3, 4);
+    label(ctx, 292, 66, 'セルフロウリュ（斜め座面）', '#ffd0a0');
+
+    /* ── 給水機はサウナのあいだ ── */
+    P(ctx, 199, 20, 9, 16, '#cfd6dc'); P(ctx, 201, 23, 5, 5, '#5fb0d8');
+    P(ctx, 240, 20, 9, 16, '#cfd6dc'); P(ctx, 242, 23, 5, 5, '#5fb0d8');
+
+    /* ── **弱点：水風呂は一槽だけ。桶と、順番待ちの列** ── */
+    plunge(ctx, 88, 78, 62, 34, '#3f8fd0');
+    for (let i = 0; i < 3; i++) { P(ctx, 92 + i * 10, 114, 8, 6, '#e8c84a'); }   // 桶
+    label(ctx, 119, 110, '水風呂（1つだけ）', '#ffbcbc');
+    ctx.font = 'bold 7px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#e85a5a'; ctx.fillText('順番待ち', 166, 82); ctx.textAlign = 'left';
+    for (let i = 0; i < 4; i++) person(ctx, 156 + (i % 2) * 9, 92 + i * 7, i % 2 ? '#4a5568' : '#6a5a48');
+
+    /* ── 中央の円形タイルと、桟橋のような通路 ── */
+    ctx.fillStyle = '#a89880'; ctx.beginPath(); ctx.ellipse(226, 104, 30, 17, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.lineWidth = 1;
+    for (let r = 8; r <= 26; r += 8) { ctx.beginPath(); ctx.ellipse(226, 104, r, r * 0.57, 0, 0, Math.PI * 2); ctx.stroke(); }
+    P(ctx, 186, 100, 42, 8, '#8a6238'); P(ctx, 224, 100, 66, 8, '#8a6238');   // 桟橋
+    ctx.strokeStyle = 'rgba(50,34,16,.5)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 14; i++) { ctx.beginPath(); ctx.moveTo(188 + i * 8, 100); ctx.lineTo(188 + i * 8, 108); ctx.stroke(); }
+
+    /* ── 左：一般風呂／左下：バイブラ（マッサージ） ── */
+    basin(ctx, 88, 124, 62, 30, '#c8734a');            label(ctx, 119, 152, '一般風呂');
+    basin(ctx, 88, 158, 74, 28, '#3fa0a8', 'jet');     label(ctx, 125, 184, 'バイブラ（マッサージ）');
+
+    /* ── 右：窓ぎわの寝湯（横浜の街を見下ろす） ── */
+    basin(ctx, 262, 92, 84, 26, '#5aa8d0', 'lie');
+    label(ctx, 304, 116, '寝湯（街を見下ろす）', '#bfe0ff');
+
+    /* ── 休憩は何ヶ所かに分かれる。**右下がいちばん涼しい** ── */
+    for (let i = 0; i < 5; i++) chair(ctx, 172 + i * 10, 120, i % 3 !== 2);
+    for (let i = 0; i < 6; i++) chair(ctx, 178 + i * 10, 146, i % 4 !== 3);
+    for (let i = 0; i < 4; i++) chair(ctx, 250 + i * 10, 128, true);
+    // 右下＝涼しい一角（空気の流れを青く描く）
+    ctx.fillStyle = 'rgba(150,210,255,.12)';
+    ctx.beginPath(); ctx.ellipse(300, 160, 52, 26, 0, 0, Math.PI * 2); ctx.fill();
+    for (let i = 0; i < 5; i++) chair(ctx, 262 + i * 12, 152, i % 2 === 0);
+    for (let i = 0; i < 3; i++) lounger(ctx, 268 + i * 20, 168, true);
+    label(ctx, 282, 190, '休憩（ここが涼しい）', '#bfe0ff');
+    label(ctx, 200, 166, 'ととのいイス', '#f5ead8');
+
+    ctx.restore();
+    // 外周＝一面の窓（ガラスの縁）。設備の上から描く
+    fan(R); ctx.strokeStyle = '#5a6a8a'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.strokeStyle = 'rgba(180,220,255,.35)'; ctx.lineWidth = 1;
+    for (let a = A0; a <= A1; a += 0.13) {
+      ctx.beginPath(); ctx.moveTo(CX + Math.cos(a) * (R - 5), CY + Math.sin(a) * (R - 5) * SQ);
+      ctx.lineTo(CX + Math.cos(a) * R, CY + Math.sin(a) * R * SQ); ctx.stroke();
+    }
+
+    /* ── 上の階へ（シアターのサウナ・カプセル） ── */
+    P(ctx, 300, 12, 52, 26, '#6b533c');
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.moveTo(300, 14 + i * 5); ctx.lineTo(352, 14 + i * 5); ctx.stroke(); }
+
+    // 見出し
+    ctx.font = 'bold 8px "DotGothic16",sans-serif'; ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffd98a'; ctx.fillText('14F 浴室', 8, 16);
+    ctx.font = '7px "DotGothic16",sans-serif'; ctx.fillStyle = '#9fb4c4';
+    ctx.fillText('夕方から1時間ごとに熱波', 8, 28);
+    ctx.fillText('平日¥2,600／最大14時間', 8, 40);
+  }
+
+  /* ── 追加の部品（エリア別の絵で使う）───────────────────── */
+  // 刺青の入った客（背中・腕）。**そこにいる、というだけを描く**
+  function inkPerson(ctx, x, y, col) {
+    P(ctx, x, y, 6, 9, col || '#e0b88a');
+    ctx.fillStyle = 'rgba(30,50,90,.75)';                 // 墨
+    ctx.fillRect(x + 1, y + 1, 4, 6);
+    ctx.fillStyle = 'rgba(140,40,50,.6)';
+    ctx.fillRect(x + 1, y + 2, 4, 2);
+    P(ctx, x, y - 5, 6, 5, '#e8c39a'); P(ctx, x, y - 6, 6, 2, '#2a2018');
+  }
+  // リクライニングシート（真上から）。並べて使う
+  function recliner(ctx, x, y, occupied, col) {
+    P(ctx, x, y, 13, 22, col || '#3a3a44');
+    P(ctx, x + 1, y + 1, 11, 8, '#4a4a56');               // 背もたれ
+    P(ctx, x + 2, y + 17, 9, 4, '#2e2e38');               // フットレスト
+    ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 1; ctx.strokeRect(x, y, 13, 22);
+    if (occupied) {
+      ctx.fillStyle = 'rgba(240,215,180,.9)';
+      ctx.beginPath(); ctx.ellipse(x + 6.5, y + 11, 4, 7, 0, 0, Math.PI * 2); ctx.fill();
+      P(ctx, x + 4, y + 2, 5, 5, '#e8c39a');
+    }
+  }
+  // カプセルの寝台（真上から。中で光っている）
+  function capsule(ctx, x, y, w, h, on) {
+    P(ctx, x, y, w, h, '#4a3a2c');
+    P(ctx, x + 2, y + 2, w - 4, h - 4, '#1c1610');
+    if (on) {
+      P(ctx, x + 3, y + 3, w - 6, h - 6, '#2a2620');
+      ctx.fillStyle = 'rgba(255,214,140,.35)'; ctx.fillRect(x + 3, y + 3, w - 6, 4);
+      ctx.fillStyle = 'rgba(240,215,180,.8)';
+      ctx.beginPath(); ctx.ellipse(x + w / 2, y + h / 2 + 1, w / 2 - 5, h / 2 - 5, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
+  }
+  // テーブル席（椅子つき）
+  function table(ctx, x, y, w, h, seats) {
+    P(ctx, x, y, w, h, '#a8845a'); P(ctx, x + 3, y + 3, w - 6, h - 6, '#8a6238');
+    ctx.strokeStyle = 'rgba(50,34,16,.5)'; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
+    const n = seats || 4;
+    for (let i = 0; i < n; i++) {
+      const cx = x + (w / (Math.ceil(n / 2) + 1)) * ((i % Math.ceil(n / 2)) + 1);
+      const cy = i < Math.ceil(n / 2) ? y - 5 : y + h + 1;
+      P(ctx, Math.round(cx) - 3, cy, 6, 5, '#6b4a28');
+    }
+  }
+  // 厨房（コンロ・シンク・冷蔵庫の並び）
+  function kitchen(ctx, x, y, w, h) {
+    P(ctx, x, y, w, h, '#5a5a54');
+    P(ctx, x + 3, y + 3, w - 6, h - 6, '#7a7a72');
+    for (let i = 0; i < Math.floor((w - 10) / 18); i++) {
+      P(ctx, x + 6 + i * 18, y + 6, 14, 10, '#3a3a36');
+      for (let k = 0; k < 4; k++) P(ctx, x + 8 + i * 18 + (k % 2) * 6, y + 8 + Math.floor(k / 2) * 5, 4, 3, '#ff8a3a');
+    }
+    P(ctx, x + 6, y + h - 12, w - 12, 8, '#9aa0a6');
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
+  }
+  // 大きな窓（夜景）。部屋の一辺に置く
+  function bigWindow(ctx, x, y, w, h) {
+    P(ctx, x, y, w, h, '#0b1020');
+    for (let i = 0; i < Math.floor(w / 8); i++) {
+      const bh = 5 + ((i * 41) % (h - 4));
+      P(ctx, x + 2 + i * 8, y + h - bh, 6, bh, i % 3 ? '#1a2440' : '#22304e');
+      for (let k = 0; k < 3; k++) if (((i * 7 + k * 13) % 5) < 2) P(ctx, x + 3 + i * 8, y + h - bh + 2 + k * 4, 2, 2, '#ffd98a');
+    }
+    ctx.strokeStyle = '#3a4a66'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+  }
+  // 部屋の見出し（左上）
+  function head(ctx, text, sub, col, bottom) {
+    const y0 = bottom ? 170 : 6;
+    ctx.font = 'bold 8px "DotGothic16",sans-serif'; ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(0,0,0,.5)';
+    ctx.fillRect(6, y0, ctx.measureText(text).width + 8, 12);
+    ctx.fillStyle = col || '#ffd98a'; ctx.fillText(text, 10, y0 + 9);
+    if (sub) {
+      ctx.font = '7px "DotGothic16",sans-serif';
+      ctx.fillStyle = 'rgba(0,0,0,.45)';
+      ctx.fillRect(6, y0 + 13, ctx.measureText(sub).width + 8, 11);
+      ctx.fillStyle = '#d8c6a8'; ctx.fillText(sub, 10, y0 + 21);
+    }
+  }
+
+  /* ══════════════════════════════════════════════════════
+     天空スパ ②食事エリア
+     ══════════════════════════════════════════════════════ */
+  function y_tenku_meshi(ctx) {
+    floorBase(ctx, '#3a3038', 'rgba(120,110,120,.12)', 18);
+    bigWindow(ctx, 6, 6, 348, 44);
+    label(ctx, 180, 46, '窓の外は横浜駅', '#bfe0ff');
+    kitchen(ctx, 250, 58, 104, 44);
+    label(ctx, 302, 100, '厨房');
+    // カウンター（出来た皿が並ぶ）
+    P(ctx, 250, 106, 104, 12, '#8a6238');
+    for (let i = 0; i < 6; i++) P(ctx, 254 + i * 17, 108, 8, 8, '#e8dcc8');
+    label(ctx, 302, 116, '受け取り');
+    // テーブル席がずらり
+    for (let r = 0; r < 2; r++) for (let i = 0; i < 4; i++) table(ctx, 16 + i * 56, 66 + r * 44, 40, 24, 4);
+    // カウンター席（窓ぎわ）
+    P(ctx, 16, 156, 220, 10, '#a8845a');
+    for (let i = 0; i < 11; i++) { ctx.fillStyle = '#6b4a28'; ctx.beginPath(); ctx.arc(24 + i * 20, 174, 5, 0, Math.PI * 2); ctx.fill(); }
+    for (let i = 0; i < 11; i++) if (i % 3 !== 2) person(ctx, 21 + i * 20, 176, '#5a6b8a');
+    label(ctx, 126, 192, 'カウンター席');
+    // ビールとサ飯を運ぶ人
+    for (let i = 0; i < 3; i++) person(ctx, 250 + i * 30, 150, '#7a6a5a');
+    label(ctx, 300, 168, 'ホール');
+    head(ctx, '天空スパ｜食事エリア', '館内着のまま入れる。サウナのあとの一杯');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     天空スパ ③休憩スペース（15F。リクライニングがずらり）
+     ══════════════════════════════════════════════════════ */
+  function y_tenku_rest(ctx) {
+    const t = T();
+    floorBase(ctx, '#2a2a34', 'rgba(120,130,160,.1)', 20);
+    // 奥＝シアターのサウナ（扉ごしに映像の光が漏れる）
+    P(ctx, 6, 6, 214, 52, '#241c2a');
+    const beam = ctx.createLinearGradient(113, 8, 113, 58);
+    beam.addColorStop(0, 'rgba(150,190,255,.34)'); beam.addColorStop(1, 'rgba(150,190,255,0)');
+    ctx.fillStyle = beam; ctx.fillRect(8, 8, 210, 48);
+    for (let r = 0; r < 3; r++) {
+      P(ctx, 14 + r * 5, 14 + r * 12, 198 - r * 10, 9, r % 2 ? '#6a4a30' : '#7a5636');
+      ctx.fillStyle = 'rgba(240,210,170,.8)';
+      for (let i = 0; i < 10 - r; i++) ctx.fillRect(20 + r * 5 + i * 18, 16 + r * 12, 4, 5);
+    }
+    for (let i = 0; i < 4; i++) {
+      const yy = 12 + ((t * 12 + i * 14) % 44);
+      ctx.fillStyle = `rgba(180,220,255,${(0.14 * (1 - (yy - 12) / 44)).toFixed(3)})`;
+      ctx.fillRect(16, Math.round(yy), 194, 3);
+    }
+    label(ctx, 113, 56, 'シアターのサウナ（約65℃・4段）', '#bfe0ff');
+    // クールダウンルーム
+    P(ctx, 226, 6, 128, 52, '#1c2a34');
+    for (let i = 0; i < 2; i++) {
+      const cx = 258 + i * 64, cy = 24;
+      P(ctx, cx - 15, cy - 11, 30, 22, '#cfd6dc'); P(ctx, cx - 12, cy - 8, 24, 16, '#8fa3b4');
+      ctx.strokeStyle = '#e8f4ff'; ctx.lineWidth = 2;
+      for (let k = 0; k < 3; k++) {
+        const a = t * 3 + i + k * Math.PI * 2 / 3;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * 9, cy + Math.sin(a) * 6); ctx.stroke();
+      }
+    }
+    for (let i = 0; i < 8; i++) {
+      const off = (t * 16 + i * 11) % 22;
+      ctx.fillStyle = `rgba(180,225,255,${(0.3 * (1 - off / 22)).toFixed(3)})`;
+      ctx.fillRect(232 + i * 15, Math.round(36 + off), 3, 7);
+    }
+    label(ctx, 290, 56, 'クールダウンルーム', '#bfe0ff');
+
+    // **リクライニングシートがずらり**（この店の🛋90の中身）
+    for (let r = 0; r < 3; r++) for (let i = 0; i < 20; i++) {
+      recliner(ctx, 10 + i * 17, 66 + r * 40, (i + r * 3) % 5 !== 4);
+    }
+    label(ctx, 100, 194, 'リクライニングシート（ずらりと並ぶ）', '#bfe0ff');
+    ctx.font = '7px "DotGothic16",sans-serif'; ctx.textAlign = 'right';
+    ctx.fillStyle = '#9fb4c4'; ctx.fillText('最大14時間。ここで一日が終わる客がいる', 350, 194);
+    ctx.textAlign = 'left';
+    head(ctx, '天空スパ｜休憩スペース', 'サウナのために一部屋まるごと使う');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     天空スパ ④カプセルエリア
+     ══════════════════════════════════════════════════════ */
+  function y_tenku_capsule(ctx) {
+    floorBase(ctx, '#241c18', 'rgba(120,100,80,.1)', 20);
+    // 2段のカプセルが両側の壁に並ぶ／中央が通路
+    for (let side = 0; side < 2; side++) {
+      const y0 = side ? 122 : 30;
+      for (let i = 0; i < 9; i++) {
+        capsule(ctx, 10 + i * 38, y0, 34, 22, (i + side) % 3 !== 2);
+        capsule(ctx, 10 + i * 38, y0 + 24, 34, 22, (i * 2 + side) % 4 !== 3);
+      }
+      // はしご
+      ctx.strokeStyle = 'rgba(180,170,150,.35)'; ctx.lineWidth = 1;
+      for (let i = 0; i < 9; i++) for (let k = 0; k < 3; k++) {
+        ctx.beginPath(); ctx.moveTo(14 + i * 38, y0 + 24 + k * 6); ctx.lineTo(22 + i * 38, y0 + 24 + k * 6); ctx.stroke();
+      }
+    }
+    // 中央の通路（足元灯）
+    P(ctx, 6, 82, 348, 34, '#1a1410');
+    for (let i = 0; i < 12; i++) P(ctx, 14 + i * 29, 96, 4, 3, '#c8a86a');
+    ctx.fillStyle = 'rgba(255,214,140,.08)'; ctx.fillRect(6, 82, 348, 34);
+    label(ctx, 180, 104, '通路（足元灯だけ）', '#ffd0a0');
+    // 歩いている客
+    person(ctx, 120, 100, '#5a5a6a'); person(ctx, 236, 100, '#6a5a5a');
+    ctx.font = '7px "DotGothic16",sans-serif'; ctx.textAlign = 'right';
+    ctx.fillStyle = '#9a8a72'; ctx.fillText('泊まれる。翌朝そのままサウナに入れる', 350, 194);
+    ctx.textAlign = 'left';
+    head(ctx, '天空スパ｜カプセル', '始発を待つ客が、ここで朝を迎える');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     楽園スパ ①男湯
+     ══════════════════════════════════════════════════════ */
+  function y_rakuen_bath(ctx) {
+    floorBase(ctx, '#c8c0b0', 'rgba(100,92,78,.22)');
+    // 半露天風呂
+    frame(ctx, 6, 22, 108, 62, '#4a5a52');
+    P(ctx, 14, 30, 92, 46, '#3f93a8'); P(ctx, 16, 32, 88, 42, '#5fb0bc');
+    ripple(ctx, 20, 44, 80); ripple(ctx, 20, 60, 80);
+    wisp(ctx, 26, 34, 4, .32);
+    for (let i = 0; i < 4; i++) plant(ctx, 12 + i * 30, 80);
+    ctx.fillStyle = 'rgba(40,60,80,.4)';
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.ellipse(34 + i * 26, 52, 6, 3, 0, 0, Math.PI * 2); ctx.fill(); }
+    label(ctx, 60, 82, '半露天風呂');
+    // 内湯
+    basin(ctx, 120, 22, 78, 62, '#c8734a');
+    label(ctx, 159, 82, '内湯');
+    // **ロウリュサウナ（この階に一室だけ）**
+    sauna(ctx, 204, 22, 84, 62, 'wood', 12);
+    label(ctx, 246, 82, 'ロウリュサウナ', '#ffd0a0');
+    ctx.font = 'bold 7px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#a03030'; ctx.fillText('この一室だけ', 246, 20); ctx.textAlign = 'left';
+    // 水風呂
+    plunge(ctx, 294, 22, 60, 34, '#4f9fd0');
+    label(ctx, 324, 54, '水風呂');
+    // あかすり
+    P(ctx, 294, 62, 60, 22, '#8fa3b4'); P(ctx, 297, 65, 54, 16, '#cfd6dc');
+    P(ctx, 306, 69, 26, 8, '#e8c39a');
+    label(ctx, 324, 82, 'あかすり（別料金）');
+    // カラン20（この店の売り＝待たない）
+    P(ctx, 6, 92, 216, 54, '#b0a898');
+    karanRow(ctx, 12, 98, 10, 21); karanRow(ctx, 12, 118, 10, 21);
+    for (let i = 0; i < 10; i++) if (i % 3 !== 2) person(ctx, 14 + i * 21, 112, '#7a6a5a');
+    label(ctx, 114, 144, 'カラン20（待たない）');
+    // ととのいイス
+    for (let i = 0; i < 8; i++) chair(ctx, 230 + i * 15, 96, i % 4 !== 3);
+    for (let i = 0; i < 8; i++) chair(ctx, 230 + i * 15, 116, i % 3 !== 2);
+    label(ctx, 290, 144, 'ととのいイス');
+    // 脱衣所・パウダールーム・ロッカー
+    P(ctx, 6, 152, 116, 42, '#6b533c');
+    for (let i = 0; i < 12; i++) P(ctx, 10 + (i % 6) * 19, 156 + Math.floor(i / 6) * 18, 16, 15, '#8a6238');
+    label(ctx, 64, 192, '脱衣所');
+    P(ctx, 128, 152, 94, 42, '#7a6a5a');
+    for (let i = 0; i < 5; i++) { P(ctx, 134 + i * 18, 158, 14, 18, '#cfd6dc'); P(ctx, 136 + i * 18, 160, 10, 9, '#9fb4c4'); }
+    label(ctx, 175, 192, 'パウダールーム');
+    P(ctx, 228, 152, 126, 42, '#4a4038');
+    for (let i = 0; i < 21; i++) P(ctx, 232 + (i % 7) * 18, 156 + Math.floor(i / 7) * 13, 15, 11, '#6a5a48');
+    ctx.font = 'bold 7px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#9fc8ff'; ctx.fillText('男性ロッカー', 291, 192); ctx.textAlign = 'left';
+    head(ctx, '楽園スパ｜男湯', '女湯にも、まったく同じものが一組ある');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     楽園スパ ②食事エリア（レストラン〜客座〜）
+     ══════════════════════════════════════════════════════ */
+  function y_rakuen_meshi(ctx) {
+    floorBase(ctx, '#b8a888', 'rgba(90,74,54,.2)');
+    // 厨房とカウンター
+    // 厨房・レジ・窓は見出しの下から始める（見出しに隠れない位置）
+    kitchen(ctx, 6, 34, 126, 40);
+    label(ctx, 69, 72, '厨房');
+    P(ctx, 6, 78, 126, 10, '#8a6238');
+    for (let i = 0; i < 7; i++) P(ctx, 11 + i * 17, 80, 9, 6, '#e8dcc8');
+    // レジ
+    P(ctx, 140, 34, 44, 28, '#5a3f28'); P(ctx, 146, 40, 32, 10, '#c8a86a');
+    label(ctx, 162, 70, 'レジ');
+    // 大きな窓
+    bigWindow(ctx, 192, 34, 162, 40);
+    label(ctx, 273, 72, 'ベイブリッジ', '#bfe0ff');
+    // 客座（テーブルがずらり）
+    for (let r = 0; r < 2; r++) for (let i = 0; i < 5; i++) {
+      table(ctx, 16 + i * 66, 104 + r * 46, 48, 28, 4);
+    }
+    label(ctx, 180, 196, 'レストラン 〜客座〜　館内着のまま入れる', '#ffd0a0');
+    ctx.font = '7px "DotGothic16",sans-serif'; ctx.textAlign = 'right';
+    ctx.fillStyle = '#4a3a28'; ctx.fillText('席数だけで、うちの店より広い', 350, 96);
+    ctx.textAlign = 'left';
+    head(ctx, '楽園スパ｜食事エリア', 'レストランが2つある。これはそのひとつ');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     楽園スパ ③休憩スペース
+       左＝リクライニングシートの静かな部屋／右＝ビーズクッションと漫画1万冊
+     ══════════════════════════════════════════════════════ */
+  function y_rakuen_rest(ctx) {
+    floorBase(ctx, '#3a3040', 'rgba(140,120,150,.1)', 20);
+    /* ── 左：静かな部屋（リクライニング20・寝たい客はこちら）── */
+    P(ctx, 6, 22, 160, 172, '#26262e');
+    ctx.strokeStyle = '#4a4a56'; ctx.lineWidth = 2; ctx.strokeRect(6, 22, 160, 172);
+    for (let r = 0; r < 4; r++) for (let i = 0; i < 5; i++) {
+      recliner(ctx, 14 + i * 30, 30 + r * 40, (i + r) % 5 !== 3);
+    }
+    label(ctx, 86, 192, 'リクライニング20（静かな部屋）', '#bfe0ff');
+    ctx.font = '7px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#8a96a6'; ctx.fillText('私語禁止', 86, 20); ctx.textAlign = 'left';
+
+    /* ── 右：漫画1万冊とビーズクッション ── */
+    P(ctx, 172, 22, 182, 172, '#3a2e28');
+    ctx.strokeStyle = '#6a5a48'; ctx.lineWidth = 2; ctx.strokeRect(172, 22, 182, 172);
+    // 漫画の壁（3面ぶん）
+    for (let w = 0; w < 2; w++) {
+      const bx = 178, by = 28 + w * 42;
+      P(ctx, bx, by, 170, 36, '#5a3f28');
+      for (let r = 0; r < 3; r++) {
+        for (let i = 0; i < 55; i++) {
+          const c = ['#c85a4a', '#e8c84a', '#4a8ac8', '#6ac86a', '#c86ab0', '#e88a3a'][(i + r * 2 + w) % 6];
+          P(ctx, bx + 2 + i * 3, by + 2 + r * 11, 2, 9, c);
+        }
+        P(ctx, bx, by + 11 + r * 11, 170, 2, '#3a2818');
+      }
+    }
+    label(ctx, 263, 110, '漫画 1万冊', '#ffd98a');
+    // ビーズクッション15
+    for (let i = 0; i < 15; i++) {
+      const x = 182 + (i % 5) * 34, y = 122 + Math.floor(i / 5) * 24;
+      ctx.fillStyle = ['#8a6ac8', '#c86a8a', '#6aa8c8', '#c8a86a', '#6ac89a'][i % 5];
+      ctx.beginPath(); ctx.ellipse(x + 12, y + 9, 12, 9, 0, 0, Math.PI * 2); ctx.fill();
+      if (i % 3 !== 2) {
+        ctx.fillStyle = 'rgba(240,215,180,.9)';
+        ctx.beginPath(); ctx.ellipse(x + 12, y + 8, 5, 4, 0, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    label(ctx, 263, 192, 'ビーズクッション15（沈んで、立てなくなる）', '#f0d8a0');
+    head(ctx, '楽園スパ｜休憩スペース', '寝たい客と、読みたい客を、部屋ごと分けてある');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     ハマサウナ ①入浴エリア
+     ══════════════════════════════════════════════════════ */
+  function y_hama_bath(ctx) {
+    const t = T();
+    brickBase(ctx);
+    // シャワー室（入ってすぐ右・剥き出しの配管）
+    P(ctx, 6, 22, 104, 68, '#6a3f30');
+    ctx.strokeStyle = 'rgba(30,14,10,.45)'; ctx.lineWidth = 1;
+    for (let y = 26; y < 88; y += 8) { ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(110, y); ctx.stroke(); }
+    ctx.strokeStyle = '#9a8a72'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(8, 28); ctx.lineTo(108, 28); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(96, 28); ctx.lineTo(96, 86); ctx.stroke();
+    karanRow(ctx, 14, 40, 5, 18); karanRow(ctx, 14, 62, 5, 18);
+    for (let i = 0; i < 4; i++) if (i % 3 !== 2) person(ctx, 17 + i * 18, 58, '#8a7a6a');
+    label(ctx, 58, 88, 'シャワー室（剥き出しの配管）', '#ffd0a0');
+    // 蒸機サウナ（コの字ベンチ＋観覧車の水車）
+    frame(ctx, 118, 22, 132, 110, '#3c5236', '#3a2a1c');
+    const bench = (x, y, w, h) => {
+      P(ctx, x, y, w, h, '#8a6a3a');
+      ctx.strokeStyle = 'rgba(50,34,16,.55)'; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
+    };
+    bench(124, 28, 120, 16); bench(124, 44, 16, 82); bench(228, 44, 16, 82);
+    ctx.fillStyle = '#b58a54';
+    for (let i = 0; i < 7; i++) ctx.fillRect(130 + i * 16, 46, 12, 4);
+    ctx.fillStyle = 'rgba(240,210,170,.85)';
+    for (let i = 0; i < 6; i++) ctx.fillRect(130 + i * 19, 32, 5, 7);
+    for (let i = 0; i < 4; i++) { ctx.fillRect(128, 54 + i * 18, 5, 7); ctx.fillRect(234, 62 + i * 18, 5, 7); }
+    const wx = 184, wy = 92, wr = 26, wa = t * 0.7;
+    P(ctx, wx - 14, wy + 14, 28, 16, '#241812');
+    for (let k = 0; k < 8; k++) P(ctx, wx - 12 + (k % 4) * 7, wy + 16 + Math.floor(k / 4) * 6, 6, 5, '#ff8a3a');
+    ctx.fillStyle = `rgba(255,140,50,${(0.2 + 0.1 * Math.sin(t * 5)).toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(wx, wy + 20, 22, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#c8a86a'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(wx, wy, wr, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 1;
+    for (let k = 0; k < 8; k++) {
+      const a = wa + k * Math.PI / 4;
+      ctx.beginPath(); ctx.moveTo(wx, wy); ctx.lineTo(wx + Math.cos(a) * wr, wy + Math.sin(a) * wr); ctx.stroke();
+      P(ctx, Math.round(wx + Math.cos(a) * wr) - 3, Math.round(wy + Math.sin(a) * wr) - 3, 7, 6, '#8a6238');
+    }
+    P(ctx, wx - 3, wy - 3, 6, 6, '#e8c84a');
+    wisp(ctx, wx - 7, wy - 30, 4, .55);
+    label(ctx, 184, 128, '蒸機サウナ（観覧車のロウリュ）', '#c8e8a0');
+    // 漢方の水風呂
+    plunge(ctx, 258, 22, 96, 44, '#a87a3a');
+    ctx.fillStyle = 'rgba(70,45,14,.55)';
+    for (let i = 0; i < 12; i++) P(ctx, 264 + (i % 6) * 15, 32 + Math.floor(i / 6) * 20, 4, 4, 'rgba(70,45,14,.55)');
+    label(ctx, 306, 62, '漢方の水風呂（十種）', '#ffe0a0');
+    // 内風呂
+    basin(ctx, 258, 74, 96, 34, '#4f9fd0');
+    label(ctx, 306, 104, '内風呂（1つ）');
+    // 休憩（椅子がぜんぶ違う）＋天井の送風機
+    P(ctx, 6, 138, 348, 56, 'rgba(30,16,10,.42)');
+    for (let i = 0; i < 4; i++) lounger(ctx, 14 + i * 40, 146, true);
+    for (let i = 0; i < 3; i++) lounger(ctx, 14 + i * 40, 160, i !== 2);
+    for (let i = 0; i < 3; i++) {
+      const bx = 180 + i * 34;
+      P(ctx, bx, 146, 18, 13, '#8a6238'); P(ctx, bx, 146, 18, 3, '#6b4a28');
+      P(ctx, bx + 4, 161, 11, 6, '#a87a48');
+      if (i !== 1) { P(ctx, bx + 5, 149, 8, 8, '#e8c39a'); P(ctx, bx + 5, 148, 8, 2, '#3b2d24'); }
+    }
+    for (let i = 0; i < 6; i++) chair(ctx, 182 + i * 16, 172, i % 3 !== 2);
+    // 刺青の客（ここにも居る。だが意味が違う）
+    inkPerson(ctx, 296, 150, '#e0b88a'); inkPerson(ctx, 320, 166, '#dcae82');
+    const cx2 = 300, cy2 = 178;
+    ctx.strokeStyle = 'rgba(230,210,180,.6)'; ctx.lineWidth = 3;
+    for (let k = 0; k < 4; k++) {
+      const a = t * 2.2 + k * Math.PI / 2;
+      ctx.beginPath(); ctx.moveTo(cx2, cy2); ctx.lineTo(cx2 + Math.cos(a) * 22, cy2 + Math.sin(a) * 13); ctx.stroke();
+    }
+    label(ctx, 100, 192, '休憩（椅子はぜんぶ違う／天井に大きな送風機）', '#ffd0a0');
+    head(ctx, 'ハマサウナ｜入浴エリア', '2時間制。平日¥2,420');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     ハマサウナ ②カプセルエリア
+     ══════════════════════════════════════════════════════ */
+  function y_hama_capsule(ctx) {
+    brickBase(ctx);
+    // 受付
+    P(ctx, 6, 22, 92, 40, '#5a3f28'); P(ctx, 12, 28, 80, 12, '#8a6238');
+    for (let i = 0; i < 5; i++) P(ctx, 16 + i * 15, 46, 10, 10, '#c8a86a');
+    label(ctx, 52, 60, '受付（+¥5,000）');
+    // レンガのニッチに間接照明
+    for (let i = 0; i < 6; i++) {
+      P(ctx, 110 + i * 40, 24, 26, 10, '#2a1610');
+      ctx.fillStyle = 'rgba(255,190,110,.3)';
+      ctx.beginPath(); ctx.ellipse(123 + i * 40, 34, 16, 8, 0, 0, Math.PI * 2); ctx.fill();
+      P(ctx, 118 + i * 40, 26, 10, 5, '#ffce7a');
+    }
+    // カプセル（2段×2列）
+    for (let side = 0; side < 2; side++) {
+      const y0 = 60 + side * 70;
+      for (let i = 0; i < 8; i++) {
+        capsule(ctx, 12 + i * 43, y0, 38, 26, (i + side) % 3 !== 2);
+        capsule(ctx, 12 + i * 43, y0 + 28, 38, 26, (i * 2 + side) % 4 !== 3);
+      }
+    }
+    // 通路
+    P(ctx, 6, 118, 348, 12, '#2a1610');
+    for (let i = 0; i < 10; i++) P(ctx, 16 + i * 35, 122, 5, 3, '#c8a86a');
+    ctx.font = '7px "DotGothic16",sans-serif'; ctx.textAlign = 'right';
+    ctx.fillStyle = '#f0d8b8'; ctx.fillText('泊まれる店になる。ここが🛋くつろぎの上積み', 350, 194);
+    ctx.textAlign = 'left';
+    head(ctx, 'ハマサウナ｜カプセル', 'レンガと間接照明。世界観がここまで続いている');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     スパ・ルミナ ①男湯
+     ══════════════════════════════════════════════════════ */
+  function y_lumina_bath(ctx) {
+    const t = T();
+    P(ctx, 0, 0, 360, 200, '#e0dcd4');
+    ctx.strokeStyle = 'rgba(150,140,125,.3)'; ctx.lineWidth = 1;
+    for (let x = 0; x < 360; x += 24) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 200); ctx.stroke(); }
+    for (let y = 0; y < 200; y += 24) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(360, y); ctx.stroke(); }
+    ctx.strokeStyle = '#8a7a5a'; ctx.lineWidth = 4; ctx.strokeRect(2, 2, 356, 196);
+
+    // 右＝ガラス壁の向こうの露天
+    P(ctx, 236, 6, 118, 188, '#39463f');
+    ctx.strokeStyle = 'rgba(190,230,255,.55)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(236, 6); ctx.lineTo(236, 194); ctx.stroke();
+    basin(ctx, 242, 14, 106, 40, '#6a9aa8');
+    ctx.fillStyle = 'rgba(40,60,80,.4)';
+    for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.ellipse(258 + i * 26, 34, 6, 3, 0, 0, Math.PI * 2); ctx.fill(); }
+    label(ctx, 295, 50, '忘我の湯（不感温度）', '#d8f0f8');
+    basin(ctx, 242, 62, 106, 36, '#7fb8c8', 'soda');
+    label(ctx, 295, 94, '炭酸泉', '#d8f0f8');
+    basin(ctx, 242, 106, 106, 46, '#a8763a');
+    ctx.fillStyle = '#8a8276';
+    for (let s = 0; s < 4; s++) {
+      const sx = 254 + s * 26;
+      for (let k = 0; k < 3 - (s % 2); k++) P(ctx, sx - k, 142 - k * 5, 10 - k * 2, 5, k ? '#7a7266' : '#9a9286');
+    }
+    for (let i = 0; i < 3; i++) { const off = (t * 26 + i * 9) % 18; P(ctx, 274 + i * 26, Math.round(122 + off), 2, 6, 'rgba(230,200,140,.7)'); }
+    wisp(ctx, 258, 118, 4, .34);
+    label(ctx, 295, 148, '源泉かけ流し（積み石から湧く）', '#ffe0b0');
+    for (let i = 0; i < 5; i++) plant(ctx, 244 + i * 26, 186);
+    label(ctx, 295, 176, '露天（天然温泉）', '#c8e0c0');
+
+    // 左上＝6段タワーサウナ
+    frame(ctx, 6, 22, 100, 100, '#2e2620', '#3a2a1c');
+    for (let s = 0; s < 6; s++) {
+      const inset = 6 + s * 6;
+      P(ctx, 6 + inset, 22 + inset, 100 - inset * 2, 100 - inset * 2,
+        ['#7a5636', '#825c3a', '#8a623e', '#926842', '#9a6e46', '#a2744a'][s]);
+      ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1;
+      ctx.strokeRect(6 + inset, 22 + inset, 100 - inset * 2, 100 - inset * 2);
+    }
+    for (const [dx, dy, dw, dh] of [[10, 26, 92, 5], [10, 26, 5, 92]]) {
+      P(ctx, dx, dy, dw, dh, '#1a0e08');
+      for (let i = 0; i < 11; i++) {
+        const fl = 0.4 + 0.6 * Math.sin(t * 7 + i * 1.7);
+        P(ctx, dx + (dw > dh ? 2 + i * 8 : 1), dy + (dw > dh ? 1 : 2 + i * 8), 5, 3,
+          `rgba(255,${(110 + 60 * fl) | 0},40,${(0.45 + 0.4 * fl).toFixed(2)})`);
+      }
+    }
+    P(ctx, 48, 64, 16, 16, '#241812');
+    for (let k = 0; k < 9; k++) P(ctx, 49 + (k % 3) * 5, 65 + Math.floor(k / 3) * 5, 4, 4, '#ff8a3a');
+    ctx.fillStyle = `rgba(255,140,50,${(0.2 + 0.12 * Math.sin(t * 5)).toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(56, 72, 22, 0, Math.PI * 2); ctx.fill();
+    wisp(ctx, 50, 60, 4, .45);
+    ctx.fillStyle = 'rgba(240,210,170,.85)';
+    for (let s = 1; s < 5; s++) {
+      const inset = 6 + s * 6, x0 = 6 + inset, y0 = 22 + inset, sz = 100 - inset * 2;
+      for (let i = 0; i < 3; i++) {
+        if ((s + i) % 3 === 2) continue;
+        ctx.fillRect(x0 + 4 + i * (sz / 3), y0 + 1, 3, 4);
+        ctx.fillRect(x0 + 1, y0 + 4 + i * (sz / 3), 4, 3);
+      }
+    }
+    label(ctx, 56, 120, '6段タワーサウナ', '#ffd0a0');
+    ctx.font = '7px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#c07a4a'; ctx.fillText('壁2面に、薪が燃える映像', 56, 20);
+    ctx.textAlign = 'left';
+
+    // 右上＝茶褐色の源泉（内湯）
+    basin(ctx, 112, 22, 118, 46, '#8a5a2a');
+    wisp(ctx, 126, 30, 4, .3);
+    label(ctx, 171, 64, '源泉（地下1500m・茶褐色）', '#ffe0b0');
+    // 水風呂17℃（座れる）
+    plunge(ctx, 112, 74, 118, 48, '#4f9fd0');
+    ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(118, 104); ctx.lineTo(224, 104); ctx.stroke();
+    ctx.fillStyle = 'rgba(40,60,80,.4)';
+    for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.ellipse(132 + i * 26, 96, 6, 3, 0, 0, Math.PI * 2); ctx.fill(); }
+    label(ctx, 171, 118, '水風呂 17℃（座れる）');
+    // アトラクションバス（高低差）
+    frame(ctx, 6, 130, 140, 44, '#5aa8d0');
+    P(ctx, 9, 133, 64, 38, '#4f9fd0'); P(ctx, 73, 133, 70, 38, '#3fa0a8');
+    ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(73, 133); ctx.lineTo(73, 171); ctx.stroke();
+    ripple(ctx, 12, 146, 58); ripple(ctx, 12, 162, 58);
+    for (let i = 0; i < 7; i++) { const off = (t * 18 + i * 5) % 34; P(ctx, 78 + i * 9, Math.round(168 - off), 2, 4, 'rgba(255,255,255,.5)'); }
+    label(ctx, 76, 172, 'アトラクションバス（左が低い）');
+    // かけ湯・かけ水
+    for (let i = 0; i < 2; i++) {
+      const px = 160 + i * 24;
+      ctx.fillStyle = '#4a3a2c'; ctx.beginPath(); ctx.arc(px, 140, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = i ? '#5fb0d8' : '#c8734a'; ctx.beginPath(); ctx.arc(px, 140, 6, 0, Math.PI * 2); ctx.fill();
+    }
+    label(ctx, 172, 158, 'かけ湯・かけ水');
+    // 階段の上の高台ジャグジー
+    P(ctx, 196, 128, 34, 12, '#8a7a5a');
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.moveTo(196 + i * 9, 128); ctx.lineTo(196 + i * 9, 140); ctx.stroke(); }
+    basin(ctx, 190, 142, 40, 34, '#3fa0a8', 'jet');
+    label(ctx, 210, 172, '高台のジャグジー');
+    // カラン
+    karanRow(ctx, 10, 180, 12, 18);
+    label(ctx, 110, 194, 'カラン15');
+    head(ctx, 'スパ・ルミナ｜男湯', '平日¥4,500／休日¥5,500・15歳以下不可');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     スパ・ルミナ ②休憩スペース（**ここが穴**）
+     ══════════════════════════════════════════════════════ */
+  function y_lumina_rest(ctx) {
+    const t = T();
+    floorBase(ctx, '#3a3630', 'rgba(150,140,125,.12)', 24);
+    // 洗い場の跡（潰したタイルの目地が残っている）
+    ctx.strokeStyle = 'rgba(200,200,190,.16)'; ctx.lineWidth = 1;
+    for (let i = 12; i < 356; i += 13) { ctx.beginPath(); ctx.moveTo(i, 40); ctx.lineTo(i, 130); ctx.stroke(); }
+    ctx.font = '7px "DotGothic16",sans-serif'; ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(200,200,190,.4)'; ctx.fillText('（洗い場を潰して置いてある）', 12, 38);
+    // 寝椅子6セットだけ
+    for (let i = 0; i < 6; i++) {
+      const x = 22 + i * 54;
+      P(ctx, x, 52, 44, 20, '#b58a54'); P(ctx, x, 52, 10, 20, '#8a6238');
+      ctx.strokeStyle = 'rgba(50,34,16,.5)'; ctx.lineWidth = 1; ctx.strokeRect(x, 52, 44, 20);
+      ctx.fillStyle = 'rgba(240,215,180,.9)';
+      ctx.beginPath(); ctx.ellipse(x + 26, 62, 12, 6, 0, 0, Math.PI * 2); ctx.fill();
+      P(ctx, x + 12, 57, 8, 8, '#e8c39a');
+    }
+    ctx.font = 'bold 8px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffbcbc'; ctx.fillText('寝椅子は、これで全部（6セット）', 180, 88);
+    // 天井のファン
+    const cx = 180, cy = 108;
+    ctx.strokeStyle = 'rgba(220,220,210,.5)'; ctx.lineWidth = 3;
+    for (let k = 0; k < 4; k++) {
+      const a = t * 2.4 + k * Math.PI / 2;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * 22, cy + Math.sin(a) * 13); ctx.stroke();
+    }
+    P(ctx, cx - 3, cy - 3, 6, 6, '#8a8276');
+    label(ctx, 180, 130, '天井のファン');
+    // **座れなかった客が壁ぎわに立っている**
+    P(ctx, 6, 140, 348, 54, '#2e2a26');
+    for (let i = 0; i < 14; i++) person(ctx, 18 + i * 24, 172, i % 3 ? '#8a7a6a' : '#6a6a7a');
+    ctx.font = 'bold 8px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#e85a5a'; ctx.fillText('座れない客が、壁ぎわに立っている', 180, 156);
+    ctx.font = '7px "DotGothic16",sans-serif';
+    ctx.fillStyle = '#f0e4cc'; ctx.fillText('四千五百円払って、立っている', 180, 192);
+    ctx.textAlign = 'left';
+    head(ctx, 'スパ・ルミナ｜休憩スペース', 'あれだけの湯を出しておいて、座る場所がこれだけ');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     スパ・ルミナ ③レストラン
+     ══════════════════════════════════════════════════════ */
+  function y_lumina_meshi(ctx) {
+    P(ctx, 0, 0, 360, 200, '#d8d0c0');
+    ctx.strokeStyle = 'rgba(150,140,125,.28)'; ctx.lineWidth = 1;
+    for (let x = 0; x < 360; x += 24) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 200); ctx.stroke(); }
+    for (let y = 0; y < 200; y += 24) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(360, y); ctx.stroke(); }
+    ctx.strokeStyle = '#8a7a5a'; ctx.lineWidth = 4; ctx.strokeRect(2, 2, 356, 196);
+    kitchen(ctx, 6, 22, 118, 44);
+    label(ctx, 65, 64, '厨房');
+    P(ctx, 6, 70, 118, 12, '#8a6238');
+    for (let i = 0; i < 6; i++) P(ctx, 12 + i * 19, 72, 10, 8, '#f0e8d8');
+    // 落ち着いた席（間隔が広い＝高級館）
+    for (let r = 0; r < 2; r++) for (let i = 0; i < 3; i++) table(ctx, 148 + i * 68, 30 + r * 52, 46, 28, 4);
+    for (let i = 0; i < 4; i++) table(ctx, 24 + i * 82, 122, 50, 30, 4);
+    // 観葉植物と間接照明
+    for (let i = 0; i < 5; i++) plant(ctx, 20 + i * 84, 176);
+    for (let i = 0; i < 4; i++) {
+      const lx = 60 + i * 84;
+      ctx.fillStyle = 'rgba(255,190,110,.16)';
+      ctx.beginPath(); ctx.ellipse(lx, 168, 22, 10, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    label(ctx, 180, 194, '席と席のあいだが広い。声が届かない距離', '#5a4a38');
+    head(ctx, 'スパ・ルミナ｜レストラン', '館内着で入れる。値段はそれなり');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     スパ・ルミナ ④カフェ
+     ══════════════════════════════════════════════════════ */
+  function y_lumina_cafe(ctx) {
+    const t = T();
+    P(ctx, 0, 0, 360, 200, '#e8e0d4');
+    ctx.strokeStyle = 'rgba(160,145,120,.25)'; ctx.lineWidth = 1;
+    for (let y = 0; y < 200; y += 10) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(360, y); ctx.stroke(); }
+    ctx.strokeStyle = '#8a7a5a'; ctx.lineWidth = 4; ctx.strokeRect(2, 2, 356, 196);
+    // カウンター（エスプレッソマシン・ケーキケース）
+    P(ctx, 6, 22, 348, 46, '#6a4a38');
+    P(ctx, 12, 28, 336, 12, '#a8845a');
+    P(ctx, 24, 44, 34, 20, '#3a3a3e'); P(ctx, 28, 48, 26, 8, '#9fb4c4');     // マシン
+    ctx.fillStyle = `rgba(255,255,255,${(0.2 + 0.1 * Math.sin(t * 4)).toFixed(2)})`;
+    ctx.fillRect(38, 56, 3, 6);
+    P(ctx, 70, 44, 90, 20, '#cfd6dc');                                        // ケーキケース
+    for (let i = 0; i < 5; i++) { ctx.fillStyle = ['#e8a0b0', '#f0d8a0', '#c88a5a', '#e8e0d0', '#a8c8a0'][i]; ctx.beginPath(); ctx.arc(82 + i * 18, 54, 6, 0, Math.PI * 2); ctx.fill(); }
+    for (let i = 0; i < 4; i++) person(ctx, 200 + i * 34, 60, '#7a6a7a');
+    label(ctx, 180, 66, 'カウンター（コーヒーとケーキ）', '#f0d8b8');
+    // 小さなテーブル（一人客）
+    for (let i = 0; i < 5; i++) {
+      const x = 24 + i * 66;
+      ctx.fillStyle = '#a8845a'; ctx.beginPath(); ctx.ellipse(x + 18, 98, 18, 12, 0, 0, Math.PI * 2); ctx.fill();
+      P(ctx, x + 4, 84, 8, 8, '#6b4a28'); P(ctx, x + 26, 106, 8, 8, '#6b4a28');
+      if (i % 2 === 0) { ctx.fillStyle = '#f0e8d8'; ctx.beginPath(); ctx.arc(x + 18, 96, 5, 0, Math.PI * 2); ctx.fill(); }
+    }
+    // ソファ席と窓
+    P(ctx, 6, 126, 200, 40, '#7a6a7a');
+    for (let i = 0; i < 4; i++) { P(ctx, 14 + i * 48, 132, 40, 14, '#a08aa0'); P(ctx, 14 + i * 48, 150, 40, 10, '#8a7a8a'); }
+    for (let i = 0; i < 4; i++) if (i !== 2) person(ctx, 30 + i * 48, 148, '#5a5a6a');
+    label(ctx, 106, 164, 'ソファ席');
+    bigWindow(ctx, 214, 126, 140, 40);
+    label(ctx, 284, 164, '関内の街', '#bfe0ff');
+    for (let i = 0; i < 6; i++) plant(ctx, 22 + i * 62, 184);
+    label(ctx, 180, 194, '館内着のまま、ここで本を読んでいる客がいる', '#5a4a38');
+    head(ctx, 'スパ・ルミナ｜カフェ', 'レストランとは別に、もう一軒ある');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     福来湯 ①男湯（浴室1階）
+     ------------------------------------------------------
+     **掃除は行き届いている（作者決定 8/2）。古いだけ。**
+     落ちるのは🛋くつろぎ＝**刺青の客がいて、誰も長居をしない**
+     ══════════════════════════════════════════════════════ */
+  function y_fukurai_1f(ctx) {
+    const t = T();
+    P(ctx, 0, 0, 360, 200, '#b0a89c');
+    ctx.strokeStyle = 'rgba(80,74,64,.28)'; ctx.lineWidth = 1;
+    for (let x = 0; x < 360; x += 12) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 200); ctx.stroke(); }
+    for (let y = 0; y < 200; y += 12) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(360, y); ctx.stroke(); }
+    // **古さ**は汚れではなく、ひび・色褪せ・古い配管で描く
+    ctx.strokeStyle = 'rgba(120,110,96,.5)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 7; i++) {
+      const sx = (i * 61) % 340 + 10, sy = (i * 47) % 180 + 10;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + 14, sy + 7); ctx.lineTo(sx + 22, sy + 4); ctx.stroke();
+    }
+    ctx.strokeStyle = '#8a8276'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(6, 12); ctx.lineTo(354, 12); ctx.stroke();     // 古い配管
+    ctx.strokeStyle = '#201810'; ctx.lineWidth = 4; ctx.strokeRect(2, 2, 356, 196);
+
+    // ペンキ絵
+    P(ctx, 128, 18, 168, 26, '#8fc8e8');
+    ctx.fillStyle = '#5a7ab0';
+    ctx.beginPath(); ctx.moveTo(174, 42); ctx.lineTo(212, 20); ctx.lineTo(250, 42); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#f0f4f8';
+    ctx.beginPath(); ctx.moveTo(201, 26); ctx.lineTo(212, 20); ctx.lineTo(223, 26);
+    ctx.lineTo(218, 27); ctx.lineTo(212, 24); ctx.lineTo(206, 28); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#6b533c'; ctx.lineWidth = 2; ctx.strokeRect(128, 18, 168, 26);
+    label(ctx, 212, 42, 'ペンキ絵（色は褪せている）', '#f0f4f8');
+
+    // ボナサウナ92℃ と 冷水風呂18℃（滝の水）
+    sauna(ctx, 6, 50, 84, 56, 'hot', 5);
+    label(ctx, 48, 104, 'ボナサウナ 92℃', '#ffd0a0');
+    plunge(ctx, 6, 112, 84, 52, '#5fb6e0');
+    P(ctx, 9, 115, 78, 7, '#4a7a8a');
+    for (let i = 0; i < 9; i++) { const off = (t * 44 + i * 7) % 38; P(ctx, 13 + i * 8, Math.round(122 + off), 2, 9, 'rgba(214,242,250,.72)'); }
+    label(ctx, 48, 162, '冷水風呂 18℃（奥から滝）', '#bfe0ff');
+
+    // 湯船
+    basin(ctx, 96, 50, 78, 34, '#3fa0a8', 'jet');       label(ctx, 135, 82, '座ジェット');
+    const hexa = (cx, cy, r) => {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = i * Math.PI / 3, px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r * 0.74;
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    };
+    hexa(224, 68, 34); ctx.fillStyle = '#211a13'; ctx.fill();
+    hexa(224, 68, 31); ctx.fillStyle = '#6b6155'; ctx.fill();
+    hexa(224, 68, 26); ctx.fillStyle = '#5aa8d0'; ctx.fill();
+    ripple(ctx, 202, 62, 44); ripple(ctx, 204, 74, 40);
+    for (let i = 0; i < 8; i++) { const rise = (t * 12 + i * 9) % 24, al = .5 * (1 - rise / 24); P(ctx, 204 + i * 6, Math.round(88 - rise), 2, 2, `rgba(255,255,255,${al.toFixed(3)})`); }
+    label(ctx, 224, 96, '六角バイブラ');
+    basin(ctx, 264, 50, 88, 34, '#7a9a6a');             label(ctx, 308, 82, 'ラドン鉱石風呂');
+    basin(ctx, 96, 92, 78, 32, '#6a4a9a', 'electric');  label(ctx, 135, 122, '電気風呂');
+    basin(ctx, 264, 92, 88, 32, '#c8734a');             label(ctx, 308, 122, 'メインバス');
+    // つぼ石の歩行浴槽
+    frame(ctx, 96, 130, 160, 22, '#4f9fd0');
+    ctx.fillStyle = '#7a7266';
+    for (let i = 0; i < 18; i++) P(ctx, 102 + i * 8, 138 + (i % 2) * 5, 5, 4, i % 3 ? '#8a8276' : '#6a6256');
+    ripple(ctx, 100, 136, 152);
+    label(ctx, 176, 150, 'つぼ石の歩行浴槽');
+    // カラン（磨いてある＝掃除は行き届いている）
+    karanRow(ctx, 264, 132, 8, 11);
+    label(ctx, 308, 150, 'カラン（磨いてある）');
+
+    /* ── **ここで気づかせる。** 刺青の客が、そこかしこにいる ── */
+    P(ctx, 96, 158, 256, 36, 'rgba(40,34,26,.28)');
+    inkPerson(ctx, 108, 172); inkPerson(ctx, 134, 178); inkPerson(ctx, 168, 170);
+    inkPerson(ctx, 206, 176); inkPerson(ctx, 246, 170); inkPerson(ctx, 288, 178);
+    person(ctx, 320, 174, '#7a6a5a');
+    ctx.font = 'bold 8px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#e0c8a0'; ctx.fillText('……背中。腕。肩から手首まで。', 224, 166);
+    ctx.font = '7px "DotGothic16",sans-serif'; ctx.textAlign = 'left';
+    ctx.fillStyle = '#c8bca8'; ctx.fillText('入浴¥550・サウナ+¥200', 100, 192);
+    head(ctx, '福来湯｜男湯（1階）', '掃除は行き届いている。ただ、建物が古い');
+  }
+
+  /* ══════════════════════════════════════════════════════
+     福来湯 ②男湯（浴室2階）
+     ══════════════════════════════════════════════════════ */
+  function y_fukurai_2f(ctx) {
+    const t = T();
+    P(ctx, 0, 0, 360, 200, '#9e968a');
+    ctx.strokeStyle = 'rgba(80,74,64,.28)'; ctx.lineWidth = 1;
+    for (let x = 0; x < 360; x += 12) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 200); ctx.stroke(); }
+    for (let y = 0; y < 200; y += 12) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(360, y); ctx.stroke(); }
+    ctx.strokeStyle = '#8a8276'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(6, 12); ctx.lineTo(354, 12); ctx.stroke();
+    ctx.strokeStyle = '#201810'; ctx.lineWidth = 4; ctx.strokeRect(2, 2, 356, 196);
+    // 1階からの階段
+    P(ctx, 6, 22, 40, 76, '#6b533c');
+    ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.moveTo(6, 26 + i * 8); ctx.lineTo(46, 26 + i * 8); ctx.stroke(); }
+    label(ctx, 26, 108, '1階から', '#ffd0a0');
+    // スチームサウナ40℃
+    sauna(ctx, 54, 22, 122, 76, 'steam', 5);
+    label(ctx, 115, 96, 'スチームサウナ 40℃', '#c8e8e0');
+    // ボナサウナ60℃（7人）
+    sauna(ctx, 184, 22, 122, 76, 'wood', 7);
+    label(ctx, 245, 96, 'ボナサウナ 60℃（7人）', '#ffd0a0');
+    // 冷水シャワー（サウナ室の前）
+    P(ctx, 314, 22, 40, 76, '#7a7a72');
+    for (let i = 0; i < 2; i++) karan(ctx, 322 + i * 14, 32);
+    for (let i = 0; i < 2; i++) for (let k = 0; k < 4; k++) {
+      const off = (t * 30 + k * 7) % 34;
+      ctx.fillStyle = 'rgba(190,230,255,.5)'; ctx.fillRect(324 + i * 14, Math.round(40 + off), 2, 6);
+    }
+    label(ctx, 334, 96, '冷水シャワー', '#bfe0ff');
+
+    /* ── **背中から冷風が来る休憩コーナー**（この店の秀逸なところ）── */
+    P(ctx, 6, 108, 348, 86, '#6a6a64');
+    ctx.fillStyle = 'rgba(150,210,255,.14)'; ctx.fillRect(6, 108, 348, 86);
+    // 壁から吹く風
+    for (let i = 0; i < 14; i++) {
+      const off = (t * 20 + i * 7) % 30;
+      ctx.fillStyle = `rgba(190,230,255,${(0.38 * (1 - off / 30)).toFixed(3)})`;
+      ctx.fillRect(14 + i * 25, Math.round(112 + off), 3, 9);
+    }
+    P(ctx, 6, 108, 348, 5, '#4a5a62');                       // 吹き出し口
+    for (let i = 0; i < 22; i++) P(ctx, 10 + i * 16, 109, 9, 3, '#2e3a42');
+    // 壁ぎわの椅子
+    for (let i = 0; i < 9; i++) chair(ctx, 16 + i * 38, 146, i % 4 !== 3);
+    // ここにも刺青の客
+    inkPerson(ctx, 100, 176); inkPerson(ctx, 178, 178); inkPerson(ctx, 262, 174);
+    person(ctx, 40, 178, '#7a6a5a'); person(ctx, 320, 178, '#6a6a7a');
+    label(ctx, 180, 142, '休憩（もたれると、背中から冷風が来る）', '#bfe0ff');
+    ctx.font = 'bold 8px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd98a'; ctx.fillText('サウナが三室。五百五十円で。', 180, 194);
+    ctx.textAlign = 'left';
+    head(ctx, '福来湯｜男湯（2階）', '浴室そのものが、二階建てだった');
+  }
+
+
+  /* ══════════════════════════════════════════════════════
+     【試作】天空スパ｜セルフロウリュ室（**中に入った絵**）
+     ------------------------------------------------------
+     作者提供の写真をゲームの絵に起こしたもの。俯瞰図ではなく、
+     **その部屋に立ったときに目に入るもの**を描く。
+       ・左に煉瓦の壁と、金網の籠に入った大きなストーブ
+       ・ストーブを囲う荒材の柵
+       ・正面に二段のベンチ、座面に生成りのマット
+       ・壁の温度計と、灯り
+       ・右は一面の窓。横浜の街と川が見える（昼）
+       ・床は黒と白の市松のマット、丸太の椅子が二つ
+     ══════════════════════════════════════════════════════ */
+  function y_tenku_sauna_in(ctx) {
+    const t = T();
+    const VX = 196, VY = 96;                 // 消失点
+
+    /* ── 天井（濃い木・梁）── */
+    P(ctx, 0, 0, 360, 30, '#3a2c20');
+    P(ctx, 0, 0, 360, 8, '#4a3828');
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.moveTo(i * 44, 0); ctx.lineTo(i * 44 + 12, 30); ctx.stroke(); }
+    P(ctx, 44, 4, 96, 10, '#5a4632');        // 手前の梁
+    P(ctx, 168, 6, 6, 5, '#1c1610');         // 天井の小さな吸気口
+
+    /* ── 正面の壁（濃い木の板）── */
+    P(ctx, 96, 30, 132, 92, '#3a2418');
+    ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 1;
+    for (let x = 104; x < 228; x += 11) { ctx.beginPath(); ctx.moveTo(x, 30); ctx.lineTo(x, 122); ctx.stroke(); }
+    ctx.strokeStyle = 'rgba(255,190,120,.06)';
+    for (let x = 106; x < 228; x += 11) { ctx.beginPath(); ctx.moveTo(x, 30); ctx.lineTo(x, 122); ctx.stroke(); }
+    // 温度計（丸い文字盤）
+    ctx.fillStyle = '#c8a86a'; ctx.beginPath(); ctx.arc(150, 46, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#e8dcc0'; ctx.beginPath(); ctx.arc(150, 46, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#5a3f28'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(150, 46); ctx.lineTo(155, 42); ctx.stroke();
+    P(ctx, 149, 38, 2, 2, '#8a3030');
+    // 壁の灯り（オレンジ）
+    const fl = 0.6 + 0.4 * Math.sin(t * 3);
+    ctx.fillStyle = `rgba(255,178,70,${(0.18 * fl).toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(206, 44, 14, 0, Math.PI * 2); ctx.fill();
+    P(ctx, 203, 38, 6, 12, '#2a2018'); P(ctx, 204, 39, 4, 9, '#ffce7a');
+    // 木の飾り格子
+    for (let i = 0; i < 5; i++) P(ctx, 214, 34 + i * 5, 10, 3, '#5a4028');
+
+    /* ── 右：一面の窓（横浜の街・昼）── */
+    // 窓枠
+    P(ctx, 228, 24, 132, 92, '#4a3020');
+    P(ctx, 234, 30, 126, 74, '#dfe8ee');
+    // 空
+    const sky = ctx.createLinearGradient(0, 30, 0, 104);
+    sky.addColorStop(0, '#e6eef4'); sky.addColorStop(1, '#cddae4');
+    ctx.fillStyle = sky; ctx.fillRect(234, 30, 126, 74);
+    // 遠景のビル群
+    const towers = [[240, 44, 12, 40], [254, 36, 10, 48], [266, 48, 9, 36], [277, 40, 13, 44],
+                    [292, 52, 8, 32], [302, 34, 12, 50], [316, 46, 10, 38], [328, 40, 14, 44],
+                    [344, 50, 12, 34]];
+    for (const [bx, by, bw, bh] of towers) {
+      P(ctx, bx, by, bw, bh, '#aebac4');
+      P(ctx, bx, by, bw, 2, '#c4ced6');
+      ctx.fillStyle = 'rgba(90,110,128,.55)';
+      for (let r = 0; r < Math.floor(bh / 5); r++) for (let c = 0; c < Math.floor(bw / 4); c++) {
+        if (((r * 3 + c * 5 + bx) % 4) < 2) ctx.fillRect(bx + 1 + c * 4, by + 3 + r * 5, 2, 3);
+      }
+    }
+    // 手前のビル（低層）
+    for (let i = 0; i < 8; i++) P(ctx, 236 + i * 16, 78, 14, 10, i % 2 ? '#9fb0bc' : '#8fa2b0');
+    // 川
+    P(ctx, 234, 88, 126, 10, '#7fa4b8');
+    for (let i = 0; i < 5; i++) ripple(ctx, 240 + i * 24, 92, 20, 'rgba(255,255,255,.45)');
+    // 対岸の緑
+    P(ctx, 234, 98, 126, 6, '#6f9060');
+    for (let i = 0; i < 14; i++) P(ctx, 236 + i * 9, 96, 5, 4, '#5f8052');
+    // 窓の桟
+    ctx.strokeStyle = '#4a3020'; ctx.lineWidth = 4; ctx.strokeRect(234, 30, 126, 74);
+    // 窓の下の木の棚（受け）
+    P(ctx, 222, 104, 138, 12, '#8a5f34');
+    P(ctx, 222, 104, 138, 3, '#a8763f');
+    P(ctx, 226, 116, 134, 8, '#6a4526');
+    // 棚の下の間接照明
+    ctx.fillStyle = 'rgba(255,190,110,.16)'; ctx.fillRect(226, 122, 134, 8);
+
+    /* ── 左：煉瓦の壁 ── */
+    P(ctx, 0, 24, 96, 126, '#6e6a4e');
+    for (let r = 0; r < 14; r++) {
+      const y = 26 + r * 9;
+      ctx.strokeStyle = 'rgba(40,40,26,.42)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(96, y); ctx.stroke();
+      for (let x = (r % 2 ? 0 : 12); x < 96; x += 24) {
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 9); ctx.stroke();
+      }
+      // 煉瓦ごとの色ムラ（苔・焼け）
+      for (let x = (r % 2 ? 0 : 12); x < 96; x += 24) {
+        const k = (r * 7 + x) % 5;
+        if (k === 0) P(ctx, x + 1, y + 1, 22, 7, '#5f6a48');
+        else if (k === 2) P(ctx, x + 1, y + 1, 22, 7, '#7a7452');
+      }
+    }
+    // 煉瓦壁の奥行き（正面壁との継ぎ目を斜めに）
+    ctx.fillStyle = '#4a4632';
+    ctx.beginPath(); ctx.moveTo(96, 24); ctx.lineTo(96, 150); ctx.lineTo(110, 132); ctx.lineTo(110, 30); ctx.closePath(); ctx.fill();
+
+    /* ── ストーブ（金網の籠にサウナストーン。大きい）──
+       石は下ほど焼けて赤い。**火の口だけは網より上に描く**（網をかけると色が濁る） */
+    const sx = 40, sy = 56, sw = 52, sh = 88;
+    const g = 0.55 + 0.45 * Math.sin(t * 4);
+    // 背後の火明かりが煉瓦を照らす
+    ctx.fillStyle = 'rgba(255,130,45,' + (0.16 * g).toFixed(2) + ')';
+    ctx.beginPath(); ctx.arc(sx + sw / 2, sy + sh - 18, 62, 0, Math.PI * 2); ctx.fill();
+    // 籠の外枠（金属）
+    P(ctx, sx - 4, sy - 5, sw + 8, sh + 9, '#4a4a50');
+    P(ctx, sx - 2, sy - 3, sw + 4, sh + 5, '#6a6a70');
+    P(ctx, sx, sy, sw, sh, '#2a2620');
+    // サウナストーンを積む
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 4; c++) {
+        const px = sx + 2 + c * 12 + (r % 2 ? 5 : 0), py = sy + 3 + r * 11;
+        if (px + 11 > sx + sw) continue;
+        const heat = Math.max(0, (r - 3) / 4) * g;
+        P(ctx, px, py, 11, 10, ['#c0b8a6', '#a29a8c', '#d0c8b6', '#8e8678'][(r * 3 + c) % 4]);
+        P(ctx, px + 1, py + 1, 9, 3, 'rgba(255,255,255,.16)');
+        P(ctx, px, py + 7, 11, 3, 'rgba(0,0,0,.22)');
+        if (heat > 0.02) {
+          ctx.fillStyle = 'rgba(255,105,35,' + (0.72 * heat).toFixed(2) + ')';
+          ctx.fillRect(px, py, 11, 10);
+          ctx.fillStyle = 'rgba(255,190,110,' + (0.3 * heat).toFixed(2) + ')';
+          ctx.fillRect(px + 2, py + 2, 7, 4);
+        }
+      }
+    }
+    // 金網（石の上・火の下）
+    ctx.strokeStyle = 'rgba(210,205,195,.26)'; ctx.lineWidth = 1;
+    for (let i = 0; i <= sw; i += 7) { ctx.beginPath(); ctx.moveTo(sx + i, sy); ctx.lineTo(sx + i, sy + sh); ctx.stroke(); }
+    for (let i = 0; i <= sh; i += 7) { ctx.beginPath(); ctx.moveTo(sx, sy + i); ctx.lineTo(sx + sw, sy + i); ctx.stroke(); }
+    // **いちばん下＝燃えている口**
+    ctx.fillStyle = 'rgba(255,140,45,.85)';
+    ctx.fillRect(sx + 3, sy + sh - 22, sw - 6, 19);
+    ctx.fillStyle = 'rgba(255,190,90,' + (0.55 + 0.3 * g).toFixed(2) + ')';
+    ctx.fillRect(sx + 6, sy + sh - 19, sw - 12, 13);
+    ctx.fillStyle = 'rgba(255,240,190,' + (0.45 + 0.35 * g).toFixed(2) + ')';
+    ctx.fillRect(sx + 11, sy + sh - 16, sw - 22, 6);
+    ctx.strokeStyle = 'rgba(80,30,10,.5)'; ctx.lineWidth = 1;
+    for (let i = 6; i < sw - 6; i += 7) { ctx.beginPath(); ctx.moveTo(sx + i, sy + sh - 22); ctx.lineTo(sx + i, sy + sh - 3); ctx.stroke(); }
+    // 立ちのぼる熱気
+    wisp(ctx, sx + 6, sy - 8, 6, .34);
+    // 銘板
+    P(ctx, sx + 10, sy + 6, 30, 6, '#1e1e22');
+    P(ctx, sx + 13, sy + 8, 24, 2, '#8a8a90');
+
+    /* ── ストーブを囲う荒材の柵 ── */
+    // 手前の横木（ゆるく曲がっている）
+    ctx.strokeStyle = '#b8925a'; ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.moveTo(-4, 106); ctx.quadraticCurveTo(56, 84, 118, 96); ctx.stroke();
+    ctx.strokeStyle = '#9a7444'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-4, 109); ctx.quadraticCurveTo(56, 87, 118, 99); ctx.stroke();
+    // 柱
+    P(ctx, 20, 92, 8, 56, '#a8834e'); P(ctx, 20, 92, 3, 56, '#c09a62');
+    P(ctx, 92, 88, 8, 52, '#a8834e'); P(ctx, 92, 88, 3, 52, '#c09a62');
+    // 柵の足元（石）
+    P(ctx, 10, 142, 96, 10, '#c8c0b0');
+    P(ctx, 10, 142, 96, 3, '#ded6c6');
+
+    /* ── コンクリートの柱（ストーブの右）── */
+    P(ctx, 104, 60, 16, 84, '#b4b0a4');
+    P(ctx, 104, 60, 5, 84, '#c8c4b8');
+    P(ctx, 102, 56, 20, 6, '#9a968c');
+
+    /* ── 正面の二段ベンチ（生成りのマット付き）── */
+    // 上段
+    P(ctx, 124, 96, 96, 12, '#8a5f34'); P(ctx, 124, 96, 96, 3, '#a8763f');
+    P(ctx, 132, 92, 34, 8, '#e8e0cc'); P(ctx, 172, 92, 34, 8, '#e8e0cc');
+    // 背もたれ
+    P(ctx, 128, 74, 88, 5, '#a8763f'); P(ctx, 128, 82, 88, 5, '#a8763f');
+    P(ctx, 128, 74, 5, 20, '#8a5f34'); P(ctx, 211, 74, 5, 20, '#8a5f34');
+    // 下段
+    P(ctx, 112, 116, 120, 16, '#8a5f34'); P(ctx, 112, 116, 120, 3, '#a8763f');
+    P(ctx, 122, 112, 44, 8, '#e8e0cc'); P(ctx, 174, 112, 44, 8, '#e8e0cc');
+    // 段の下の影と脚
+    P(ctx, 112, 132, 120, 6, 'rgba(0,0,0,.4)');
+    P(ctx, 126, 132, 6, 9, '#6a4526'); P(ctx, 212, 132, 6, 9, '#6a4526');
+
+    /* ── 床（黒白の市松マット。手前ほど大きく）── */
+    const FY = 140, FB = 200;
+    for (let r = 0; r < 9; r++) {
+      const y0 = FY + Math.pow(r / 9, 1.6) * (FB - FY);
+      const y1 = FY + Math.pow((r + 1) / 9, 1.6) * (FB - FY);
+      const s0 = (y0 - VY) / (FB - VY), s1 = (y1 - VY) / (FB - VY);
+      for (let c = -8; c < 9; c++) {
+        const xa = VX + c * 46 * s0, xb = VX + (c + 1) * 46 * s0;
+        const xc = VX + (c + 1) * 46 * s1, xd = VX + c * 46 * s1;
+        ctx.fillStyle = ((r + c) % 2) ? '#33333a' : '#bdb9b0';
+        ctx.beginPath(); ctx.moveTo(xa, y0); ctx.lineTo(xb, y0); ctx.lineTo(xc, y1); ctx.lineTo(xd, y1); ctx.closePath(); ctx.fill();
+        // マットの織り目
+        ctx.strokeStyle = ((r + c) % 2) ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.07)';
+        ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(xa, y0); ctx.lineTo(xc, y1); ctx.stroke();
+      }
+    }
+    // 床と壁の境目（奥に影を落として、設備が床に乗って見えるようにする）
+    P(ctx, 0, FY - 2, 360, 3, '#3a2c1e');
+    ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(0, FY + 1, 360, 7);
+
+    /* ── 丸太の椅子（二つ）── */
+    const log = (lx, ly, lw, lh) => {
+      P(ctx, lx, ly + 5, lw, lh, '#8a6238');
+      ctx.strokeStyle = 'rgba(60,40,20,.5)'; ctx.lineWidth = 1;
+      for (let i = 4; i < lw; i += 5) { ctx.beginPath(); ctx.moveTo(lx + i, ly + 5); ctx.lineTo(lx + i, ly + 5 + lh); ctx.stroke(); }
+      ctx.fillStyle = '#c09a62';
+      ctx.beginPath(); ctx.ellipse(lx + lw / 2, ly + 5, lw / 2, 5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(120,90,50,.6)';
+      for (let i = 1; i <= 3; i++) { ctx.beginPath(); ctx.ellipse(lx + lw / 2, ly + 5, (lw / 2) * i / 4, 5 * i / 4, 0, 0, Math.PI * 2); ctx.stroke(); }
+      P(ctx, lx - 2, ly + 5 + lh, lw + 4, 3, 'rgba(0,0,0,.3)');
+    };
+    log(206, 142, 26, 22);
+    log(244, 156, 30, 26);
+
+    /* ── 手前右のベンチ（画面のいちばん手前・マットが並ぶ）── */
+    P(ctx, 250, 168, 110, 32, '#8a5f34');
+    P(ctx, 250, 168, 110, 4, '#a8763f');
+    ctx.strokeStyle = 'rgba(60,40,20,.4)'; ctx.lineWidth = 1;
+    for (let i = 258; i < 360; i += 10) { ctx.beginPath(); ctx.moveTo(i, 172); ctx.lineTo(i, 200); ctx.stroke(); }
+    P(ctx, 256, 176, 46, 14, '#e8e0cc'); P(ctx, 308, 172, 50, 14, '#e8e0cc');
+    P(ctx, 262, 194, 44, 6, '#e8e0cc');
+
+    /* ── 部屋全体の空気（暖色のかぶり）と、窓からの光 ── */
+    ctx.fillStyle = 'rgba(255,150,60,.06)'; ctx.fillRect(0, 0, 360, 200);
+    const lightBeam = ctx.createLinearGradient(300, 40, 150, 190);
+    lightBeam.addColorStop(0, 'rgba(255,250,235,.16)'); lightBeam.addColorStop(1, 'rgba(255,250,235,0)');
+    ctx.fillStyle = lightBeam; ctx.fillRect(0, 0, 360, 200);
+
+    head(ctx, '天空スパ｜セルフロウリュ室', '柄杓は客に預けてある。窓の外は、みなとみらい');
+  }
+
+
+
+  /* ══════════════════════════════════════════════════════
+     【内観】スパ・ルミナ｜浴室（作者提供の写真を、構図そのままドットに）
+     ------------------------------------------------------
+     写真から拾ったもの：
+       手前＝**泡の湧く濃紺の湯**と、**水色のタイルの湯**。あいだを御影石の縁が斜めに走る
+       両方の縁に**ステンレスの手すり**が何本も並ぶ
+       左＝**白い樹脂の椅子が壁ぎわに一列**
+       奥＝オレンジに灯る入口／白い蒸し風呂の扉／石段／八角形の湯／寝椅子／木の扉
+       右＝**丸いモザイクの意匠**が二つ、窓の灯り
+       上＝石積みの壁と、天井から垂れる蔦
+     ══════════════════════════════════════════════════════ */
+  function y_lumina_bath_in(ctx) {
+    const t = T();
+    const rnd = i => (Math.sin(i * 12.9898) * 43758.5453) % 1;
+    const poly = (pts, col) => {
+      ctx.fillStyle = col; ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath(); ctx.fill();
+    };
+    // 御影石（黒っぽい地に白い斑）
+    const granite = (pts, seed) => {
+      poly(pts, '#565049');
+      ctx.save(); ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath(); ctx.clip();
+      for (let i = 0; i < 900; i++) {
+        const px = Math.abs(rnd(i + seed)) * 360, py = 90 + Math.abs(rnd(i + seed + 99)) * 115;
+        const k = Math.abs(rnd(i + seed + 7));
+        ctx.fillStyle = k > .74 ? '#cac4b8' : k > .5 ? '#8b857b' : k > .25 ? '#413c37' : '#6a645c';
+        ctx.fillRect(px | 0, py | 0, 2, 2);
+      }
+      ctx.restore();
+    };
+    // ステンレスの手すり（曲げた1本）
+    const rail = (x, y, w, h) => {
+      ctx.strokeStyle = '#8f979d'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x, y + 4); ctx.lineTo(x + w, y); ctx.stroke();
+      ctx.strokeStyle = '#e2e8ec'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x - 1, y + h); ctx.lineTo(x - 1, y + 4); ctx.lineTo(x + w, y - 1); ctx.stroke();
+      ctx.lineCap = 'butt';
+    };
+    // 白い樹脂の椅子（背もたれが扇形）
+    const chairW = (x, y, s) => {
+      const w = Math.round(20 * s), h = Math.round(13 * s);
+      P(ctx, x, y + h - 2, w, 3, 'rgba(0,0,0,.25)');
+      P(ctx, x, y + 4, w, h - 4, '#e8ecee');            // 座面
+      P(ctx, x, y + 4, w, 2, '#ffffff');
+      P(ctx, x, y - h + 4, w, h, '#dfe4e8');            // 背もたれ
+      ctx.strokeStyle = '#b6bec4'; ctx.lineWidth = 1;
+      for (let i = 1; i < 5; i++) {
+        const bx = x + (w / 5) * i;
+        ctx.beginPath(); ctx.moveTo(bx, y - h + 5); ctx.lineTo(bx, y + 3); ctx.stroke();
+      }
+      P(ctx, x, y - h + 4, w, 2, '#ffffff');
+      P(ctx, x + 1, y + h, 2, Math.round(5 * s), '#c8ced2');
+      P(ctx, x + w - 3, y + h, 2, Math.round(5 * s), '#c8ced2');
+    };
+
+    /* ── 天井 ── */
+    P(ctx, 0, 0, 360, 13, '#241f1c');
+    P(ctx, 0, 10, 360, 3, '#3a332e');
+    for (let i = 0; i < 7; i++) P(ctx, 22 + i * 52, 2, 16, 5, '#3e3630');
+    P(ctx, 176, 1, 10, 8, '#5a5048');                    // 天井の設備
+
+    /* ── 奥の壁（大きな石積み）── */
+    P(ctx, 0, 13, 360, 74, '#9c988c');
+    ctx.strokeStyle = 'rgba(70,66,58,.45)'; ctx.lineWidth = 1;
+    for (let r = 0; r < 5; r++) {
+      const y = 20 + r * 15;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(360, y); ctx.stroke();
+      for (let x = (r % 2 ? 0 : 20); x < 360; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 15); ctx.stroke();
+      }
+    }
+    for (let i = 0; i < 90; i++) {                        // 石のムラ
+      const px = Math.abs(rnd(i)) * 360, py = 14 + Math.abs(rnd(i + 51)) * 72;
+      ctx.fillStyle = Math.abs(rnd(i + 13)) > .5 ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.06)';
+      ctx.fillRect(px | 0, py | 0, 6, 4);
+    }
+    // 上のほうは緑がかった壁（写真の奥）
+    P(ctx, 196, 13, 92, 30, '#8e9c90');
+
+    /* ── 左上：垂れ下がる蔦 ── */
+    P(ctx, 0, 13, 108, 8, '#4a4238');
+    for (let i = 0; i < 26; i++) {
+      const lx = i * 4, len = 6 + (Math.abs(rnd(i + 5)) * 16 | 0);
+      ctx.strokeStyle = i % 3 ? '#4f7a44' : '#3f6a38'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(lx, 18); ctx.lineTo(lx + (i % 2 ? 2 : -2), 18 + len); ctx.stroke();
+      P(ctx, lx - 2, 18 + len - 3, 5, 4, i % 2 ? '#5e8c4e' : '#487a3e');
+      P(ctx, lx - 1, 22 + (i % 3) * 4, 4, 3, '#568449');
+    }
+
+    /* ── 左壁：白い掲示板 ── */
+    P(ctx, 8, 40, 74, 24, '#eef0ee');
+    P(ctx, 8, 40, 74, 4, '#cfd6cc');
+    ctx.strokeStyle = '#6f9a63'; ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.moveTo(12, 48 + i * 3.4); ctx.lineTo(76, 48 + i * 3.4); ctx.stroke(); }
+    P(ctx, 10, 42, 8, 8, '#4f7a44');
+
+    /* ── 奥中央：オレンジに灯る入口 ── */
+    P(ctx, 92, 24, 46, 56, '#2a221c');
+    P(ctx, 96, 28, 38, 50, '#140f0c');
+    const fl = 0.6 + 0.4 * Math.sin(t * 3);
+    for (const gx of [92, 132]) {
+      ctx.fillStyle = 'rgba(255,150,50,' + (0.30 * fl).toFixed(2) + ')';
+      ctx.beginPath(); ctx.arc(gx, 40, 15, 0, Math.PI * 2); ctx.fill();
+      P(ctx, gx - 3, 32, 6, 16, '#2a2018');
+      P(ctx, gx - 2, 34, 4, 12, '#ffb45a');
+    }
+    P(ctx, 100, 60, 30, 18, '#3a2e24');                   // 中の暗がり
+    P(ctx, 88, 78, 54, 6, '#6a635a');                     // 敷居
+
+    /* ── 奥中央：白い蒸し風呂の扉（TERMALE）── */
+    P(ctx, 146, 18, 44, 62, '#c8ccd0');
+    P(ctx, 149, 21, 38, 56, '#e6eaee');
+    P(ctx, 154, 26, 28, 30, '#aab4bc');                   // すりガラス
+    P(ctx, 156, 28, 24, 12, '#cdd6dc');
+    P(ctx, 158, 60, 20, 12, '#8f979d');
+    ctx.font = '6px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#e8ecee'; ctx.fillText('TERMALE', 168, 15);
+    ctx.textAlign = 'left';
+    P(ctx, 194, 26, 12, 22, '#d8dce0');                   // 隣の機器
+    P(ctx, 196, 30, 8, 6, '#f0d060');
+
+    /* ── 奥右：木の扉と掲示 ── */
+    P(ctx, 262, 20, 26, 54, '#a8763f');
+    P(ctx, 265, 23, 20, 48, '#8a5f34');
+    P(ctx, 266, 40, 4, 8, '#e2c07a');
+    P(ctx, 296, 26, 16, 22, '#eef0ee');
+    P(ctx, 298, 30, 12, 3, '#7a8fa8');
+    P(ctx, 298, 36, 12, 3, '#7a8fa8');
+    // 窓の灯り
+    P(ctx, 320, 30, 30, 34, '#5a4a38');
+    P(ctx, 323, 33, 24, 28, '#e8b070');
+    ctx.fillStyle = 'rgba(255,190,110,.18)';
+    ctx.beginPath(); ctx.arc(335, 47, 26, 0, Math.PI * 2); ctx.fill();
+
+    /* ── 奥右：寝椅子 ── */
+    P(ctx, 222, 44, 34, 6, '#4a4238');
+    P(ctx, 224, 50, 30, 12, '#6a6258');
+    ctx.strokeStyle = '#8a8276'; ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.moveTo(226 + i * 6, 44); ctx.lineTo(226 + i * 6, 62); ctx.stroke(); }
+    P(ctx, 226, 62, 4, 6, '#4a4238'); P(ctx, 248, 62, 4, 6, '#4a4238');
+
+    /* ── 床（濡れた石。奥の灯りを映す）── */
+    P(ctx, 0, 84, 360, 46, '#8a8378');
+    for (let i = 0; i < 130; i++) {
+      const px = Math.abs(rnd(i + 200)) * 360, py = 84 + Math.abs(rnd(i + 301)) * 46;
+      ctx.fillStyle = Math.abs(rnd(i + 17)) > .55 ? 'rgba(255,255,255,.10)' : 'rgba(0,0,0,.08)';
+      ctx.fillRect(px | 0, py | 0, 5, 3);
+    }
+    // 入口の灯りの映り込み
+    ctx.fillStyle = 'rgba(255,170,80,.16)';
+    ctx.beginPath(); ctx.ellipse(114, 96, 34, 12, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,200,130,.14)';
+    ctx.beginPath(); ctx.ellipse(330, 92, 30, 10, 0, 0, Math.PI * 2); ctx.fill();
+    // 石段
+    P(ctx, 138, 84, 66, 6, '#a49c90'); P(ctx, 134, 90, 74, 6, '#948c80');
+    P(ctx, 130, 96, 82, 5, '#8a8276');
+
+    /* ── 奥中央右：八角形の湯 ── */
+    const oct = (cx, cy, r, sq) => {
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = Math.PI / 8 + i * Math.PI / 4;
+        const px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r * sq;
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    };
+    oct(224, 82, 36, .38); ctx.fillStyle = '#7a5638'; ctx.fill();
+    oct(224, 82, 31, .38); ctx.fillStyle = '#a8763f'; ctx.fill();
+    oct(224, 82, 25, .38); ctx.fillStyle = '#4f8fa8'; ctx.fill();
+    ripple(ctx, 204, 80, 40); ripple(ctx, 208, 86, 32);
+    wisp(ctx, 212, 76, 3, .22);
+
+    /* ── 右：丸いモザイクの意匠（2つ）── */
+    for (const [mx, my, mr] of [[236, 112, 36], [318, 106, 30]]) {
+      ctx.fillStyle = '#3a3630';
+      ctx.beginPath(); ctx.ellipse(mx, my, mr, mr * .36, 0, 0, Math.PI * 2); ctx.fill();
+      for (let ring = 1; ring <= 4; ring++) {
+        const rr = mr * ring / 4.4;
+        ctx.strokeStyle = ring % 2 ? 'rgba(200,192,178,.55)' : 'rgba(120,112,100,.6)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(mx, my, rr, rr * .36, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+      for (let i = 0; i < 40; i++) {
+        const a = i / 40 * Math.PI * 2, rr = mr * (.35 + Math.abs(rnd(i + mx)) * .6);
+        ctx.fillStyle = Math.abs(rnd(i + mx + 3)) > .5 ? '#b8b0a0' : '#6e675e';
+        ctx.fillRect((mx + Math.cos(a) * rr) | 0, (my + Math.sin(a) * rr * .36) | 0, 2, 2);
+      }
+    }
+
+    /* ── 左：白い椅子が壁ぎわに一列（奥ほど小さい）── */
+    const chairs = [[104, 82, .72], [78, 89, .82], [48, 97, .92], [14, 106, 1.02]];
+    for (const [cx, cy, cs] of chairs) chairW(cx, cy, cs);
+
+    /* ══ 手前：二つの湯 ══════════════════════════════════
+       写真どおり、あいだを御影石の縁が斜めに走る                      */
+    // 左の湯（泡が湧く濃紺）
+    const L_OUT = [[24, 130], [152, 100], [192, 118], [128, 200], [8, 200], [2, 158]];
+    granite(L_OUT, 3);
+    const L_IN = [[42, 137], [150, 110], [178, 124], [122, 191], [24, 191], [20, 159]];
+    poly(L_IN, '#1f3f5e');
+    ctx.save(); ctx.beginPath();
+    ctx.moveTo(L_IN[0][0], L_IN[0][1]);
+    for (let i = 1; i < L_IN.length; i++) ctx.lineTo(L_IN[i][0], L_IN[i][1]);
+    ctx.closePath(); ctx.clip();
+    // 泡（白く沸き立つ面）
+    for (let i = 0; i < 700; i++) {
+      const px = 16 + Math.abs(rnd(i + 400)) * 175, py = 104 + Math.abs(rnd(i + 501)) * 96;
+      const k = Math.abs(rnd(i + 41));
+      const wob = Math.sin(t * 2 + i) * 1.5;
+      ctx.fillStyle = k > .66 ? 'rgba(255,255,255,.9)' : k > .42 ? 'rgba(205,232,244,.7)'
+                    : k > .2 ? 'rgba(110,170,205,.6)' : 'rgba(45,95,140,.55)';
+      ctx.fillRect((px + wob) | 0, py | 0, k > .66 ? 3 : 4, 2);
+    }
+    for (let i = 0; i < 10; i++) {
+      ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      const yy = 116 + i * 8 + Math.sin(t * 1.6 + i) * 2;
+      ctx.moveTo(24, yy); ctx.bezierCurveTo(70, yy - 5, 120, yy + 4, 180, yy - 3); ctx.stroke();
+    }
+    ctx.restore();
+    // 左の湯の手すり（写真どおり縁に何本も並ぶ）
+    rail(66, 124, 26, 34); rail(52, 139, 26, 34); rail(38, 154, 26, 34); rail(26, 170, 26, 28);
+
+    // 中央の御影石の縁（斜めに走る）
+    granite([[152, 100], [192, 118], [152, 200], [122, 200]], 11);
+    P(ctx, 156, 104, 0, 0, '#000');
+    ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(155, 104); ctx.lineTo(188, 120); ctx.stroke();
+
+    // 右の湯（水色のタイル）
+    const R_OUT = [[190, 116], [292, 106], [360, 100], [360, 200], [148, 200]];
+    granite(R_OUT, 21);
+    const R_IN = [[206, 127], [296, 116], [360, 110], [360, 192], [166, 192]];
+    poly(R_IN, '#1fa8d8');
+    ctx.save(); ctx.beginPath();
+    ctx.moveTo(R_IN[0][0], R_IN[0][1]);
+    for (let i = 1; i < R_IN.length; i++) ctx.lineTo(R_IN[i][0], R_IN[i][1]);
+    ctx.closePath(); ctx.clip();
+    // モザイクタイルの底
+    for (let y = 108; y < 196; y += 5) for (let x = 160; x < 360; x += 5) {
+      const k = Math.abs(rnd(x * 0.7 + y));
+      ctx.fillStyle = k > .7 ? '#4fd0f0' : k > .4 ? '#2fbde6' : '#18a0d0';
+      ctx.fillRect(x, y, 4, 4);
+    }
+    // 水面のうねり
+    for (let i = 0; i < 12; i++) {
+      ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 2;
+      const yy = 116 + i * 7 + Math.sin(t * 1.4 + i * .8) * 2;
+      ctx.beginPath(); ctx.moveTo(200, yy); ctx.bezierCurveTo(250, yy - 4, 300, yy + 5, 360, yy - 2); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(255,255,255,.22)';
+    for (let i = 0; i < 60; i++) {
+      const px = 196 + Math.abs(rnd(i + 700)) * 164, py = 112 + Math.abs(rnd(i + 801)) * 80;
+      ctx.fillRect(px | 0, py | 0, 3, 2);
+    }
+    ctx.restore();
+    // 右の湯の手すり
+    rail(232, 132, 30, 30); rail(264, 126, 32, 30); rail(298, 120, 34, 30); rail(332, 115, 26, 28);
+
+    /* ── 全体の空気（浴室の湿った暖色）── */
+    ctx.fillStyle = 'rgba(255,170,90,.05)'; ctx.fillRect(0, 0, 360, 200);
+    wisp(ctx, 60, 118, 4, .18); wisp(ctx, 250, 116, 4, .16);
+
+    head(ctx, 'スパ・ルミナ｜浴室', '泡の湯と、水色の湯。あいだを御影石が斜めに走る', null, true);
+  }
+
+
+  /* ── 登録（story.js の StoryArt に足す）── */
+  const AREA_ARTS = {
+    y_tenku_bath, y_tenku_meshi, y_tenku_rest, y_tenku_capsule,
+    y_rakuen_bath, y_rakuen_meshi, y_rakuen_rest,
+    y_hama_bath, y_hama_capsule,
+    y_lumina_bath, y_lumina_rest, y_lumina_meshi, y_lumina_cafe,
+    y_fukurai_1f, y_fukurai_2f,
+    y_tenku_sauna_in, y_lumina_bath_in,
+  };
+  if (typeof StoryArt !== 'undefined') Object.assign(StoryArt, AREA_ARTS);
+  // 湯気・水面・水車・送風機を動かす（動く一枚絵）
+  if (typeof STORY_ANIM_ARTS !== 'undefined') {
+    for (const k of Object.keys(AREA_ARTS)) STORY_ANIM_ARTS.add(k);
+  }
+})();
+</script>
+<script>const ctx=document.getElementById('c').getContext('2d');
+function tick(){StoryArt.draw(ctx,'y_lumina_bath_in');requestAnimationFrame(tick);}tick();</script>
+</body></html>

@@ -221,7 +221,7 @@ const Sfx = {
     const c = this.ready(); if (!c) return;
     const now = c.currentTime;
     // 同じ音が重なって団子になるのを防ぐ（客が増えると売上音が一斉に鳴る）
-    const gap = { ui: 0.04, talk: 0.03, cash: 0.09, pay: 0.12, register: 0.3, fix: 0.2 }[kind] || 0.05;
+    const gap = { ui: 0.04, talk: 0.03, cash: 0.09, pay: 0.12, register: 0.3, fix: 0.2, kouji: 0.6, drill: 0.6 }[kind] || 0.05;
     if (this.last[kind] && now - this.last[kind] < gap) return;
     this.last[kind] = now;
     switch (kind) {
@@ -262,6 +262,26 @@ const Sfx = {
         this.clank(0.10, 0.30, 950, 0.19);                        // 2打目（少し低い＝手の返し）
         this.noise(0.08, 0.14, 0.19);
         this.tone('square', 165, 65, 0.12, 0.05, 0.19);
+        break;
+      /* ── 工事の音（第2章の増築）──────────────────────
+         **ガンガン！**＝鉄骨を叩く。修理の『fix』より重く、3打つづける。
+         足場の上で職人が槌を振っているのが、音だけでも分かるようにしてある */
+      case 'kouji':
+        this.clank(0.12, 0.30, 780);                              // 1打目（ガン！）
+        this.noise(0.10, 0.15);
+        this.tone('square', 150, 58, 0.14, 0.05);
+        this.clank(0.11, 0.26, 700, 0.20);                        // 2打目
+        this.noise(0.09, 0.13, 0.20);
+        this.tone('square', 140, 54, 0.13, 0.045, 0.20);
+        this.clank(0.10, 0.22, 640, 0.40);                        // 3打目（手の返し）
+        this.tone('square', 132, 50, 0.12, 0.04, 0.40);
+        break;
+      /* **キューン！**＝電動ドライバー。高い音がひと息に上がって、すっと落ちる */
+      case 'drill':
+        this.tone('sawtooth', 420, 2100, 0.26, 0.045);            // 回りはじめ（キュゥーン）
+        this.tone('sawtooth', 2100, 1750, 0.22, 0.035, 0.26);     // 食い込んで少し落ちる
+        this.tone('sawtooth', 1750, 300, 0.14, 0.03, 0.48);       // 止まる
+        this.noise(0.10, 0.035, 0.02);                            // モーターのざらつき
         break;
     }
   },

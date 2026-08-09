@@ -18,6 +18,9 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 /* ============ ゲーム状態 ============ */
 const G = {
   phase: 'title',            // title / prep / biz / report
+  actF: 0,                   // いま CONF が指している区画（計算対象）。表示は viewF
+  viewF: 0,                  // 画面に出している区画（-1＝館内案内図）
+  chapter: 1,                // いま遊んでいる章（1＝夕凪湯 再建記 / 2＝独立開業編）。セーブ先もデータもここで分かれる
   day: 1, cash: CONF.startCash, debt: CONF.startDebt, rep: 10, name: '夕凪湯',
   // 銀行融資は廃止（作者指定）。debt/loanPending/loanArrive は旧セーブの読み込み用に残してあるだけで、もう増えない
   loanPending: 0, loanArrive: 0,
@@ -27,10 +30,13 @@ const G = {
   uidN: 0,
   equip: [],                 // {uid,id,x,y,rot,cond,occ[]}
   dirts: [],                 // {x,y}
+  junk: [],                  // 開店前のゴミ・瓦礫 {kind,x,y,f}（第2章のみ）
+  stam: null,                // 体力（第2章のみ。null＝体力のない章）
   minutes: 0,                // 9:00からの経過(分)
   speedIdx: 0, paused: false,
   customers: [], payQueue: [],
-  player: null, staff: [], roach: null, roachCool: 0,   // ゴキブリ1匹（汚れが5つを超えると現れる・保存しない）
+  // ゴキブリは区画に1匹（その区画の濃い汚れが5つを超えると現れる・保存しない）
+  player: null, staff: [], roaches: [], roachCool: {}, roachSplats: [],
   spawnQueue: [],
   adBoost: 0, adBought: {},
   placing: null, selected: null,
@@ -74,6 +80,9 @@ const TADOKORO_HELLO_DAY = 4;                       // 田所の名乗り＝4日
 const TADOKORO_KESSEN_NAJIMI = 55, TADOKORO_KESSEN_REP = 52, TADOKORO_KYOZON_GAIN = 18;  // 田所が認める条件と、共存の選択で伸びる絆
 const TADOKORO_DEMAND_CLEAR = 5;                    // 田所の要求をこの回数だけ叶えると、認めさせる資格（作者指定で3→5）
 const KITO_APPEAR_REP = 39;                         // 鬼頭の集金が始まる評判（新評判方式＝繁盛の匂いがし始めた店にヤクザが来る）
+/* 田所が割って入る条件（作者指定 8/5）。どちらか片方でいい＝
+   みかじめを3回以上払った／連中が5回以上来た。突っぱね続ける店でも、来訪の数で必ず話が進む */
+const KITO_RESCUE_PAID = 3, KITO_RESCUE_VISITS = 5;
 /* 以下の登場しきい値は、店の格のカーブ（GRADE_SCALE）を作者指定で上げ直したのに合わせて再換算した値。
    換算のしかたは「同じ充実度なら同じ相手が出る」＝旧しきい値を充実度に戻し、新しいカーブで評判に直した。
    狙い（作者指定）：黒田の決着がつく頃に評判75前後、玲奈への再戦の目標が評判90 */
@@ -128,6 +137,9 @@ function newToday() {
            teburaRev: 0, teburaN: 0, soapUnits: 0, totonoiTry: 0, gaveUp: 0, mikajime: 0,
            amenRev: 0, amenN: 0, milkRev: 0, autoYami: 0, yamiPaid: 0, repairCost: 0, unpaid: false,
            care: 0, queueMiss: 0, gripes: {}, satSeg: {}, dirtSum: 0, dirtN: 0, timeUpN: 0,
+           /* 自販機は台ごとに本数・売上を分けて数える（作者指定 8/5）。
+              以前は牛乳もドリンクも milk に合算していたので、**日報では牛乳しか売れていないように見えた** */
+           vendN: {}, vendRev: {},
            waitSum: 0 };   // waitSum＝客が設備待ち・ロッカー待ちで立っていた時間の合計（混雑度に効く）
 }
 
@@ -135,12 +147,39 @@ function newToday() {
    狙いは「どこかに偏ると全体が歪む」のを目に見えるようにすること。
    ※これは評判スコアには一切混ぜない（作者と合意）。評判は1本のまま、ここは“どこが弱いか”を読む計器。
      5本の平均にしてしまうと、どこが悪いのか逆に分からなくなり、天井＋速度のカーブも壊れる */
+/* ============================================================
+   客層＝**性別5分類 × 2**（作者決定 8/2）
+   ------------------------------------------------------------
+   前は 老人/若者＝年齢・サウナー＝目的・女性客＝性別 と軸が混ざっていて、
+   一人が複数に当てはまっていた（サウナ女子がサウナーに数えられない等）。
+   **性別を先に切れば、中の5分類は同じ物差しになる。**
+   風呂屋はそもそも男湯と女湯で部屋が別なので、建物の構造とも一致する。
+
+   hint ＝ その層が見ているもの。**実在する仕組みだけを書く**
+   （湯温は設備ごとの固定値なので「安定」は測れない＝「好みに合っているか」）
+   ============================================================ */
 const SEGMENTS = [
-  { key: 'jimoto', name: '昔ながらの常連', types: ['jisan', 'obachan'],   hint: '湯温・ぬるめの湯船・清潔さ・料金' },
-  { key: 'sauner', name: 'サウナー',       types: ['salaryman', 'kinpatsu'], hint: 'サウナの種類・水風呂・マット・ととのい' },
-  { key: 'sentou', name: '銭湯ファン',     types: ['oyaji', 'ol'],        hint: '風呂の種類・アメニティ・洗い場' },
-  { key: 'wakai',  name: '若者',           types: ['wakamono'],           hint: '設備の新しさ・手ぶら・ドライヤー' },
-  { key: 'kozure', name: '子連れ',         types: ['oyako'],              hint: '子供料金・怖い客・清潔さ・混雑' },
+  { key: 'm_rojin',  sex: 'm', name: '老人',       types: ['jisan', 'shoten'],
+    hint: 'あつ湯（42℃前後）・電気風呂・清潔さ・料金の安さ' },
+  { key: 'm_sauner', sex: 'm', name: 'サウナー',   types: ['wakamono', 'sauner'],
+    hint: 'サウナの温度・水風呂の冷たさ・サウナマット・ととのいイス' },
+  { key: 'm_kaisha', sex: 'm', name: '会社員',     types: ['salaryman', 'shigoto', 'nomikaeri', 'oyaji'],
+    hint: '待たされないこと・サウナ・帰りの一杯・遅い時間まで開いているか' },
+  { key: 'm_wakai',  sex: 'm', name: '若者',       types: ['kinpatsu', 'gakusei', 'gaikoku'],
+    hint: '設備の新しさ・手ぶらセット・ドライヤー・物販' },
+  { key: 'm_kozure', sex: 'm', name: '子連れ',     types: ['oyako', 'kodomo'],
+    hint: '子供料金・怖い客がいないか・ぬるめの湯・清潔さ' },
+
+  { key: 'f_obasan', sex: 'f', name: 'オバサン',   types: ['obachan', 'okusan'],
+    hint: 'ぬるめの湯・清潔さ・料金の安さ・洗い場の数' },
+  { key: 'f_saunajo', sex: 'f', name: 'サウナ女子', types: ['saunajo'],
+    hint: 'サウナの温度・水風呂・ととのいイス・パウダールーム' },
+  { key: 'f_ol',     sex: 'f', name: 'OL',         types: ['ol', 'josei'],
+    hint: 'アメニティ・ドライヤー・清潔さ・女性スタッフ' },
+  { key: 'f_wakai',  sex: 'f', name: '若者',       types: ['joshidai'],
+    hint: 'ドライヤー・パウダー・物販・設備の新しさ' },
+  { key: 'f_kozure', sex: 'f', name: '子連れ',     types: ['hahako', 'musume'],
+    hint: '子供料金・安心して入れるか・ぬるめの湯・清潔さ' },
 ];
 function segOf(typeKey) {
   for (const s of SEGMENTS) if (s.types.includes(typeKey)) return s.key;
@@ -214,15 +253,620 @@ function eh(idOrIt, rot) {
 // 全設備を回転可能に（正方形の設備も向きを変えられる＝見た目が変わる）
 function canRotate(id) { return true; }
 
+/* ============ 区画（マップ）============
+   第1章は区画がひとつ＝画面1枚（CONF.areas を持たない）。
+   第2章は【館内案内図】から5区画（ロビー＆駐車場／食堂／男湯／女湯／休憩スペース）を行き来する。
+
+   仕掛けはひとつだけ。**CONF.W/H/divideY/entrance/doorX は「いま開いている区画」の値を指す**。
+   区画を移るたびにここを差し替えるので、CONF.W を見ている既存のコード（74箇所）には一切手を入れなくていい。
+   区画ごとに分けるのは、地図そのものを扱う数カ所（設備の当たり判定・到達チェック・描画）だけ。
+   日々の傷み・修理・評判・カタログ・売上は、これまでどおり全区画をまとめて見る。          */
+function areaList() { return (CONF.areas && CONF.areas.length) ? CONF.areas : null; }
+function areaCount() { const l = areaList(); return l ? l.length : 1; }
+function areaDef(f) { const l = areaList(); return l ? l[clamp(f | 0, 0, l.length - 1)] : null; }
+/* いま CONF が指している区画＝「計算中の区画」。
+   営業中は5区画ぶんを順番に計算するので、画面に出ている区画（G.viewF）とは別に持つ。
+   ・G.actF … CONF.W/H が指している区画（設備の当たり判定・経路探索はここを見る）
+   ・G.viewF … 画面に出している区画（-1 なら館内案内図）                        */
+function inArea(o) { return (o.f | 0) === (G.actF | 0); }
+function areaEquip() { return G.equip.filter(inArea); }
+
+/* CONF の間取りを、その区画のものに差し替える */
+function applyArea(f, quiet) {
+  const l = areaList();
+  /* 区画を持たない章（第1章）。間取りは CONF に直接書いてあるので付け替えるものは無いが、
+     **キャンバスの寸法だけは張り直す。** 第2章から戻ってきたとき、
+     画面が第2章の部屋の大きさのままになり、第1章がその中に描かれてしまう */
+  if (!l) { G.actF = 0; if (G.viewF !== -1) G.viewF = 0; if (!quiet) resizeStage(); return; }
+  G.actF = clamp(f | 0, 0, l.length - 1);
+  const a = l[G.actF];
+  CONF.W = a.W; CONF.H = a.H; CONF.divideY = a.divideY;
+  CONF.outdoorY = a.outdoorY || 0;        // これより上が屋外ゾーン（外気浴デッキ・テントサウナ）
+  CONF.entrance = a.entrance; CONF.doorX = a.doorX;
+  CONF.entranceTop = a.entranceTop || null;   // 上壁の通路（無い区画は null）
+  CONF.topDoors = a.topDoors || null;         // 上壁の通路が複数ある区画（廊下）
+  CONF.topLabels = a.topLabels || null;       // その戸の行き先（▲男湯 など）
+  if (!quiet) resizeStage();
+}
+/* 区画ごとに順番に計算する（営業中の客・バイトの更新）。終わったら表示中の区画へ戻す */
+function forEachArea(fn) {
+  const n = areaCount();
+  if (n <= 1) { fn(0); return; }
+  const back = G.actF;
+  for (let f = 0; f < n; f++) { applyArea(f, true); fn(f); }
+  applyArea(back, true);
+}
+/* 描画用のキャンバスを、いまの区画の大きさに張り直す */
+function resizeStage() {
+  if (typeof cv === 'undefined' || !cv) return;
+  const w = CONF.W * T * CONF.SS, h = CONF.H * T * CONF.SS;
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+}
+
+/* ============ 屋号（章ごとに別）============
+   第1章は親父から継いだ「夕凪湯」、第2章は自分で買った施設の名前。
+   **章をまたいで名前が漏れないようにする**（作者指定）＝
+   章を切り替えた時点でその章の既定に戻し、セーブから読んだらそのセーブの名前にする */
+function nameConf() {
+  return (CONF.shopNaming) || {
+    def: '夕凪湯',
+    title: '銭湯の屋号を決めよう',
+    note: 'のれんに書く名前だ。親父の「夕凪湯」のままでもいい。',
+    suggests: ['夕凪湯', 'サウナ夕凪', '俺のサウナ'],
+  };
+}
+function defaultShopName() { return nameConf().def; }
+function openNameModal() {
+  const n = nameConf();
+  $('nameTitle').textContent = n.title;
+  $('nameNote').textContent = n.note;
+  $('nameInput').value = n.def;
+  const box = $('nameSuggests');
+  box.innerHTML = '';
+  for (const s of n.suggests) {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.textContent = s;
+    b.onclick = () => $('nameInput').value = s;
+    box.appendChild(b);
+  }
+  $('nameModal').classList.remove('hidden');
+}
+
+/* ============ 館内案内図（第2章）============
+   区画が5つに散るので、タブではなく「施設の間取り1枚」で行き来する。
+   ナビと状況把握を兼ねる＝どこが汚れ・混み・壊れているかが、この画面で分かる。
+   第1章は区画がひとつなので、この画面自体を出さない                       */
+/* 案内図を並べるマス目。ロビー＆駐車場だけ縦2つぶん取る＝
+   中身がほぼ駐車場なので、横に潰れると何台停まっているか読めなくなる */
+/* 館内案内図の枡目。区画データ側で上書きできる（廊下を1段足したので第2章は5行） */
+let GUIDE_COL = 4, GUIDE_ROW = 4;
+let guideRects = [];                      // タップ判定用（区画ごとの矩形）
+
+/* いま案内図を開いているか（区画の中に居ない状態） */
+/* 飲み物の自販機と、その1本の値段。**章をまたいで1か所にまとめる**
+   （id を各所に散らすと、章が変わったとき静かに売れなくなる） */
+const DRINK_VEND = { vend1: 130, vend2: 180, y_vend: 180 };
+// 日報に出す短い名前（台の正式名は長いので、ここで「牛乳」「ドリンク」に縮める）
+const DRINK_VEND_LABEL = { vend1: '牛乳', vend2: 'ドリンク', y_vend: 'ドリンク' };
+function onGuide() { return G.viewF < 0; }
+/* 開店時刻。**章が営業時間を持っていれば、そちらが正**（第2章＝プレイヤーが1時間刻みで決める）。
+   第1章はフックを持たないので CONF.openHour のまま＝何も変わらない */
+function openHourNow() { const h = chHook('openHour'); return h == null ? CONF.openHour : h; }
+/* いまの時刻（0〜24の実数）。G.minutes は開店時刻からの分 */
+function nowHour() { return ((((openHourNow() + G.minutes / 60) % 24) + 24) % 24); }
+/* 主人公がいま店にいるか（作者指定＝9:00に来て21:00に帰る）。
+   店にいない時間は、家にいることになっている＝画面にも出ないし、掃除もしない。
+   第1章は CONF.workHours を持たないので、いつでも店にいる            */
+function onDuty() {
+  /* 章が「主人公が店に立つ時間」を持っていれば、そちらが正
+     （第2章＝15時〜22時。深夜まで開けても、主人公は22時で帰る） */
+  const w = chHook('workHours') || CONF.workHours;
+  if (!w) return true;
+  /* ⚠ **勤務時間は「営業中」の話。** 準備中は時計が止まっていて、`nowHour()` は
+     前の日の閉店時刻を指したままになる。それを勤務時間と突き合わせていたので、
+     第2章の主人公は**準備中に一度も掃除していなかった**（100日通しで発見・2026-08-07）。
+     ＝深夜に溜まった汚れが朝まで残り、開店の瞬間に濃い汚れ12個から始まっていた。
+     第1章は workHours を持たないので上の行で抜ける＝挙動は変わらない */
+  if (G.phase !== 'biz') return true;
+  const h = nowHour();
+  return h >= w[0] && h < w[1];
+}
+/* その人がいま店にいるか（バイト・妻）。遅刻中は来ていないし、
+   章が「もう帰った」と言えば居ない（第2章＝22時で日勤は上がる）。
+   **動かす側と描く側の両方でこれを使う**＝帰ったのに絵だけ残る、を防ぐ */
+function workerHere(s) { return !(s.lateT > 0) && !chHook('workerOff', s); }
+/* 主人公がその部屋に入れないか。女湯は**営業中だけ**入れない（作者指定）＝
+   客がいない準備中・開業前は、掃除も設備の配置も自分の手でやる */
+function playerBanned(f) {
+  const a = areaDef(f);
+  return !!(a && a.noPlayer && G.phase === 'biz');
+}
+/* 家は「区画」として持っているが、店ではない＝館内案内図にも出ないし、客も来ない */
+function isHomeArea(f) { const a = areaDef(f); return !!(a && a.home); }
+function onHome() { return G.viewF >= 0 && isHomeArea(G.viewF); }
+function homeAreaIdx() { return (CONF.areas || []).findIndex(a => a.home); }
+/* 店の区画だけ（＝家を抜いたもの）。案内図と、主人公の見回りが使う */
+function shopAreas() { return (CONF.areas || []).filter(a => !a.home); }
+
+/* 案内図を開く */
+function openGuide() {
+  if (areaCount() <= 1) return;
+  G.viewF = -1;
+  applyArea(0, true);          // 表示は案内図。計算の足場だけ1つ目の区画に置いておく
+  deselect(); endPlacing();
+  $('game').classList.add('hidden');
+  $('guide').classList.remove('hidden');
+  syncAreaBar();                       // 帯は残す（家と体力は案内図からも見える）
+  $('hint').classList.add('hidden');
+  /* 案内図では設備カタログを出さない（作者指定）。
+     ここは「どの部屋へ行くか」を選ぶ画面で、買い物は部屋に入ってからやる。
+     カタログを畳むぶん、間取り図がスマホの画面にそのまま収まる */
+  $('shopPanel').classList.add('hidden');
+  drawGuide();
+}
+/* 【← 館内案内図】の帯を、いまの状態に合わせる。
+   区画が2つ以上あって、案内図そのものを開いていないときだけ出す。
+   はじめから／つづきから で最初の部屋に立ったときも、ここを通らないと帯が出ない */
+function syncAreaBar() {
+  const bar = $('areaBar'); if (!bar) return;
+  const show = areaCount() > 1;
+  bar.classList.toggle('hidden', !show);
+  /* ⚠ **ここで素通りに return すると、下の【外観・集客・増築】を畳み忘れる。**
+     区画が1つの章（第1章）はこの行で抜けるので、第2章で外観のメニューを開いたあと
+     第1章へ戻ると、**そのメニューが第1章の画面に残ったまま**になっていた
+     （作者指摘 8/8。実測＝第2章の案内図 → 第1章 でカード3枚が残る）。
+     区画が1つの章に外観のメニューは無いので、抜ける前に必ず畳む            */
+  if (!show) {
+    const gp0 = $('gaikanPanel');
+    if (gp0) gp0.classList.add('hidden');
+    return;
+  }
+  /* 案内図を見ている間は「案内図へ戻る」だけ引っ込める。
+     帯そのものは残す＝【🏠 家へ】と体力バーは、どの画面からでも見える */
+  const guide = onGuide();
+  $('btnToGuide').classList.toggle('hidden', guide);
+  /* 【🪧 外観】＝看板を買う画面。**ビルの外観を見ているときだけ**出す（第2章）。
+     その章が openGaikan フックを持っていなければ、ボタンごと出さない */
+  /* ビルの外観を見ている間は、下に**外観アイテム**を並べる（第2章）。
+     各階では設備カタログが出る場所と同じ＝買い物の場所が画面の中で一定になる */
+  const gp = $('gaikanPanel');
+  if (gp) {
+    const on = guide && hasHook('renderGaikan') && (G.phase === 'prep' || G.phase === 'biz');
+    gp.classList.toggle('hidden', !on);
+    if (on) chHook('renderGaikan');
+  }
+  const a = areaDef(G.actF);
+  /* 見出しは【🏢 外観】（作者指定 8/8）。画面に映っているのは案内図というより
+     ビルを外から見た絵なので、そのまま呼ぶ。中へ入る帯のボタンは【← 外に出る】 */
+  $('areaLabel').textContent = guide ? '🏢 外観'
+    : a ? a.name + (playerBanned(G.actF) ? '（営業中は入れない）' : '') : '';
+}
+/* 区画に入る */
+function enterAreaScreen(f) {
+  applyArea(f);
+  G.viewF = G.actF;            // 画面もその区画に切り替える
+  /* 案内図のあいだ畳んでいたヒントを戻す。
+     ただし家では出さない＝店の話（ゴミ・工事・開業）は、家の中では関係ない。
+     章が部屋ごとの案内を持っていれば（第2章の開業前）、入った部屋のものに差し替える＝
+     **いま立っている部屋に何が足りないかを、その場で名指しで言う** */
+  if (isHomeArea(f)) $('hint').classList.add('hidden');
+  else {
+    /* 章が部屋ごとの案内を持っていれば、その部屋のものに差し替える。
+       空を返したら**黙る**（第2章は上の一行に移したので、下は出さない場面がある） */
+    if (G.phase === 'prep' && hasHook('prepHint')) setHint(chHook('prepHint'));
+    else setHint(lastHint);
+  }
+  syncTip();                   // 上の一行も、入った部屋に合わせて引き直す
+  // 部屋に入ったら設備カタログを戻す（買い物は部屋の中でやる）。家では出さない
+  if ((G.phase === 'prep' || G.phase === 'biz') && !isHomeArea(f)) $('shopPanel').classList.remove('hidden');
+  else $('shopPanel').classList.add('hidden');
+  $('guide').classList.add('hidden');     // 区画の中に入ったら案内図は畳む（第1章でも必ず畳む）
+  $('game').classList.remove('hidden');
+  const multi = areaCount() > 1;
+  syncAreaBar();
+  if (multi) {
+    const a = areaDef(f);
+    /* 主人公は、案内図で選んだ部屋にそのまま立たせる（作者指定）。
+       部屋から部屋へ歩かせる必要はない＝入った瞬間、そこに居る。
+       女湯だけは入れないので、居場所は動かさない（画面だけ覗く）
+
+       **第2章は付いて来ない**（作者指定 8/5）＝主人公は自分の判断で、
+       汚れの残っている階へエレベーターで上がっていく。画面を切り替えるのは
+       「見に行く」であって「連れて行く」ではない。noWarpPlayer で止める */
+    if (!playerBanned(f) && G.player && !chHook('noWarpPlayer')) warpPlayerTo(f);
+    // カタログを、いま入った部屋に置けるものだけに並べ直す
+    if (G.phase === 'prep' || G.phase === 'biz') renderShop();
+  }
+}
+/* 主人公をその区画の入口に立たせる。やりかけの仕事は畳む */
+function warpPlayerTo(f) {
+  const p = G.player;
+  if ((p.f | 0) === f) return;
+  const back = G.actF;
+  applyArea(f, true);
+  /* 受付のある区画（ロビー）では番台の横。それ以外の部屋は、入口を入ってすぐのところ */
+  const s = bandai() && (bandai().f | 0) === f
+    ? playerSpot()
+    : { x: CONF.entrance.x, y: CONF.entrance.y - 1 };
+  applyArea(back, true);
+  p.f = f;
+  p.px = s.x * T + T / 2; p.py = s.y * T + T / 2;
+  p.path = null; p.target = null; p.task = null; p.timer = 0;
+}
+
+/* 区画ごとの状態（案内図に出す数字）。まだ客の回遊が入っていないので、
+   いまは汚れと故障だけが本物で、客数は0のまま */
+function areaStatus(f) {
+  const eq = G.equip.filter(e => (e.f | 0) === f);
+  return {
+    guests: G.customers.filter(c => (c.f | 0) === f).length,
+    dirt: G.dirts.filter(d => (d.f | 0) === f).length,
+    broken: eq.filter(e => (CONF.wearPerDay[EQ[e.id].cat] ?? 0) > 0 && e.cond <= 0).length,
+    empty: eq.length === 0,
+    player: G.player && onDuty() && (G.player.f | 0) === f,
+    /* その部屋に残っている宿題。第2章の開業前だけ立つ（第1章はフックを持たない）。
+       部屋が5つあると、見ていない部屋で何も起きていないことに気づけない */
+    todo: chHook('areaTodo', f) || null,
+    /* スタッフがいない部屋は客が入れない（第2章）。理由の文字列、開いていれば null */
+    closed: chHook('areaClosedWhy', f) || null,
+    unmanned: !!chHook('areaUnmanned', f),      // 開いているが、担当が遅刻中
+  };
+}
+
+const CORRIDOR_COL = '#7d6647';           // 廊下の床
+const GUIDE_GAP = 15;                     // 部屋と部屋のあいだ＝廊下の幅（片側）
+
+function drawGuide() {
+  const list = shopAreas(); if (!list || !list.length) return;   // 家は間取り図に出さない
+  GUIDE_COL = CONF.guideCol || 4; GUIDE_ROW = CONF.guideRow || 4;
+  const gcv = $('guide');
+  const W = 1040, H = 1150;
+  if (gcv.width !== W) { gcv.width = W; gcv.height = H; }
+  const g = gcv.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  guideRects = [];
+
+  /* 章ごとに、この画面そのものを差し替えられる（第2章＝ビルを横から見た外観）。
+     フックが true を返したら、以下の「間取り図」は描かない。
+     第1章はフックを持たないので、これまでどおり                          */
+  if (chHook('drawGuide', g, W, H, list)) return;
+
+  const cw = (W - 24) / GUIDE_COL, ch = (H - 24) / GUIDE_ROW;
+  const rect = a => ({
+    x: 12 + a.gx * cw + GUIDE_GAP, y: 12 + a.gy * ch + GUIDE_GAP,
+    w: a.gw * cw - GUIDE_GAP * 2, h: a.gh * ch - GUIDE_GAP * 2,
+  });
+
+  /* ここは「監視カメラの画面を並べたもの」ではなく、**一枚の間取り図**にする。
+     ・部屋と部屋のあいだの隙間は黒ではなく【廊下】
+     ・どの部屋にも廊下へ抜ける【戸口】がある
+     ・建物の外側は敷地（駐車場・国道）                                    */
+  g.fillStyle = '#241f1b'; g.fillRect(0, 0, W, H);      // 敷地（屋外）
+
+  // 建物の輪郭。ロビー区画の「屋内のところまで」が建物の下端になる
+  const lobby = list.find(a => a.park) || list[list.length - 1];
+  const lr = rect(lobby);
+  const buildBottom = lr.y + lr.h * (lobby.divideY / lobby.H);
+  const bx = 12, by = 12, bw = W - 24, bh = buildBottom - 12;
+  g.fillStyle = CORRIDOR_COL; g.fillRect(bx, by, bw, bh);
+  // 廊下の床目地
+  g.strokeStyle = 'rgba(0,0,0,.10)'; g.lineWidth = 2;
+  for (let lx = bx; lx < bx + bw; lx += 30) { g.beginPath(); g.moveTo(lx, by); g.lineTo(lx, by + bh); g.stroke(); }
+  for (let ly = by; ly < by + bh; ly += 30) { g.beginPath(); g.moveTo(bx, ly); g.lineTo(bx + bw, ly); g.stroke(); }
+
+  for (let f = 0; f < list.length; f++) {
+    const a = list[f], st = areaStatus(f);
+    const { x, y, w, h } = rect(a);
+    guideRects.push({ x, y, w, h, f });
+
+    /* 部屋の中身を、上から見下ろした見取り図として描く（実際に置いてある設備をそのまま縮小して並べる）。
+       名前だけの札より、どの部屋に何がどう入っているかが一目で分かる */
+    drawAreaMini(g, f, a, x, y, w, h, st);
+    /* スタッフのいない部屋は客が入れない＝閉まっているのが一目で分かるよう暗く落とす。
+       名札とバッジはこの上に乗るので、読めなくならない（第1章はこのフックを持たない） */
+    if (st.closed) { g.fillStyle = 'rgba(12,10,8,.62)'; g.fillRect(x, y, w, h); }
+
+    g.lineWidth = 5;
+    g.strokeStyle = st.player ? '#6ab0d8' : '#8a7a5a';
+    g.strokeRect(x + 2.5, y + 2.5, w - 5, h - 5);
+
+    /* 廊下へ抜ける戸口。部屋の入口（entrance）の位置に、壁をくり抜いて廊下の床を通す。
+       ロビーだけは上（廊下側）に開く＝客は入口→ロビー→廊下→各部屋、と歩く */
+    drawGuideDoor(g, a, x, y, w, h);
+
+    // 部屋の名札（左上に小さく置く＝見取り図を隠さない）
+    g.textAlign = 'left';
+    const lw = a.name.length * 24 + 30;
+    g.fillStyle = 'rgba(20,16,12,.78)'; guideRound(g, x + 10, y + 8, lw, 40, 6); g.fill();
+    g.fillStyle = '#f5ead8'; g.font = 'bold 26px "DotGothic16",sans-serif';
+    g.fillText(a.name, x + 22, y + 36);
+    g.textAlign = 'center';
+
+    // 客の数（右上）
+    if (st.guests) {
+      g.fillStyle = 'rgba(20,16,12,.78)'; guideRound(g, x + w - 108, y + 8, 96, 40, 6); g.fill();
+      g.fillStyle = '#ffd98a'; g.font = 'bold 26px "DotGothic16",sans-serif';
+      g.fillText('👤 ' + st.guests, x + w - 60, y + 36);
+    }
+
+    const badges = [];
+    if (st.closed) badges.push(['#8a3030', '🚫 利用不可']);
+    else if (st.unmanned) badges.push(['#c9863a', '🕒 無人']);
+    if (st.todo) badges.push(['#c9a86a', st.todo]);
+    if (st.dirt) badges.push(['#c46a6a', '汚れ ' + st.dirt]);
+    if (st.broken) badges.push(['#8a3030', '⚠ 故障']);
+    let bx = x + w / 2 - (badges.length * 112) / 2;
+    for (const [c, t] of badges) {
+      g.fillStyle = c; guideRound(g, bx, y + h - 56, 104, 34, 6); g.fill();
+      g.fillStyle = '#1c1714'; g.font = 'bold 20px "DotGothic16",sans-serif';
+      g.fillText(t, bx + 52, y + h - 32);
+      bx += 112;
+    }
+    if (st.player) {
+      g.fillStyle = '#6ab0d8'; guideRound(g, x + w - 130, y + 12, 118, 32, 6); g.fill();
+      g.fillStyle = '#0e1a20'; g.font = 'bold 20px "DotGothic16",sans-serif';
+      g.fillText('いまここ', x + w - 71, y + 35);
+    }
+  }
+  // 建物の外壁（いちばん外側に一本）
+  g.strokeStyle = '#4a3a2c'; g.lineWidth = 8;
+  g.strokeRect(bx + 4, by + 4, bw - 8, bh - 8);
+}
+
+/* 部屋と廊下をつなぐ戸口。壁をくり抜いて、廊下の床をそのまま部屋の際まで通す */
+function drawGuideDoor(g, a, x, y, w, h) {
+  const scx = w / a.W, scy = h / a.H;
+  const dw = 3 * scx, dx = x + (a.doorX - 1) * scx;
+  g.fillStyle = CORRIDOR_COL;
+  if (a.park) {
+    // ロビーは上（廊下側）に開く
+    g.fillRect(dx, y - GUIDE_GAP - 2, dw, scy + GUIDE_GAP + 4);
+  } else {
+    // ほかの部屋は下（廊下側）に開く
+    g.fillRect(dx, y + h - scy - 2, dw, scy + GUIDE_GAP + 4);
+  }
+  // 敷居（戸のあるところが分かるように、細い線を1本）
+  g.strokeStyle = 'rgba(60,44,30,.7)'; g.lineWidth = 3;
+  const ly = a.park ? y + 2 : y + h - 2;
+  g.beginPath(); g.moveTo(dx, ly); g.lineTo(dx + dw, ly); g.stroke();
+}
+/* ============ 国道を走る車 ============
+   敷地の下端を国道が横切っている。そこに車を流す。
+   ゲームの計算には一切関わらない**ただの飾り**だが、これがあるだけで店が生きて見える。
+
+   ・日本の道なので左側通行＝上の車線は左へ、下の車線は右へ流れる
+   ・**追い越しはしない**（作者指定）。前の車に追いつくと、その後ろで速度を落とす   */
+const TRAFFIC = {
+  road: [],        // 国道を流れる車
+  last: 0,         // 前に描いた時刻（秒）
+  seed: 20260731,  // 見た目のばらつき用（ゲームの乱数には触らない）
+};
+const CAR_COLORS = ['#c0473a', '#e8e2d4', '#4a6f9a', '#5a8a5a', '#d8a84a', '#8a8f96', '#6a5a8a', '#2f3238'];
+function tRand() {                                   // 飾り専用の乱数（Math.random を使わない）
+  TRAFFIC.seed = (TRAFFIC.seed * 1103515245 + 12345) & 0x7fffffff;
+  return TRAFFIC.seed / 0x7fffffff;
+}
+function tPick(a) { return a[(tRand() * a.length) | 0]; }
+
+/* 上から見た車を1台描く。(px,py)＝中心、ang＝進行方向（0=右） */
+function drawCar(g, px, py, len, wid, ang, col, big) {
+  g.save();
+  g.translate(px, py); g.rotate(ang);
+  const L = len / 2, W = wid / 2;
+  g.fillStyle = 'rgba(0,0,0,.30)'; g.fillRect(-L + 1.5, -W + 2, len, wid);   // 影
+  g.fillStyle = '#241f1c';                                                   // タイヤ
+  for (const k of [-0.28, 0.28]) {
+    g.fillRect(k * len - len * 0.07, -W - 1.2, len * 0.14, 1.6);
+    g.fillRect(k * len - len * 0.07, W - 0.4, len * 0.14, 1.6);
+  }
+  g.fillStyle = col; g.fillRect(-L, -W, len, wid);                           // 車体
+  if (big) {
+    g.fillStyle = 'rgba(0,0,0,.22)'; g.fillRect(L - len * 0.28, -W, len * 0.28, wid);       // 運転台
+    g.fillStyle = 'rgba(255,255,255,.10)'; g.fillRect(-L + len * 0.04, -W * 0.8, len * 0.6, wid * 0.8); // 荷台
+  } else {
+    g.fillStyle = 'rgba(0,0,0,.20)'; g.fillRect(-len * 0.24, -W * 0.8, len * 0.44, wid * 0.8);  // 屋根
+    g.fillStyle = 'rgba(190,225,245,.80)'; g.fillRect(L - len * 0.34, -W * 0.66, len * 0.10, wid * 0.66);
+    g.fillStyle = 'rgba(190,225,245,.55)'; g.fillRect(-L + len * 0.22, -W * 0.62, len * 0.08, wid * 0.62);
+    g.fillStyle = col;                                                       // ドアミラー
+    g.fillRect(L - len * 0.30, -W - 1.4, len * 0.06, 1.4);
+    g.fillRect(L - len * 0.30, W, len * 0.06, 1.4);
+  }
+  g.fillStyle = '#ffe9a8';                                                   // ヘッドライト
+  g.fillRect(L - 2, -W + 0.5, 2, wid * 0.22); g.fillRect(L - 2, W - wid * 0.22 - 0.5, 2, wid * 0.22);
+  g.fillStyle = '#d8483a';                                                   // テールランプ
+  g.fillRect(-L, -W + 0.5, 1.5, wid * 0.2); g.fillRect(-L, W - wid * 0.2 - 0.5, 1.5, wid * 0.2);
+  g.restore();
+}
+
+/* 1フレームぶん進める（描く直前に呼ぶ） */
+function stepTraffic(a, dt) {
+  const W = a.W;
+  // ── 国道
+  if (TRAFFIC.road.length < 7 && tRand() < dt * 1.1) {
+    const lane = tRand() < .5 ? 0 : 1;                  // 0=上（左へ）／1=下（右へ）
+    const big = tRand() < .18;
+    TRAFFIC.road.push({ lane, big, col: tPick(CAR_COLORS),
+      x: lane ? -3 : W + 3, want: 1.6 + tRand() * 2.6, spd: 0 });
+  }
+  for (const c of TRAFFIC.road) {
+    const dir = c.lane ? 1 : -1;
+    const len = c.big ? 2.2 : 1.1;
+    /* 追い越さない＝同じ車線の前の車との間合いを見て、速度を落とす */
+    let cap = c.want;
+    for (const o of TRAFFIC.road) {
+      if (o === c || o.lane !== c.lane) continue;
+      const ahead = (o.x - c.x) * dir;                  // 前にいるほど正
+      if (ahead <= 0) continue;
+      const need = len / 2 + (o.big ? 1.1 : 0.55) + 0.5;
+      if (ahead < need) cap = 0;                        // 詰まった＝止まる
+      else if (ahead < need * 2.4) cap = Math.min(cap, o.spd * 0.92);
+    }
+    c.spd += Math.max(-8 * dt, Math.min(2.2 * dt, cap - c.spd));   // 急発進・急停止はしない
+    c.x += dir * c.spd * dt;
+  }
+  TRAFFIC.road = TRAFFIC.road.filter(c => c.x > -6 && c.x < W + 6);
+}
+
+/* 国道の車を描く（ロビー＆駐車場の区画からだけ呼ばれる） */
+function drawTraffic(g, a, ox, oy, scx, scy) {
+  const now = performance.now() / 1000;
+  const dt = Math.min(0.1, TRAFFIC.last ? now - TRAFFIC.last : 0.016);
+  TRAFFIC.last = now;
+  stepTraffic(a, dt);
+
+  const roadY = a.H - 1;
+  const wid = scy * 0.30, len = wid * 2.4;
+  for (const c of TRAFFIC.road) {
+    const py = oy + (roadY + (c.lane ? 0.72 : 0.28)) * scy;
+    drawCar(g, ox + c.x * scx, py, c.big ? len * 2.2 : len, wid, c.lane ? 0 : Math.PI, c.col, c.big);
+  }
+}
+
+/* 案内図の中の1部屋を、上から見下ろした見取り図として描く。
+   その区画のマス目をそのまま縮小し、床・壁・設備・汚れ・客を実データから並べる */
+function drawAreaMini(g, f, a, x, y, w, h, st) {
+  /* 区画ごとに縦横の比率が違うので、比率を保つと札の中に黒い余白ができてしまう。
+     見取り図は「間取りの記号」であって写真ではないので、**札いっぱいに引き伸ばして**埋める。
+     縦横で別々の倍率を持つのはそのため                                              */
+  const scx = w / a.W, scy = h / a.H;
+  const ox = x, oy = y;
+  const back = G.actF;
+  applyArea(f, true);                                // その区画の間取りで色を引く
+
+  g.fillStyle = '#1c1714'; g.fillRect(x, y, w, h);
+  // 床
+  for (let ty = 1; ty < a.H - 1; ty++) {
+    const outdoor = a.park && ty >= a.divideY;
+    const x0 = outdoor ? 0 : 1, x1 = outdoor ? a.W : a.W - 1;
+    for (let tx = x0; tx < x1; tx++) {
+      g.fillStyle = floorColor(tx, ty);
+      g.fillRect(ox + tx * scx, oy + ty * scy, scx + .5, scy + .5);
+    }
+  }
+  // 壁（駐車場のある区画は、屋外に壁が無い）
+  const wallBottom = a.park ? a.divideY : a.H - 1;
+  g.fillStyle = '#5a4436';
+  g.fillRect(ox, oy, a.W * scx, scy);                                 // 上
+  g.fillRect(ox, oy, scx, wallBottom * scy);                          // 左
+  g.fillRect(ox + (a.W - 1) * scx, oy, scx, wallBottom * scy);        // 右
+  if (!a.park) g.fillRect(ox, oy + (a.H - 1) * scy, a.W * scx, scy);  // 下
+  // 浴室と脱衣所の間仕切り（引き戸のぶんだけ空ける）
+  if (a.divideY && !a.park) {
+    g.fillStyle = '#6b533c';
+    g.fillRect(ox + scx, oy + a.divideY * scy - scy * .18, (a.doorX - 1) * scx, scy * .36);
+    g.fillRect(ox + (a.doorX + 1) * scx, oy + a.divideY * scy - scy * .18,
+               (a.W - 2 - a.doorX) * scx, scy * .36);
+  }
+  // 建物の正面（ロビー↔駐車場）と、敷地の下端に走る国道
+  if (a.park) {
+    const ry = oy + (a.H - 1) * scy;
+    g.fillStyle = '#3a3a3c'; g.fillRect(ox, ry, a.W * scx, scy);      // 路面
+    g.strokeStyle = 'rgba(240,230,180,.6)'; g.lineWidth = Math.max(2, scy * .08);
+    g.setLineDash([scx * .5, scx * .4]);
+    g.beginPath(); g.moveTo(ox, ry + scy / 2); g.lineTo(ox + a.W * scx, ry + scy / 2); g.stroke();
+    g.setLineDash([]);
+    g.fillStyle = '#5a4436';
+    g.fillRect(ox, oy + a.divideY * scy - scy * .22, a.W * scx, scy * .44);
+    g.fillStyle = 'rgba(198,232,242,.7)';
+    g.fillRect(ox + (a.doorX - 1) * scx, oy + a.divideY * scy - scy * .3, 3 * scx, scy * .6);
+  }
+
+  /* 設備（舗装は床として塗ってあるので、ここでは描かない）。
+     カテゴリごとの色板で置く＝どこに何系統のものがどう並んでいるかが、形で読める */
+  for (const e of G.equip) {
+    if ((e.f | 0) !== f || EQ[e.id].floorTile) continue;
+    const d = EQ[e.id];
+    const ew2 = ew(e) * scx, eh2 = eh(e) * scy;
+    const px = ox + e.x * scx, py = oy + e.y * scy;
+    const dead = e.cond <= 0 && (CONF.wearPerDay[d.cat] ?? 0) > 0;
+    g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(px + 2, py + 2, ew2, eh2);
+    g.fillStyle = dead ? '#8a3030' : (CH2_TILE_COL[d.cat] || '#7a6a5a');
+    g.fillRect(px + 1, py + 1, ew2 - 2, eh2 - 2);
+    g.strokeStyle = 'rgba(255,255,255,.2)'; g.lineWidth = 1.5;
+    g.strokeRect(px + 1.5, py + 1.5, ew2 - 3, eh2 - 3);
+  }
+
+  // 国道を流れる車（設備の上に重ねる）
+  if (a.park) drawTraffic(g, a, ox, oy, scx, scy);
+
+  // 汚れ
+  for (const d of G.dirts) {
+    if ((d.f | 0) !== f) continue;
+    g.fillStyle = '#5a4630';
+    g.beginPath(); g.ellipse(ox + (d.x + .5) * scx, oy + (d.y + .5) * scy, scx * .22, scy * .16, 0, 0, 7); g.fill();
+  }
+  // 客（いる場所にそのまま点を打つ）
+  for (const c of G.customers) {
+    if ((c.f | 0) !== f) continue;
+    g.fillStyle = (c.type && c.type.sex === 'f') ? '#e29ac0' : '#8ab4e0';
+    g.beginPath(); g.arc(ox + c.px / T * scx, oy + c.py / T * scy, Math.min(scx, scy) * .24, 0, 7); g.fill();
+  }
+  // 主人公（顔だけの姿で、いま居る場所に立つ）
+  if (st.player && G.player)
+    if (onDuty()) drawMiniFace(g, ox + G.player.px / T * scx, oy + G.player.py / T * scy, Math.min(scx, scy) * .62);
+  applyArea(back, true);
+}
+
+/* 案内図の中の主人公＝顔だけ（作者指定）。
+   部屋を歩き回るのを、点ではなく「その人」として見せる。
+   d ＝ 顔の大きさ（マスの6割ほど） */
+function drawMiniFace(g, cx, cy, d) {
+  /* ゲーム本編（drawCharBody）の主人公の頭を、そのまま縮めて描く。
+     本編は頭の半径6・髪は少し上にずらした半円・目は四角・頭に白いタオル、で出来ている。
+     ここで別の描き方をすると「知らない誰か」になってしまうので、数字ごと合わせてある */
+  const R = Math.max(6, d / 2), k = R / 6;
+  g.save();
+  g.translate(cx, cy); g.scale(k, k);
+  g.fillStyle = 'rgba(0,0,0,.30)';                                       // 足元の影
+  g.beginPath(); g.ellipse(0, 7.5, 5.5, 2, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#f2c9a0';                                               // 顔
+  g.beginPath(); g.arc(0, 0, 6, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#2a2a2a';                                               // 髪
+  g.beginPath(); g.arc(0, -1.5, 6, Math.PI, 0); g.fill();
+  g.fillStyle = '#fff';                                                  // 頭に巻いたタオル
+  g.fillRect(-6, -5, 12, 3.5);
+  g.fillStyle = 'rgba(0,0,0,.10)'; g.fillRect(-6, -1.8, 12, 0.6);        // タオルの下端の影
+  g.fillStyle = '#333';                                                  // 目
+  g.fillRect(-3, 0, 1.7, 1.7); g.fillRect(1.5, 0, 1.7, 1.7);
+  g.restore();
+}
+
+function guideRound(c, x, y, w, h, r) {
+  c.beginPath(); c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+
 /* ============ マップ・経路 ============ */
+/* 駐車場は屋外なので、左右に壁が無い（作者指定）。
+   仕切りから下・国道の手前までは、いちばん外の列まで敷地＝歩けるし、物も置ける。
+   第1章には区画が無いので、この関数は常に false ＝ 何も変わらない */
+function inOpenLot(y) {
+  const a = areaDef(G.actF);
+  return !!(a && a.park && y >= a.divideY && y < CONF.H - 1);
+}
 function isWall(x, y) {
-  if (x <= 0 || x >= CONF.W - 1 || y <= 0) return true;
+  // 上壁にも通路がある区画（ロビーの奥／休憩・食堂の浴室側）。
+  // 開いているのは y=0 の1マスだけ。y<0 まで開けると、経路探索が盤外へ流れ出す
+  if (y < 0) return true;
+  /* 上壁の通路。ふつうは1マスだが、**廊下だけは行き先のぶんだけ戸が要る**ので
+     topDoors（x の並び）を持てるようにしてある */
+  if (y === 0) {
+    if (CONF.topDoors) return CONF.topDoors.indexOf(x) < 0;
+    return !(CONF.entranceTop && x === CONF.entranceTop.x);
+  }
   if (y >= CONF.H - 1) return !(x === CONF.entrance.x && y === CONF.entrance.y);
+  if (x <= 0 || x >= CONF.W - 1) return !inOpenLot(y);
   return false;
 }
 function equipAt(x, y, except) {
   for (const it of G.equip) {
-    if (it === except) continue;
+    if (it === except || !inArea(it)) continue;      // 別の区画の設備は、この区画の座標には居ない
+    /* 章を切り替えた直後の1〜2フレームだけ、前の章の盤面が残ったまま
+       設備表（EQ）が入れ替わっていることがある。知らない id は無いものとして飛ばす
+       （ここで落ちると描画ループごと止まって、画面が真っ黒になる） */
+    if (!EQ[it.id]) continue;
+    if (EQ[it.id].floorTile) continue;               // 舗装のような「床そのもの」は、上を歩けるし物も置ける
     if (x >= it.x && x < it.x + ew(it) && y >= it.y && y < it.y + eh(it)) return it;
   }
   return null;
@@ -234,12 +878,25 @@ function walkable(x, y) { return !isWall(x, y) && !equipAt(x, y); }
 function crossBlocked(x1, y1, x2, y2) {
   if (y1 === y2) return false;
   const lo = Math.min(y1, y2), hi = Math.max(y1, y2);
-  if (lo !== CONF.divideY - 1 || hi !== CONF.divideY) return false;
-  return x1 !== CONF.doorX;
+  // 浴室↔脱衣所の引き戸
+  if (lo === CONF.divideY - 1 && hi === CONF.divideY) return x1 !== CONF.doorX;
+  // 浴室↔屋外（外気浴デッキ）の戸。第2章の浴室だけにある
+  if (CONF.outdoorY && lo === CONF.outdoorY - 1 && hi === CONF.outdoorY) return x1 !== CONF.doorX;
+  return false;
 }
 // 引き戸をふさぐ場所（戸の前後2マス）には設備を置けない
 function isDoorway(x, y) {
-  return x === CONF.doorX && (y === CONF.divideY - 1 || y === CONF.divideY);
+  /* 上壁の通路（第2章＝階段・エレベーターへ抜ける戸）の**すぐ内側**も塞げない。
+     ここに券売機ひとつ置くと、その階から誰も出られなくなり、
+     客は金だけ払って帰る（第1章は上壁の通路を持たないので、この行は効かない） */
+  if (y === 1) {
+    if (CONF.topDoors) { if (CONF.topDoors.indexOf(x) >= 0) return true; }
+    else if (CONF.entranceTop && x === CONF.entranceTop.x) return true;
+  }
+  if (x !== CONF.doorX) return false;
+  if (y === CONF.divideY - 1 || y === CONF.divideY) return true;
+  if (CONF.outdoorY && (y === CONF.outdoorY - 1 || y === CONF.outdoorY)) return true;
+  return false;
 }
 
 function findPath(sx, sy, tx, ty) {
@@ -301,7 +958,8 @@ function pathToEquip(e, it) {
    ただし冷水機・扇風機・洗面所は「実際に歩いて行って使う」設備なので、必ず道が要る（PAS_USE） */
 function needsAccess(id) {
   const d = EQ[id];
-  if (PAS_USE_IDS.has(id)) return true;
+  if (d.floorTile) return false;                     // 床そのもの（舗装）は、道が通っている必要がない
+  if (pasUseIds().has(id)) return true;
   return !(d.cap === 0 && (d.pas || id === 'plant1'));
 }
 /* その設備を客が実際に使いに行けるか。手前に立てるマスがあり、かつ“飾り”でないこと */
@@ -310,8 +968,14 @@ function usable(it) { return !it.dead && approachTiles(it).length > 0; }
    置く時点で弾いているので新しく生まれることはないが、
    古いセーブ（ロッカー・洗い場を囲んで置けた頃のもの）には残っていることがある */
 function refreshDead() {
+  // 区画が複数ある章（第2章）は、区画ごとに間取りが違うので1つずつ見ていく
+  const n = areaCount();
+  if (n <= 1) { refreshDeadHere(); return; }
+  forEachArea(() => refreshDeadHere());
+}
+function refreshDeadHere() {
   const reach = reachableSet();
-  for (const it of G.equip)
+  for (const it of areaEquip())
     it.dead = needsAccess(it.id) && !approachTiles(it).some(a => reach.has(a.y * CONF.W + a.x));
 }
 function deadEquip() { return G.equip.filter(e => e.dead); }
@@ -338,19 +1002,33 @@ function snapAnchor(id, rot, tx, ty, moving) {
   }
   // どう置いても無理／1×1のものは、枠内に収めた位置をそのまま返す（赤で出す）
   const wm = isWallMount(id) && w === 1 && h === 1;
-  const gx = wm ? clamp(tx, 0, CONF.W - 1) : clamp(tx, 1, CONF.W - 1 - w);
   const gy = clamp(ty, 1, CONF.H - 1 - h);
+  // 駐車場（壁の無い屋外）は、いちばん外の列まで寄せられる
+  const lot = inOpenLot(gy) && inOpenLot(gy + h - 1);
+  const gx = wm ? clamp(tx, 0, CONF.W - 1)
+           : lot ? clamp(tx, 0, CONF.W - w)
+           : clamp(tx, 1, CONF.W - 1 - w);
   return { gx, gy, ok: placementValid(id, gx, gy, moving, rot) };
 }
 /* その設備をそのマスに置けるか（床か、壁掛けなら左右の壁か） */
 function surfaceOK(id, gx, gy, w, h) {
   if (isWallMount(id) && w === 1 && h === 1 && isInnerWall(gx, gy)) return true;
-  return gx >= 1 && gy >= 1 && gx + w <= CONF.W - 1 && gy + h <= CONF.H - 1;
+  // 駐車場（壁の無い屋外）は、いちばん外の列まで使える
+  const lot = inOpenLot(gy) && inOpenLot(gy + h - 1);
+  const xMin = lot ? 0 : 1, xMax = lot ? CONF.W : CONF.W - 1;
+  return gx >= xMin && gy >= 1 && gx + w <= xMax && gy + h <= CONF.H - 1;
 }
 
 /* 置ける部屋か（room:'bath'=浴室のみ / 'datsui'=脱衣所のみ / 無指定=どちらでも） */
-function roomOK(id, gy) {
-  const r = EQ[id].room;
+function roomOK(id, gy, h) {
+  const d = EQ[id];
+  const oy = CONF.outdoorY || 0;
+  // 屋外にしか置けないもの（外気浴デッキ・テントサウナ・露天・駐車場のもの）
+  if (d.outdoor) return oy ? (gy + (h || 1) <= oy)
+                           : (CONF.areas ? gy >= CONF.divideY : true);   // 駐車場のある区画は仕切りより下が屋外
+  // 屋外ゾーンには、屋外用でないものは置けない
+  if (oy && gy < oy) return false;
+  const r = d.room;
   if (r === 'bath') return gy < CONF.divideY;
   if (r === 'datsui') return gy >= CONF.divideY;
   return true;
@@ -381,13 +1059,16 @@ function saunaDoorTile(it) {
 }
 function placeCheck(id, gx, gy, moving, rot) {
   const w = ew(id, rot), h = eh(id, rot);
+  // 章ごとの追加の関門（第2章＝基礎工事が済むまで浴室に置けない）
+  const blocked = chHook('placeBlock', id, gx, gy);
+  if (blocked) return { ok: false, why: blocked };
   if (!surfaceOK(id, gx, gy, w, h)) return { ok: false, why: null };
   const onWall = isInnerWall(gx, gy);
   for (let x = gx; x < gx + w; x++)
     for (let y = gy; y < gy + h; y++)
       if ((!onWall && isWall(x, y)) || equipAt(x, y, moving) || isDoorway(x, y)) return { ok: false, why: null };
   // 既にあるサウナの入り口（札の前1マス）をふさぐ置き方はできない
-  for (const s of G.equip) {
+  for (const s of areaEquip()) {
     if (s === moving || EQ[s.id].cat !== 'sauna') continue;
     const d = saunaDoorTile(s);
     if (d.x >= gx && d.x < gx + w && d.y >= gy && d.y < gy + h)
@@ -403,7 +1084,7 @@ function placeCheck(id, gx, gy, moving, rot) {
   // 間仕切りをまたぐ設備は置けない（浴室と脱衣所は別の部屋）
   if (gy < CONF.divideY && gy + h > CONF.divideY) return { ok: false, why: null };
   // 置ける部屋の指定（浴室だけ／脱衣所だけ）
-  if (!roomOK(id, gy)) return { ok: false, why: null };
+  if (!roomOK(id, gy, h)) return { ok: false, why: null };
   // 営業中は客が立っているマスに置けない
   if (G.phase === 'biz') {
     for (const c of G.customers) {
@@ -418,15 +1099,15 @@ function placeCheck(id, gx, gy, moving, rot) {
   const cut = (reach, it) => !approachTiles(it).some(a => reach.has(a.y * CONF.W + a.x));
   const before = reachableSet();
   const wasDead = new Set();
-  for (const it of G.equip)
+  for (const it of areaEquip())
     if (it !== moving && needsAccess(it.id) && cut(before, it)) wasDead.add(it);
-  const ghost = { uid: -1, id, x: gx, y: gy, rot };
+  const ghost = { uid: -1, id, x: gx, y: gy, rot, f: G.actF };
   const saved = moving ? { x: moving.x, y: moving.y, rot: moving.rot } : null;
   if (moving) { moving.x = gx; moving.y = gy; moving.rot = rot; } else G.equip.push(ghost);
   const reach = reachableSet();
   let self = false;
   const lost = [];                                         // 使えなくなる“既にある設備”そのもの（画面で印を付ける）
-  for (const it of G.equip) {
+  for (const it of areaEquip()) {
     if (!needsAccess(it.id) || wasDead.has(it)) continue;   // ポスターや観葉植物は、隅に置けて当たり前
     if (!cut(reach, it)) continue;
     if (it === ghost || it === moving) self = true; else lost.push(it);
@@ -456,13 +1137,28 @@ function reachableSet() {
 }
 
 function bandai() { return G.equip.find(e => e.id === 'bandai'); }
+/* ============ 番台まわりの立ち位置 ============
+   第1章の番台は2マスで、「客は右・主人公は上」で自然に向かい合う。
+   第2章の受付カウンターは**3マス幅**なので、この決め方だと
+   客が右端・主人公が左端に立ち、**カウンターの端と端で金を渡す**絵になっていた。
+   章が deskLayout を持っていれば、客・主人公・2人目・行列をまとめて章側が決める。
+   持たない章（第1章）は下の従来どおりの計算＝1マスも動かない            */
+function deskLayout() { return chHook('deskLayout') || null; }
 function bandaiFront() {
+  const L = deskLayout(); if (L && L.pay) return L.pay;
   const b = bandai();
   const ts = approachTiles(b);
   ts.sort((p, q) => (q.x - b.x) - (p.x - b.x));   // 右側優先
   return ts[0] || { x: CONF.entrance.x, y: CONF.entrance.y - 1 };
 }
+/* 主人公の持ち場。番台のある区画なら番台の横、ほかの部屋にいる間はその部屋の入口の内側 */
+function playerHome() {
+  const b = bandai();
+  if (b && (b.f | 0) === G.actF) return playerSpot();
+  return { x: CONF.entrance.x, y: CONF.entrance.y - 1 };
+}
 function playerSpot() {
+  const L = deskLayout(); if (L && L.staff) return L.staff;
   const b = bandai(), front = bandaiFront();
   const ts = approachTiles(b).filter(t => !(t.x === front.x && t.y === front.y));
   ts.sort((p, q) => (p.y - b.y) - (q.y - b.y));   // 上側優先
@@ -473,26 +1169,82 @@ function hasCat(cat) { return G.equip.some(e => EQ[e.id].cat === cat && (EQ[e.id
 function hasEquip(id) { return G.equip.some(e => e.id === id); }
 /* 故障していない現物があるか（置くだけで効く設備＝pas はこれで判定する） */
 function hasWorking(id) { return G.equip.some(e => e.id === id && e.cond > 0); }
+/* ============ 「その働きをする設備」があるか ============
+   ⚠ **設備の ID を名指しすると、章が変わった瞬間に静かに効かなくなる。**
+   実測（2026-08-06）：第2章の冷水機は `y_cooler` なのに game.js は `'cooler'` を探していたので、
+   **何台建てても「給水が無い」判定**＝サウナ客が全員 −2 を食らい続け、
+   「冷水機を置け」というヒントも永久に出続けていた。ミスト（`sauna_mist`）も同じ。
+
+   章が `CONF.roleIds` で名前の一覧を持っていればそれを見る。
+   持たない章（第1章）は、これまでどおり第1章の ID ひとつを見る＝挙動は変わらない */
+function roleIds(role, ch1Id) {
+  return (CONF.roleIds && CONF.roleIds[role]) || [ch1Id];
+}
+function hasRole(role, ch1Id) {
+  return roleIds(role, ch1Id).some(id => hasWorking(id));
+}
+/* **そもそもカタログに在るか**（買えるか）。建ててあるかは見ない。
+   置ける物が無いのに欲しがらせると、**直しようのない不満**になる＝
+   その役目の設備が1つもカタログに無い章では、誰もそれを欲しがらない。
+   ＝章に塩サウナを足した日から、勝手に欲しがる客が現れる（設定を直さなくていい） */
+function roleBuildable(role, ch1Id) {
+  return roleIds(role, ch1Id).some(id => !!EQ[id]);
+}
+/* マッサージ機だけは「種類(cat)」ではなく**その設備そのもの**を指す予定として扱う
+   （脱衣所のロッカーや棚と混ざらないように）。ID の名指しは章を跨ぐと壊れるので、
+   ここも役目で引く＝第2章の `y_massage` / `y_x_massage` が同じ扱いになる */
+function isMassage(id) { return roleIds('massage', 'massage').indexOf(id) >= 0; }
+/* 硬貨を入れて使う設備の単価（マッサージ機）。設備ごとに違ってよい
+   （第2章：フロントの機械は10分¥200、ラウンジの椅子は¥100） */
+function coinPrice(id) { return (EQ[id] && EQ[id].coin) || CONF.massagePrice || 100; }
 /* 洗面所があるか。親父の代からの「古い洗面台」も、洗面所として数える
    （ドライヤーも化粧水も、あの台の上に置ける＝設備としては同じもの） */
+/* ⚠ ここは**第1章のIDべた書き**だったので、第2章では洗面台（d2_sink）を置いても
+   hasSink() が永久に false ＝ 運営メニューのドライヤーと化粧水が一生「🔒 洗面所の設置で解放」
+   のままだった。章ごとの表（CONF.sinkIds）があればそちらを見る                */
 const SINK_IDS = ['sink', 'sink_old'];
-function hasSink() { return SINK_IDS.some(hasWorking); }
+function sinkIds() { return CONF.sinkIds || SINK_IDS; }
+function hasSink() { return sinkIds().some(hasWorking); }
+/* 「ちゃんとした洗面所」か「親父の代の古い洗面台」か。評判の【脱衣所】は
+   この2つを別々に点にしているが、そこだけ第1章のIDを直書きしていたので、
+   第2章の `y_sink` を置いても 1.2点が永久に入らなかった（100日通しで実測）。
+   古いかどうかは設備の `old` で見る＝第1章の並び（sink / sink_old）と同じ答えになる */
+function hasGoodSink() { return sinkIds().some(id => EQ[id] && !EQ[id].old && hasWorking(id)); }
+function hasOldSink()  { return sinkIds().some(id => EQ[id] &&  EQ[id].old && hasWorking(id)); }
 /* トイレ（作者指定）。親父の代からのボットン便所も「トイレはある」に数えるが、
    洋式かどうかは別に見る＝ボットンのままだと、使った客がその都度文句を言う */
+/* ⚠ ここも**第1章のIDべた書き**だった。第2章のウォシュレット（`y_toilet`）を
+   何台置いても hasToilet() が false ＝ **全ての客が満足度−5**、しかも
+   「トイレは無いの!?」が永久に出続けていた（100日通しで実測・1日43件）。
+   章ごとの表（CONF.toiletIds / toiletNewIds）があればそちらを見る          */
 const TOILET_IDS = ['toilet_old', 'toilet1', 'toilet_multi', 'toilet2'];
 const TOILET_NEW = ['toilet1', 'toilet_multi', 'toilet2'];
-function hasToilet() { return TOILET_IDS.some(hasWorking); }
-function hasNewToilet() { return TOILET_NEW.some(hasWorking); }
+function toiletIds()    { return CONF.toiletIds    || TOILET_IDS; }
+function toiletNewIds() { return CONF.toiletNewIds || TOILET_NEW; }
+function hasToilet() { return toiletIds().some(hasWorking); }
+function hasNewToilet() { return toiletNewIds().some(hasWorking); }
+/* 自販機。第1章は牛乳とドリンクの2台。章が表を持てばそちらを見る
+   （第2章は `y_vend` の1台＝脱衣所の点も、出る不満も、その1台ぶんになる） */
+const VEND_IDS = ['vend1', 'vend2'];
+function vendIds() { return (CONF.roleIds && CONF.roleIds.vend) || VEND_IDS; }
+/* 小綺麗に見せる緑。第1章は `plant1`、第2章は4Fラウンジの `y_x_plant`。
+   ここを直書きしていたので、第2章は**清潔度が8点で頭打ちのまま**、
+   1株ごとの満足度（最大+6）も一度も入っていなかった                       */
+function plantIds() { return roleIds('plant', 'plant1'); }
 /* 熱波師が店にいるか（フェーズ4：決戦仕様のサウナを組むと、黒田が連れてくる） */
 /* 熱波師が“いま振れる”か。台（決戦仕様の一台）が据わるまでは、来ていても振れない＝効果も出ない */
-function nappaOn() { return !!(G.nappa && G.nappa.hired) && hasWorking('sauna_sp'); }
+function nappaOn() { return !!(G.nappa && G.nappa.hired) && hasRole('nappa', 'sauna_sp'); }
 /* 置くだけで効く設備（洗面所・体重計・テレビ・冷水機…）を種類ごとに1つだけ数える */
 /* 小綺麗に見せる備品（観葉植物など）は、汚れの出かたを少し抑える。
    置いた台数ぶん効くが、効きすぎると掃除が要らなくなるので5割で打ち止め */
-function cleanFactor() {
+/* f＝どの区画の汚れやすさを聞いているか。省略すると、これまでどおり主人公のいる区画。
+   区画が1つしかない章（第1章）はどちらでも同じ値になる */
+function cleanFactor(f) {
   let cut = 0;
   for (const e of G.equip) { const d = EQ[e.id]; if (d.clean && e.cond > 0) cut += d.clean; }
-  return Math.max(0.5, 1 - cut);
+  // 第2章：担当が遅刻していて無人の部屋は、汚れが溜まりやすい
+  const mul = chHook('dirtMul', f == null ? G.actF : (f | 0)) ?? 1;
+  return Math.max(0.5, 1 - cut) * mul;
 }
 function passiveEquips() {
   const seen = {}, out = [];
@@ -550,7 +1302,20 @@ function dailyWater(guests) {
    平日・休日の倍率は「週の平均がちょうど1.0」になるよう正規化してから掛ける＝
    曜日を入れても週あたりの客足の総量は変わらず、日ごとの濃淡だけがつく */
 const WEEK = ['月', '火', '水', '木', '金', '土', '日'];
-function dayOfWeek(d) { return ((d ?? G.day) - 1) % 7; }
+/* ============ 主人公の持ち場（作者指定 2026-08-08）============
+   章が `playerArea` を持てばそちらに従う＝**第2章はバイト管理画面で動かせる。**
+   7階建てなので「主人公は常に1F受付」だと、上の階が手薄なときに打つ手が1つ足りない。
+   フックの無い章＝これまでどおり `CONF.playerArea`（第1章は区画が1つなので常に 0） */
+function playerArea() {
+  const h = chHook('playerArea');
+  return h == null ? (CONF.playerArea ?? 0) : (h | 0);
+}
+function dayOfWeek(d) {
+  // 第2章は1週ずつ進み、その週に「何曜日を営業するか」をプレイヤーが選ぶ
+  const h = chHook('dayOfWeek', d);
+  if (h !== undefined) return h;
+  return ((d ?? G.day) - 1) % 7;
+}
 // その日以降で最初に来る月曜（＝dayOfWeek 0）の日番号。治療費を毎週月曜に揃えるのに使う
 function mondayOnOrAfter(d) { let x = Math.max(d || 1, 1); while (dayOfWeek(x) !== 0) x++; return x; }
 function dayLabel(d) { return WEEK[dayOfWeek(d)]; }
@@ -593,7 +1358,9 @@ const ROACH_SPD = 58;                 // 実時間1秒あたりに進むピク�
 // 浴室の、客も設備も無いマス（ゴキブリはここを歩き回る）
 function roachTiles(noDirt) {
   const out = [];
-  for (let y = 1; y < CONF.divideY; y++)
+  // 仕切りより上＝屋内。休憩スペースや食堂のように仕切りが無い区画は、部屋ぜんぶが歩く範囲
+  const bottom = CONF.divideY || CONF.H - 1;
+  for (let y = 1; y < bottom; y++)
     for (let x = 1; x < CONF.W - 1; x++) {
       if (!walkable(x, y)) continue;
       if (noDirt && G.dirts.some(d => d.x === x && d.y === y)) continue;
@@ -601,19 +1368,35 @@ function roachTiles(noDirt) {
     }
   return out;
 }
+/* いまその区画に居る1匹。第1章は区画が1つしか無いので、これまでどおり「店に1匹」 */
+function roachAt(f) { return G.roaches.find(r => (r.f | 0) === (f | 0)) || null; }
+function removeRoach(r) { const i = G.roaches.indexOf(r); if (i >= 0) G.roaches.splice(i, 1); }
+
 function updateRoach(rDt) {
-  if (G.phase !== 'biz' && G.phase !== 'prep') { G.roach = null; return; }
-  if (dirtCounts().thick < ROACH_FROM) { G.roach = null; for (const d of G.dirts) d.roach = false; return; }
+  if (G.phase !== 'biz' && G.phase !== 'prep') { G.roaches = []; return; }
+  forEachArea(f => updateRoachIn(f, rDt));
+}
+/* ゴキブリは**区画ごと**に湧く。汚れの数も、歩き回る範囲も、その区画のぶんだけ数える。
+   店ぜんぶの合計で数えると、5区画あるだけで開店初日から湧くことになってしまう */
+function updateRoachIn(f, rDt) {
+  const mine = G.dirts.filter(d => (d.f | 0) === (f | 0));
+  let thick = 0;
+  for (const d of mine) if (isThickDirt(d)) thick++;
+  if (thick < ROACH_FROM) {
+    const gone = roachAt(f); if (gone) removeRoach(gone);
+    for (const d of mine) d.roach = false;
+    return;
+  }
   /* 仕留めた直後はしばらく出てこない（叩いた端から湧いたら、ずっと追いかけ回すことになる）。
      ここは実時間の秒。最速だと1日が50秒ほどなので、長く取りすぎると
      「濃い汚れが5つ以上あるのに、何日も1匹も出ない」ことになる（実際そうなっていた） */
-  if (G.roachCool > 0) { G.roachCool -= rDt; return; }
-  if (!G.roach) {
+  if (G.roachCool[f] > 0) { G.roachCool[f] -= rDt; return; }
+  if (!roachAt(f)) {
     const start = pick(roachTiles(true) || []) || pick(roachTiles(false));   // 汚れの無いマスから現れる
     if (!start) return;
-    G.roach = { px: start.x * T + T / 2, py: start.y * T + T / 2, tx: start.x, ty: start.y, wait: 0 };
+    G.roaches.push({ f, px: start.x * T + T / 2, py: start.y * T + T / 2, tx: start.x, ty: start.y, wait: 0 });
   }
-  const r = G.roach;
+  const r = roachAt(f);
   const gx = r.tx * T + T / 2, gy = r.ty * T + T / 2;
   const dx = gx - r.px, dy = gy - r.py, dist = Math.hypot(dx, dy);
   if (dist < 1.5) {
@@ -632,13 +1415,13 @@ function updateRoach(rDt) {
     r.dir = dx >= 0 ? 1 : -1;
   }
   // いま乗っている汚れを「最優先で拭く」印にする
-  for (const d of G.dirts) d.roach = (d.x === r.tx && d.y === r.ty);
+  for (const d of mine) d.roach = (d.x === r.tx && d.y === r.ty);
 }
-function roachCount() { return G.roach ? 1 : 0; }
+function roachCount() { return G.roaches.length; }
 /* 掃除しきった瞬間、そのマスの周り1マス以内にゴキブリがいたら仕留める（作者指定）。
    「バシッ！」と一発、跡だけ残して消える。次に汚れが5つを超えれば、また別の1匹が現れる */
 function killRoachNear(w, tile) {
-  const r = G.roach;
+  const r = roachAt(w ? w.f : G.actF);
   if (!r || !tile) return;
   if (Math.abs(r.tx - tile.x) > 1 || Math.abs(r.ty - tile.y) > 1) return;
   killRoach(w, tile);
@@ -646,35 +1429,41 @@ function killRoachNear(w, tile) {
 /* その場で仕留める。ゴキブリを追いかけて追いついた時（task:'roach'）と、
    すぐそばの汚れを拭ききった時（killRoachNear）の両方から呼ばれる */
 function killRoach(w, tile) {
-  const r = G.roach;
+  const f = (w ? w.f : G.actF) | 0;
+  const r = roachAt(f);
   if (!r) return;
   tile = tile || { x: r.tx, y: r.ty };
-  G.roachSplat = { x: r.px, y: r.py, t: 1.4 };
-  G.roach = null;
-  G.roachCool = rand(8, 16);             // 次の1匹が出てくるまでの間（実時間の秒）
-  for (const d of G.dirts) d.roach = false;
-  addSparkle(tile.x * T + T / 2, tile.y * T + T / 2);
-  Sfx.play('fix');
-  floaters.push({ x: tile.x * T + T / 2, y: tile.y * T + T / 2 - 12, text: 'バシッ！', t: 1.6 });
+  G.roachSplats.push({ f, x: r.px, y: r.py, t: 1.4 });
+  removeRoach(r);
+  G.roachCool[f] = rand(8, 16);           // 次の1匹が出てくるまでの間（実時間の秒）
+  for (const d of G.dirts) if ((d.f | 0) === f) d.roach = false;
+  if (f === (G.viewF | 0)) {              // 見ていない区画の演出は出さない（音と跡だけが宙に浮く）
+    addSparkle(tile.x * T + T / 2, tile.y * T + T / 2);
+    Sfx.play('fix');
+    floaters.push({ x: tile.x * T + T / 2, y: tile.y * T + T / 2 - 12, text: 'バシッ！', t: 1.6 });
+  }
   if (w) bubble(w, pick(w.kind === 'player' ? LINES.roachKillMe : LINES.roachKill), 3.6);
   log('🪳 ゴキブリを仕留めた。……こいつが出る前に、掃除の手を増やそう');
 }
-// 仕留めたあとの跡（すぐ消える）
+// 仕留めたあとの跡（すぐ消える）。いま見ている区画のぶんだけ描く
 function drawRoachSplat(rDt) {
-  const sp = G.roachSplat; if (!sp) return;
-  const a = clamp(sp.t / 1.4, 0, 1);
-  ctx.save(); ctx.globalAlpha = a * 0.8;
-  ctx.fillStyle = '#2b211a';
-  ctx.beginPath(); ctx.ellipse(sp.x, sp.y, 5.5 - a * 1.5, 3 - a * 0.8, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#1e1712'; ctx.lineWidth = 0.9;
-  for (let i = 0; i < 6; i++) {                       // 潰れて飛び散った脚
-    const ang = i * Math.PI / 3 + 0.4;
-    ctx.beginPath(); ctx.moveTo(sp.x + Math.cos(ang) * 3, sp.y + Math.sin(ang) * 2);
-    ctx.lineTo(sp.x + Math.cos(ang) * (6 + (1 - a) * 3), sp.y + Math.sin(ang) * (4 + (1 - a) * 2)); ctx.stroke();
+  for (let i = G.roachSplats.length - 1; i >= 0; i--) {
+    const sp = G.roachSplats[i];
+    sp.t -= rDt;
+    if (sp.t <= 0) { G.roachSplats.splice(i, 1); continue; }
+    if ((sp.f | 0) !== (G.actF | 0)) continue;
+    const a = clamp(sp.t / 1.4, 0, 1);
+    ctx.save(); ctx.globalAlpha = a * 0.8;
+    ctx.fillStyle = '#2b211a';
+    ctx.beginPath(); ctx.ellipse(sp.x, sp.y, 5.5 - a * 1.5, 3 - a * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#1e1712'; ctx.lineWidth = 0.9;
+    for (let k = 0; k < 6; k++) {                       // 潰れて飛び散った脚
+      const ang = k * Math.PI / 3 + 0.4;
+      ctx.beginPath(); ctx.moveTo(sp.x + Math.cos(ang) * 3, sp.y + Math.sin(ang) * 2);
+      ctx.lineTo(sp.x + Math.cos(ang) * (6 + (1 - a) * 3), sp.y + Math.sin(ang) * (4 + (1 - a) * 2)); ctx.stroke();
+    }
+    ctx.restore();
   }
-  ctx.restore();
-  sp.t -= rDt;
-  if (sp.t <= 0) G.roachSplat = null;
 }
 function dirtCounts() {
   let thin = 0, thick = 0;
@@ -684,8 +1473,10 @@ function dirtCounts() {
 function oldDirtCount() { return dirtCounts().thick; }
 
 /* ============ エンティティ ============ */
-function makeEntity(x, y, spd) {
-  return { px: x * T + T / 2, py: y * T + T / 2, path: null, spd, moving: false, bub: null, wob: Math.random() * 9 };
+function makeEntity(x, y, spd, f) {
+  // f＝いる区画（第1章は常に0）。人は区画をまたいで動くので、本人が今どこに居るかを持たせる
+  return { px: x * T + T / 2, py: y * T + T / 2, path: null, spd, moving: false, bub: null,
+           wob: Math.random() * 9, f: (f === undefined ? (G.actF | 0) : f) };
 }
 function stepMove(e, dt) {
   e.moving = false;
@@ -694,6 +1485,24 @@ function stepMove(e, dt) {
   const n = e.path[0], tx = n.x * T + T / 2 + (n.ox || 0), ty = n.y * T + T / 2 + (n.oy || 0);
   const dx = tx - e.px, dy = ty - e.py, dist = Math.hypot(dx, dy), step = e.spd * dt;
   e.moving = true;
+  /* 歩かされた距離＝導線の悪さの目安（客の不満の判定に使う）。
+     章が「ここは数えない」と言えば数えない＝第2章はエレベーターで階を上下するぶんを外し、
+     **浴室の階で歩いたぶんだけ**を見る（そうしないと配置と無関係に基準を超える）。
+
+     ⚠ **数え方が2つある**（第1章セッションの指摘 8/9）。
+       もとの数え方は「到着しなかったとき」だけ足していたので、次のマスにその1フレームで
+       着いてしまうと歩数が丸ごと落ちる＝**フレームの粗さで距離が変わる。**
+       実測（同じ店・同じ日）：dt を変えると中央値が 0／4／24／21 と動く。
+       重い端末ほど文句が減る、という形で出る。
+
+       `CONF.walkExact` を立てた章だけ、**到着したぶんも足す**＝実際に動いた距離になる。
+       ⚠ **第1章では立てないこと。** 直したほうが正しいのだが、歩数が変わると満足度と
+         売上が動く（`guardAll` で 売上 29,700 → 30,300 のズレを実測）。
+         第1章は基準95に一度も届かない（実測：最長51マス）ので、直す実利も無い    */
+  if (!chHook('noWalkCount', e)) {
+    const moved = dist <= step ? (CONF.walkExact ? dist : 0) : step;
+    if (moved) e.walkPx = (e.walkPx || 0) + moved;
+  }
   if (dist <= step) {
     e.px = tx; e.py = ty; e.path.shift();
     // 最後の1マスに着いた瞬間に「歩いている」を降ろす。ここを立てたままにしていたので、
@@ -702,7 +1511,6 @@ function stepMove(e, dt) {
     return false;
   }
   e.px += dx / dist * step; e.py += dy / dist * step;
-  e.walkPx = (e.walkPx || 0) + step;      // 歩かされた距離＝動線の悪さの目安（客の不満の判定に使う）
   return false;
 }
 /* その客が「今なにをしているか」の指紋。これが変わったら吹き出しは場違いになるので消す。
@@ -715,10 +1523,14 @@ function bubKey(e) {
    実時間だけで管理すると、速度MAX（16分/秒）では3.4秒＝ゲーム内54分。
    その間に客は番台→脱衣所→浴室→サウナまで歩き、セリフだけが頭に残る（作者報告のバグ） */
 const BUB_GAME_MIN = 20;                                             // 吹き出しが持つゲーム内の分数
-function bubble(e, text, dur) { e.bub = { text, t: dur || 3.4, gm: BUB_GAME_MIN, key: bubKey(e) }; }
+/* `f` ＝**その台詞を言った区画**。吹き出しは数秒残るので、言ったあとに階を移ると、
+   移った先の階の声として拾われてしまう（第2章の館内案内図で、
+   受付の「よろしく〜」が2階に、風呂上がりの「ととのった〜！！」が
+   カプセル階に出ていた）。区画が1つしかない章では、常に 0 ＝これまでと同じ */
+function bubble(e, text, dur) { e.bub = { text, t: dur || 3.4, gm: BUB_GAME_MIN, key: bubKey(e), f: e.f | 0 }; }
 // 運営メニューで直せる不満は赤枠で長めに出す＝プレイヤーへの改善サイン
 function hintBubble(e, text) {
-  e.bub = { text, t: 5.0, gm: BUB_GAME_MIN * 1.5, hint: true, key: bubKey(e) };
+  e.bub = { text, t: 5.0, gm: BUB_GAME_MIN * 1.5, hint: true, key: bubKey(e), f: e.f | 0 };
   // 赤枠の吹き出し＝運営で直せる不満。画面直下のお知らせ欄にも赤文字で流す
   if (e.kind === 'cust' && e.type) logGripe(e.type.name, text);
 }
@@ -728,7 +1540,7 @@ function hintBubble(e, text) {
 function stuckBubble(e, text) {
   if (e.stuckCd > 0) return;
   e.stuckCd = 6.0;
-  e.bub = { text, t: 5.0, gm: BUB_GAME_MIN * 1.5, hint: true, stuck: true, key: bubKey(e) };
+  e.bub = { text, t: 5.0, gm: BUB_GAME_MIN * 1.5, hint: true, stuck: true, key: bubKey(e), f: e.f | 0 };
   if (!G.stuckLogged) { G.stuckLogged = true; log(`⚠ ${text}（通路が塞がっている）`); }
 }
 // 設備名つきで「たどり着けない」と言わせる
@@ -739,28 +1551,93 @@ function stuckAt(e, name) { stuckBubble(e, `${name}にたどり着けない`); }
    大人料金との連動はやめた＝「大人を高くすれば子どもも高くできる」より、
    「子どもから金を取るなら、子どもが喜ぶものを置け」のほうが素直で、置き場所の選択にもなる */
 function kidsGoods() { return G.equip.filter(e => EQ[e.id].kids && e.cond > 0 && usable(e)); }
-function kidFeeCap() { return KID_FEES[clamp(kidsGoods().length, 0, KID_FEES.length - 1)]; }
+/* 子供料金の上限。
+   第1章＝**子ども向けの備品の数**だけで決まる（[¥100,¥200,¥300]）。
+   `kidFeeTiers` を持つ章（第2章）＝**評判と備品の数の両方**が要る。
+   備品を並べただけでは上がらないし、評判だけでも上がらない＝
+   「子どもに何をしてあげたか」と「店として認められているか」が揃って初めて値上げできる */
+function kidFeeCap() {
+  const tiers = CONF.kidFeeTiers;
+  if (tiers) {
+    const n = kidsGoods().length;
+    let v = tiers[0][2];
+    for (const [rep, need, price] of tiers) if (G.rep >= rep && n >= need) v = price;
+    return v;
+  }
+  return KID_FEES[clamp(kidsGoods().length, 0, KID_FEES.length - 1)];
+}
+/* 次の段に上がるには何が足りないか（運営メニューの一行説明）。届いていれば null */
+function kidFeeNext() {
+  const tiers = CONF.kidFeeTiers;
+  if (!tiers) {
+    const n = kidsGoods().length;
+    return n >= KID_FEES.length - 1 ? null : { price: KID_FEES[n + 1], rep: 0, need: n + 1 };
+  }
+  const n = kidsGoods().length;
+  for (const [rep, need, price] of tiers) {
+    if (G.rep >= rep && n >= need) continue;
+    return { price, rep: G.rep < rep ? rep : 0, need: n < need ? need : 0 };
+  }
+  return null;
+}
 function kidFeeOK() { return (G.opts.kidFee || KID_FEES[0]) <= kidFeeCap(); }
 let custId = 0;
 /* forceKey を渡すと、その客タイプで1人だけ湧かせる（親のあとに続く子ども用） */
+/* 来店する客層の重み。
+   第1章はここの表（従来の値）をそのまま使う＝挙動は1ミリも変わらない。
+   第2章は TYPES2 の各客に w（基本の重み）と wSauna（サウナがある時の上乗せ）を書いておけば、
+   この表を書き換えずに客層をまるごと入れ替えられる */
+const LEGACY_CUST_W = { jisan: 26, oyaji: 24, obachan: 22, salaryman: 20, wakamono: 14,
+                        ol: 12, kinpatsu: 14, yakuza: 9, oyako: 24, kodomo: 0 };
+const LEGACY_CUST_W_SAUNA = { oyaji: 6, salaryman: 14, wakamono: 16, ol: 6, kinpatsu: 8, yakuza: 6 };
+function custWeight(k) {
+  const t = TYPES[k] || {};
+  let w = (t.w !== undefined) ? t.w : (LEGACY_CUST_W[k] || 0);
+  if (hasCat('sauna')) w += (t.wSauna !== undefined) ? t.wSauna : (LEGACY_CUST_W_SAUNA[k] || 0);
+  /* 章が「いま何時か」「その層にどれだけ支持されているか」で重みを動かす（第2章）。
+     ・時間帯　… 夕方は老人と子連れ、19〜21時は仕事帰り、終電後は飲んだ帰り
+     ・層の支持… その層を満足させた日が続けば、その層が増える／裏切れば減る
+     フックを持たない章（第1章）は掛け算が起きない＝挙動は1ミリも変わらない */
+  const mul = chHook('custWeightMul', k);
+  if (mul !== undefined && mul !== null) w = Math.max(0, w * mul);
+  return w;
+}
+
+/* その客タイプの後ろに続く子ども（いなければ null）。
+   第1章の TYPES は据え置きなので、oyako だけは名前で拾う */
+function kidOf(k) {
+  const t = TYPES[k] || {};
+  return t.withKid || (k === 'oyako' ? 'kodomo' : null);
+}
+
 function spawnCustomer(forceKey) {
   // 夕凪湯は男湯：menOnlyの間は男性客だけが来る（女性タイプは女湯・新店で解放）
   // 「刺青・ヤクザお断り」中は強面客は普通には来店しない（代わりにみかじめ料の来訪がある）
   const keys = Object.keys(TYPES).filter(k =>
-    (!CONF.menOnly || TYPES[k].sex === 'm') && !(G.opts.banYakuza && k === 'yakuza')
+    // 「お断り」の対象も**名前ではなく `tattoo`**で見る（章が変わっても効き続ける）
+    (!CONF.menOnly || TYPES[k].sex === 'm') && !(G.opts.banYakuza && TYPES[k].tattoo)
     // 子どもはひとりでは来ない（作者指定）＝必ず親のあとに続けて湧かせる
-    && k !== 'kodomo'
+    && !TYPES[k].kid
     // 子連れの家族は「刺青・ヤクザお断り」を掲げ、子供料金が高すぎない店にだけ来る（作者指定）
-    && !(k === 'oyako' && !(G.opts.banYakuza && kidFeeOK())));
+    /* ※第2章は**この関門を持たない**（作者決定 8/5）。
+         第1章の「子連れは刺青お断りの店にしか来ない」は**来る／来ない**の関門だが、
+         第2章では**来たうえで、居合わせたら評価が下がる**（yYakuzaGripe＝子連れが最大）。
+         第1章の書き方のままだと `banYakuza` の既定が false なので、
+         第2章では**子連れ客が一度も来なかった**（子供料金も子供向け設備も空回り）。
+         関門を2つに割り、章が札を持っていれば前半を飛ばす                     */
+    && !(kidOf(k) && !CONF.kidsWithoutBan && !G.opts.banYakuza)
+    && !(kidOf(k) && !kidFeeOK())
+    // 章ごとの「そもそも来られるか」（第2章＝大型車スペースが無いとトラック運転手は来ない等）
+    && (chHook('canVisit', k) !== false));
   // サウナがあるとサウナ好きが来やすい
   // ※TYPES の全キーぶん必ず書くこと。1つでも欠けると重みの合計が NaN になり、
   //   抽選が回らず keys[0]（＝常連のじいさん）だけが延々と来店してしまう
   // 夕凪湯は男性専用（CONF.menOnly=true で女性タイプは上のkeysから除外済み）。
   // obachan/ol の重みは第2章（menOnly:false＝女湯解放）用に残してある＝消すと解放時にNaNで抽選が壊れる
-  const weights = { jisan: 26, oyaji: 24, obachan: 22, salaryman: 20, wakamono: 14, ol: 12, kinpatsu: 14, yakuza: 9,
-                    oyako: 24, kodomo: 0 };
-  if (hasCat('sauna')) { weights.oyaji += 6; weights.salaryman += 14; weights.wakamono += 16; weights.ol += 6; weights.kinpatsu += 8; weights.yakuza += 6; }
-  if (kurodaAllyOn()) weights.salaryman += 12;   // 黒田が仲間＝会社帰りのサラリーマン客を回してくれる
+  const weights = {};
+  for (const kk of keys) weights[kk] = custWeight(kk);
+  // 黒田が仲間＝会社帰りのサラリーマン客を回してくれる（第1章の話）
+  if (weights.salaryman !== undefined && kurodaAllyOn()) weights.salaryman += 12;
   let sum = 0; for (const kk of keys) sum += weights[kk];
   let r = Math.random() * sum, tk = keys[0];
   for (const kk of keys) { r -= weights[kk]; if (r <= 0) { tk = kk; break; } }
@@ -778,13 +1655,19 @@ function spawnCustomer(forceKey) {
     needMin: STAY_NEED_BATH, inAt: null, timeUp: false, told: false,
     isChild: !!TYPES[tk].kid,          // 子ども＝小さく描き、料金は子供料金、浴室が汚れやすい
     // 湯温の好みは1人ごとに転がす（じいさんだけ個人差あり＝あつ湯派とぬる湯長湯派が混ざる）
-    furoPref: TYPES[tk].furoPref + (TYPES[tk].furoVar ? rand(-TYPES[tk].furoVar, TYPES[tk].furoVar) : 0),
+    /* 個人差は残しつつ、上側だけ CONF.furoPrefMax（＝その章で出せるいちばん熱い湯）で頭打ちにする。
+       この札を持たない章は頭打ちなし＝これまでどおり（第2章は44℃の湯船があるので設定していない） */
+    furoPref: Math.min(TYPES[tk].furoPref + (TYPES[tk].furoVar ? rand(-TYPES[tk].furoVar, TYPES[tk].furoVar) : 0),
+                       CONF.furoPrefMax ?? 99),
     tebura: Math.random() < 0.45,      // 手ぶらで来た客。セットがあれば買う／無ければ不満
     // フェーズ3：“ないものねだり”。ミスト・塩・熱波師を欲しがる客が一定数いる
     // （設置・獲得しなくてもゲーム進行は詰まらないが、満足度＝評判の伸びがそのぶん重くなる）
-    wantsMist: Math.random() < CONF.wantMistRate,
-    wantsShio: Math.random() < CONF.wantShioRate,
-    wantsNappa: Math.random() < CONF.wantNappaRate,
+    /* **買える物だけを欲しがる。**その役目の設備がカタログに1つも無い章では、
+       誰も欲しがらない＝直しようのない不満を作らない。
+       第1章はミスト・塩・決戦仕様のどれも EQ に在るので、これまでどおり全員が転がす */
+    wantsMist: roleBuildable('mist', 'sauna_mist') && Math.random() < CONF.wantMistRate,
+    wantsShio: roleBuildable('shio', 'sauna_shio') && Math.random() < CONF.wantShioRate,
+    wantsNappa: roleBuildable('nappa', 'sauna_sp') && Math.random() < CONF.wantNappaRate,
     // フェーズ4：上位志向の客（10%）。いつでも「今より上の設備」を求める＝満足の天井が常に少し下がる。
     // 全部を満たす日は来ない＝評判の伸びを構造的に鈍らせ、クリアを遠くする（作者指定）
     snob: Math.random() < CONF.snobRate,
@@ -797,12 +1680,15 @@ function spawnCustomer(forceKey) {
     let r = Math.random();
     for (const [min, share] of STAY_NEED_MIX) { c.needMin = min; if ((r -= share) <= 0) break; }
   }
-  /* 動線：来る客は入口の右手から歩いてくる（帰る客は左へ抜ける＝出入りがぶつからない）。
+  /* 導線：来る客は入口の右手から歩いてくる（帰る客は左へ抜ける＝出入りがぶつからない）。
      外の行列も入口の右に伸びるので、来店の列と帰り道が交差しない */
   c.px += T * 2.2;
   c.outside = true;
-  // 受入キャパ確認。ロッカーが埋まりきっている間は新しい客を入れられない
-  if (lockersFull()) {
+  /* 受入キャパ確認。ロッカーが埋まりきっている間は新しい客を入れられない。
+     **章が独自の関門を持っていれば、そちらが正**（第2章＝1階の靴箱と、
+     その客が行く浴室階の脱衣ロッカー。入口で見ないと、階をまたいで詰まる） */
+  const entryFull = chHook('entryFull', c);
+  if (entryFull === undefined ? lockersFull() : entryFull) {
     c.state = 'turnAway'; c.timer = 1.5;
     G.customers.push(c);
     const p = findPath(CONF.entrance.x, CONF.entrance.y, CONF.entrance.x, CONF.entrance.y - 1);
@@ -813,13 +1699,36 @@ function spawnCustomer(forceKey) {
   G.customers.push(c);
   G.payQueue.push(c);
   sendToQueueSpot(c);
-  // 子連れのお父さんの後ろには、必ず子どもが続く（作者指定＝子どもひとりでは来ない）
-  if (tk === 'oyako' && !forceKey) spawnCustomer('kodomo');
+  chHook('arrived', c);        // 第2章：券売機の前で立ち往生する年配客
+  /* 子連れの後ろには、必ず子どもが続く（作者指定＝子どもひとりでは来ない）。
+     **どの子が続くかは客タイプに書く**（withKid）＝章ごとに親子を足せる。
+     第1章のデータは1バイトも触らないので、oyako だけは従来どおり決め打ちで拾う */
+  const kid = kidOf(tk);
+  if (kid && !forceKey) spawnCustomer(kid);
 }
 
 /* 番台の前に立てるのは1人だけ。2人目以降は店の外＝入口から右の壁沿いに並ぶ。
    外の行列が伸びているほど「捌けていない＝機会損失」がひと目で分かる */
+/* 会計待ちの列。第1章は**入口の外の路上**に並ぶ（番台が入口のすぐ内側なので、
+   外に並んでいても一歩で番台に着く）。
+
+   第2章のロビーは番台が奥にあり、入口との間に駐車場をまたぐ距離がある。
+   外に並ばせると、ひとり会計するたびに次の人が館内を縦断してくる＝
+   **行列がまったく捌けず、来た客の6割が待ちくたびれて帰っていた**（実測）。
+   だから CONF.queueInside を持つ章は、番台の前から屋内に列を作る。       */
 function outsideSpots() {
+  if (CONF.queueInside) {
+    const f = bandaiFront(), out = [];
+    for (let d = 1; d <= 10 && out.length < 6; d++) {
+      const x = f.x + d;
+      if (x <= CONF.W - 2 && walkable(x, f.y)) out.push({ x, y: f.y });
+    }
+    for (let d = 1; d <= 10 && out.length < 6; d++) {
+      const x = f.x - d;
+      if (x >= 1 && walkable(x, f.y)) out.push({ x, y: f.y });
+    }
+    if (out.length) return out;
+  }
   const out = [];
   for (let i = 1; i <= 6; i++) {
     const x = CONF.entrance.x + i;
@@ -829,7 +1738,10 @@ function outsideSpots() {
   return out;
 }
 function isOutsideSpot(s) { return !!s && s.y === CONF.H - 1 && s.x !== CONF.entrance.x; }
-function queueSpots() { return [bandaiFront(), ...outsideSpots()]; }
+function queueSpots() {
+  const L = deskLayout(); if (L && L.queue && L.queue.length) return L.queue;
+  return [bandaiFront(), ...outsideSpots()];
+}
 
 function sendToQueueSpot(c) {
   const spots = queueSpots();
@@ -864,15 +1776,49 @@ function buildPlan(c) {
       const rounds = irand(1, 2);
       for (let i = 0; i < rounds; i++) {
         plan.push(['sauna', st(5.5, 8)]);
-        if (hasWorking('cooler')) plan.push(['drink', 0]);   // サウナ上がりの給水（冷水機まで歩いて飲む）
+        if (hasRole('cooler', 'cooler')) plan.push(['drink', 0]);   // サウナ上がりの給水（冷水機まで歩いて飲む）
         if (hasCat('mizu')) plan.push(['mizu', st(1.5, 2.5)]);
         if (hasCat('rest')) plan.push(['rest', st(3, 5)]);
       }
     } else { c.noSauna = true; }
   } else if (hasCat('rest') && Math.random() < .3) plan.push(['rest', st(2, 4)]);
   // 湯から上がったあと、脱衣所のマッサージチェアで一息ついてから着替える客（作者指定＝ちゃんと座らせる）
-  if (hasWorking('massage') && Math.random() < .35) plan.push(['massage', rand(2.5, 4)]);
+  if (hasRole('massage', 'massage') && Math.random() < .35) plan.push(['massage', rand(2.5, 4)]);
+  /* 湯上がりの飯（第2章の食堂）。**いちばん最後**に入れる＝
+     風呂→ととのい→飯、の順に館内を回る。
+     第1章には shoku の設備が1つも無いので、この行は一度も通らない。
+     席の時間は useDur が「待てる限界」に置き換えるので、ここの数字は使われない */
+  /* 「席が実際にあるか」で見る（hasCat だとコンロや炊飯器＝cap0 の厨房機器も数えてしまい、
+     座る場所が1つも無い店で客が食堂を予定に入れてしまう） */
+  if (catExists('shoku') && Math.random() < (CONF.eatRate ?? 0.45)) plan.push(['shoku', st(6, 9)]);
+  /* 章ごとの寄り道を、ここで足せる（第2章＝垢すり・ラウンジ・物販・カプセル）。
+     **予定そのものを作り替えるのではなく、最後に足すだけ**にしてある＝
+     風呂→ととのい→飯 の背骨は章が変わっても動かない。
+     フックを持たない章（第1章）は `plan` に一切触られない＝挙動は不変 */
+  chHook('planExtra', c, plan, st);
   return plan;
+}
+
+/* ============ 予定の名前 → その設備の探し方 ============
+   ふつうは「予定の名前＝設備の種類(cat)」で引ける（'sauna' なら cat:'sauna'）。
+   そうでないものが章ごとにある：
+     ・`massage` … 種類ではなく**その設備そのもの**（脱衣所のロッカーと混ざらないように）
+     ・第2章の `akasuri` … 設備は cat:'wash'（＝カランと同じ枠）なので、cat では引けない
+     ・第2章の `lounge`  … 設備は cat:'rest'。**どの階にあるか**で浴室のイスと分ける
+
+   章が `CONF.catFind` を持てば、そこで引き方を差し替えられる。
+     { akasuri: { role: 'akasuri' },  lounge: { cat: 'rest', area: 3 } }
+   持たない章（第1章）は、これまでどおり cat 一致と massage 特例だけ＝挙動は不変 */
+function catMatch(cat) {
+  if (cat === 'massage') return (e => isMassage(e.id));
+  const f = CONF.catFind && CONF.catFind[cat];
+  if (!f) return (e => EQ[e.id].cat === cat);
+  return (e => {
+    if (f.role && roleIds(f.role, null).indexOf(e.id) < 0) return false;
+    if (f.cat && EQ[e.id].cat !== f.cat) return false;
+    if (f.area != null && (e.f | 0) !== (f.area | 0)) return false;
+    return true;
+  });
 }
 
 /* 客の「好みの温度」にどれだけ合っているか。
@@ -892,18 +1838,35 @@ function equipFit(it, c) {
   if (!c) return s;
   const t = canSetTemp(d) ? (it.temp ?? d.temp) : d.temp;   // 固定温度の設備は設備の値がすべて
   const near = (a, b) => 10 - Math.min(Math.abs(a - b), 10);
-  if (d.cat === 'furo') s += d.old ? 0 : near(t, furoPrefOf(c));
+  /* 湯船も水風呂と同じ問題を持っている＝**★の差に負けて、合わない湯へ入る客が出る**。
+     `CONF.furoFitMul` を持つ章だけ、湯温の一致を強めに見る（第2章は1.5）。
+     この札を持たない章は ×1＝これまでとまったく同じ計算（作者指定 8/8） */
+  if (d.cat === 'furo') s += d.old ? 0 : near(t, furoPrefOf(c)) * (CONF.furoFitMul || 1);
   // 水風呂だけは水温の一致を強めに見る。温度を弄れない＝「合う方の槽を選ぶ」以外に好みを満たす道がなく、
   // ★の差（シングルは★5）に負けて、寒すぎる槽へ入って満足度を落とす客が出てしまうため
   else if (d.cat === 'mizu') s += near(t, idealCold(c)) * 1.5;
-  else if (d.cat === 'sauna') s += d.gentle ? 6 : near(t, c.type.saunaPref);
+  else if (d.cat === 'sauna') {
+    /* 蒸し系（ミスト・スチーム・薬草）をどれだけ好むかは客ごとに違う（gentleLove）。
+       女性客はここが高く、熱いドライサウナには上限（saunaMax）がある＝
+       同じ設備を並べても、男湯と女湯では選ばれる部屋が変わる（第2章）    */
+    if (d.gentle) s += (c.type.gentleLove ?? 6);
+    else {
+      s += near(t, c.type.saunaPref);
+      const cap = c.type.saunaMax;
+      if (cap && t > cap) s -= (t - cap);      // 限界を超える熱さの部屋は、そもそも選ばない
+    }
+  }
   return s;
 }
 function findFreeEquip(cat, c) {
   // 列の奥に埋まって手前が空いていない台（ロッカー・洗い場を並べた時の奥側）は選ばない
   // 'massage' だけは種類(cat)ではなく設備そのものを指す予定＝脱衣所の他の設備(ロッカー等)と混ざらないように
-  const match = cat === 'massage' ? (e => e.id === 'massage') : (e => EQ[e.id].cat === cat);
-  const cands = G.equip.filter(e => match(e) && e.cond > 0 && EQ[e.id].cap > 0
+  const match = catMatch(cat);
+  /* 区画が複数ある章（第2章）では、**いまいる階の設備だけ**から選ぶ。
+     別の階の台を選んでしまうと、いまの間取りの座標で道を探すことになり、
+     「空いているのにたどり着けない」で客が固まる。第1章は区画がひとつなので素通り */
+  const cands = G.equip.filter(e => (areaCount() <= 1 || (e.f | 0) === ((c && c.f | 0) || 0))
+    && match(e) && e.cond > 0 && EQ[e.id].cap > 0
     && e.occ.some(o => o === null) && usable(e));
   if (!cands.length) return null;
   cands.sort((a, b) => equipFit(b, c) - equipFit(a, c));
@@ -953,6 +1916,8 @@ function slotPos(item, slotIdx) {
 
 function startUse(c, item, dur) {
   const d = EQ[item.id];
+  // 章ごとに滞在時間をいじる（第2章＝厨房の腕で、食事の待ち時間が変わる）
+  dur = chHook('useDur', c, item, d.cat, dur) ?? dur;
   const slotIdx = item.occ.findIndex(o => o === null);
   const ap = pathToEquip(c, item);
   if (slotIdx < 0 || !ap) return false;
@@ -996,13 +1961,29 @@ function finishUse(c) {
   // ただし温度は自分では直せない不満なので、外した時の下げ幅は水風呂と同じくらいに抑えてある
   c.tempReact = null;
   if (cat === 'furo' && !def.old) {
+    /* **湯温で採点しない湯**（`noTemp` を持つ設備だけ。作者指定 8/8）。
+       炭酸泉は「ぬるいのに芯まで温まる」のが売り、電気風呂は「ビリビリ効く」のが目的＝
+       どちらも湯温を目当てに入る湯ではないのに、★の高さで客を引き寄せておいて
+       「ぬるい」「熱い」と文句を言わせていた（第2章の炭酸泉で客の4割が文句）。
+       サウナのミスト・薬草（`gentle`）とまったく同じ考え方。
+       この印を持たない設備＝第1章の湯船はすべて、これまでどおり湯温で採点する      */
+    if (def.noTemp) {
+      /* 湯温で測らないぶん、**★の高さがそのまま満足になる**。
+         炭酸泉(★5)は+6＝湯温がぴったり合った湯(+5)より上＝¥130万を出す値打ちがある。
+         電気風呂(★3)は+5。ここを一律の数字にすると、目玉を買うほど満足が下がる  */
+      c.sat += 3 + Math.round((def.q || 2) * 0.6);
+    } else {
     const pref = furoPrefOf(c);
     const temp = def.temp ?? 42, diff = Math.abs(temp - pref);
     c.sat += diff <= 1 ? 5 : diff <= 3 ? 2 : -Math.min(diff, 5);
-    // 「ぬるい」は“その客にとって”ぬるい時だけ言わせる（38℃を好む客に文句を言わせない）
-    c.tempReact = (temp >= 44 && pref < 43) ? 'hot'
+    /* 「熱すぎ」「ぬるい」は、どちらも**その客にとって**外れた時だけ言わせる。
+       熱い側は「44℃以上かつ好み43未満」という決め打ちだったが、超あつ湯(45℃)を入れた以上、
+       好み42〜43の客が45℃に入ると満足しているのに文句を言う（差3＝満足度は+2）。
+       満足度がマイナスに転じる差4以上で言わせる＝**上の行の採点と噛み合わせた**（作者指定 8/8） */
+    c.tempReact = (temp - pref >= 4) ? 'hot'
                 : (pref - temp >= 3) ? 'nuru'
                 : diff <= 1 ? 'atsu' : null;
+    }
   } else if (cat === 'mizu') {
     const temp = item.temp ?? def.temp ?? 15;
     const diff = Math.abs(temp - idealCold(c));
@@ -1010,29 +1991,37 @@ function finishUse(c) {
     c.tempReact = temp <= 14 ? 'kinkin' : temp >= 20 ? 'nurui' : null;
   } else if (cat === 'sauna') {
     if (def.gentle) {
-      // ミスト・塩サウナは“別ジャンル”。熱さの好みでは評価されず、誰が入ってもそこそこ気持ちいい
-      c.sat += 4;
+      /* ミスト・スチーム・薬草は“別ジャンル”。熱さの好みでは評価されない。
+         どれだけ嬉しいかは客ごと（gentleLove）＝女性客はここが本命になる */
+      c.sat += Math.round((c.type.gentleLove ?? 6) * 0.7);
     } else {
       const temp = item.temp ?? def.temp ?? 90, diff = temp - c.type.saunaPref, ad = Math.abs(diff);
       c.sat += ad <= 4 ? 5 : ad <= 10 ? 2 : -Math.min(Math.round(ad / 2), 8);
+      /* 熱さの限界（saunaMax）。ここを超えると、好みの幅とは別に、はっきり嫌がる。
+         女性客は85℃あたりが限界＝100℃のドライサウナを並べても女湯は埋まらない（作者指定） */
+      const cap = c.type.saunaMax;
+      const over = cap ? temp - cap : 0;
+      if (over > 0) c.sat -= Math.min(3 + Math.round(over / 2), 12);
       // atsusa=好みより熱すぎ(不満) / nurusa=ぬるすぎ / gekinetsu=許容範囲の高温を堪能(満足)
-      c.tempReact = diff >= 12 ? 'atsusa' : diff <= -12 ? 'nurusa' : (temp >= 100 ? 'gekinetsu' : null);
+      c.tempReact = (diff >= 12 || over > 0) ? 'atsusa' : diff <= -12 ? 'nurusa' : (temp >= 100 ? 'gekinetsu' : null);
     }
     // サウナに給水（冷水機）がないと、いいサウナでも満足しきれない
-    if (!hasWorking('cooler')) c.sat -= 2;
+    if (!hasRole('cooler', 'cooler')) c.sat -= 2;
     /* 熱波師のアウフグース。決戦仕様の一台に限り満足度が上乗せ。
        ※以前はマッサージチェアの分岐の中に書かれていて、一度も発動していなかった */
     if (item.id === 'sauna_sp' && nappaOn()) { c.sat += 3; if (!c.bub && Math.random() < .3) bubble(c, pick(LINES.aufguss)); }
-  } else if (item.id === 'massage') {
+  } else if (isMassage(item.id)) {
     // マッサージチェア＝¥100を入れて座る。売上はここで立つ（座った客からだけ取る）
     c.sat += 5;
-    G.cash += 100; G.today.amenRev += 100; G.today.amenN++; G.today.revenue += 100;
+    const coin = coinPrice(item.id);
+    G.cash += coin; G.today.amenRev += coin; G.today.amenN++; G.today.revenue += coin;
+    addFloater(c.px, c.py - 22, '+' + yen(coin));
     c.massaged = true;
   }
   /* 周辺の汚れ。薄い汚れは数えない（作者指定）＝薄いうちはプレイヤーに掃除する手がなく、
      見えた瞬間に怒られるのは理不尽だった。こびり付いた濃い汚れだけが客の目に入る */
   if (c.dirtHits < 3) {
-    const nearD = G.dirts.filter(p => isThickDirt(p)
+    const nearD = G.dirts.filter(p => isThickDirt(p) && (p.f | 0) === (c.f | 0)
       && Math.abs(p.x - c.use.approach.x) <= 2 && Math.abs(p.y - c.use.approach.y) <= 2);
     const near = nearD.length;
     if (near > 0) {
@@ -1075,6 +2064,11 @@ function finishUse(c) {
       else if (c.tempReact === 'nuru') { gripe('temp'); gripeBubble(c, pick(LINES.furoNuru), 'temp'); }
       else if (item.id === 'bath2') bubble(c, pick(LINES.bathHinoki));
       else if (item.id === 'bath_tansan') bubble(c, pick(LINES.furoTansan));
+      /* 設備が自分で「言わせたい台詞」を持っている場合はそれを使う（作者指定 8/8）。
+         下の湯温での言い分けに落ちると、電気風呂(43℃)が「あ〜熱い！」と言ってしまい、
+         ビリビリを目当てに入った客の台詞として噛み合わない。
+         `line` を持たない設備＝第1章の湯船はすべて、これまでどおり湯温で言い分ける */
+      else if (def.line && LINES[def.line]) bubble(c, pick(LINES[def.line]));
       /* 湯温で言い分けする（作者指摘）。40℃以下の湯で「あ〜熱い！最高！」と言うと、
          入っている湯船と噛み合わない。42℃前後はふつうの「いい湯だ」 */
       else if ((def.temp ?? 42) <= 40) bubble(c, pick(LINES.furoNuruYoi));
@@ -1088,7 +2082,8 @@ function finishUse(c) {
       else if (c.tempReact === 'gekinetsu') bubble(c, pick(LINES.saunaHot));
       else if (c.tempReact === 'atsusa') { gripe('temp'); gripeBubble(c, pick(LINES.saunaTooHot), 'temp'); }
       else if (c.tempReact === 'nurusa') { gripe('temp'); gripeBubble(c, pick(LINES.saunaNuru), 'temp'); }
-      else bubble(c, pick(LINES.saunaGood));
+      // 通常セリフも室温で言い分ける（中温の部屋で「あっつ〜！最高！」と言わせない・作者指定）
+      else bubble(c, pick((item.temp ?? def.temp ?? 90) >= 95 ? LINES.saunaGoodHot : LINES.saunaGood));
     }
     else if (cat === 'mizu') {
       if (c.tempReact === 'kinkin') bubble(c, pick(LINES.mizuKinkin));
@@ -1097,7 +2092,7 @@ function finishUse(c) {
     }
     else if (cat === 'wash') bubble(c, pick(def.old ? LINES.washOld : LINES.washGood));
     else if (cat === 'rest') bubble(c, pick(LINES.rest));
-    else if (item.id === 'massage') bubble(c, pick(LINES.massageGood));
+    else if (isMassage(item.id)) bubble(c, pick(LINES.massageGood));
   }
   // ととのいコンボ
   c.seq.push(cat);
@@ -1128,21 +2123,35 @@ function finishUse(c) {
   }
   // 子どもは湯をはねさせ、走り回る＝浴室が汚れやすい（作者指定）
   if ((cat === 'furo' || cat === 'wash' || cat === 'sauna')
-      && Math.random() < (c.isChild ? CONF.dirtChanceKid : CONF.dirtChance) * cleanFactor() && G.dirts.length < CONF.dirtMax) {
-    /* 汚れが落ちるのは「掃除しに行けるマス」だけ。しかも1マスに1つまで。
-       壁際などで誰もたどり着けないマスに落ちると、主人公もバイトも一生掃除できず、
-       汚れが上限まで溜まったまま店が永久に「汚い店」になる（実測で発生した） */
-    const reach = reachableSet();
-    const ts = approachTiles(item).filter(p =>
-      reach.has(p.y * CONF.W + p.x) && !G.dirts.some(d => d.x === p.x && d.y === p.y));
-    if (ts.length) { const p = pick(ts); G.dirts.push({ x: p.x, y: p.y, t: G.minutes }); }   // t＝落ちた時刻（放置判定に使う）
+      && Math.random() < (c.isChild ? CONF.dirtChanceKid : CONF.dirtChance) * cleanFactor(item.f) && G.dirts.length < CONF.dirtMax) {
+    /* 章が「どのマスに落とすか」を持っていれば、そちらに任せる。
+       ⚠ **区画が複数ある章では、ここは主人公のいる階しか見られない。**
+         下の reachableSet() も approachTiles() も「いま表示している区画」の盤面を読むので、
+         別の階の設備を渡すと座標が噛み合わず、**汚れが一つも落ちない**（第2章で実測：
+         228人が風呂を使った一日で、床の汚れが0個だった）。しかも f に G.actF を刻むので、
+         落ちたとしても「主人公が立っている階が汚れた」ことになってしまう。
+       第1章はこのフックを持たないので、下の従来どおりの道を通る＝挙動は不変 */
+    if (hasHook('dirtSpot')) {
+      const sp = chHook('dirtSpot', item);
+      if (sp) G.dirts.push({ x: sp.x, y: sp.y, t: G.minutes, f: sp.f | 0 });
+    } else {
+      /* 汚れが落ちるのは「掃除しに行けるマス」だけ。しかも1マスに1つまで。
+         壁際などで誰もたどり着けないマスに落ちると、主人公もバイトも一生掃除できず、
+         汚れが上限まで溜まったまま店が永久に「汚い店」になる（実測で発生した） */
+      const reach = reachableSet();
+      const ts = approachTiles(item).filter(p =>
+        reach.has(p.y * CONF.W + p.x) && !G.dirts.some(d => d.x === p.x && d.y === p.y));
+      if (ts.length) { const p = pick(ts); G.dirts.push({ x: p.x, y: p.y, t: G.minutes, f: G.actF }); }   // t＝落ちた時刻（放置判定に使う）
+    }
   }
+  // 章ごとの後始末（第2章＝食堂の席を立った客が、何を頼んだかを決める）
+  chHook('useDone', c, item, cat);
   c.use = null;
 }
 
 // そのカテゴリの設備が「存在する」か（故障中も含む）
 function catExists(cat) {
-  const match = cat === 'massage' ? (e => e.id === 'massage') : (e => EQ[e.id].cat === cat);
+  const match = catMatch(cat);
   return G.equip.some(e => match(e) && EQ[e.id].cap > 0 && usable(e));
 }
 
@@ -1150,7 +2159,7 @@ function catExists(cat) {
 function goWaitFor(c, cat, dur) {
   c.plan.unshift([cat, dur]);
   c.state = 'waitEquip'; c.waitT = 0; c.waitNag = 0;
-  const matchW = cat === 'massage' ? (e => e.id === 'massage') : (e => EQ[e.id].cat === cat);
+  const matchW = catMatch(cat);
   const items = G.equip.filter(e => matchW(e) && EQ[e.id].cap > 0 && usable(e));
   if (!items.length) return;
   const it = pick(items);
@@ -1182,6 +2191,11 @@ function goRack(c, kind, dir) {
   if (!rack) return false;
   const ap = pathToEquip(c, rack);
   if (!ap) { stuckAt(c, EQ[rack.id].name); return false; }
+  /* 実際に手に取った枚数を数える（**枚数で洗濯代がかかる章だけ**）。
+     返しに来たとき（back）は数えない＝1人1枚。
+     第1章は akasuriCostPer を持たないので、この行は通らない */
+  if (dir === 'get' && kind === 'aka' && CONF.akasuriCostPer && G.today)
+    G.today.akasuriUseN = (G.today.akasuriUseN || 0) + 1;
   c.path = ap.path;
   c.rackKind = kind; c.rackDir = dir;
   c.state = 'atRack'; c.timer = 0.7;
@@ -1192,32 +2206,77 @@ function goRack(c, kind, dir) {
    満足度そのものは帰り際にまとめて効いている（customerLeave）。ここは“画”のための振る舞い＝
    サウナ上がりに水を飲み、湯上がりに扇風機で涼み、着替えてから鏡の前で髪を乾かす。
    1台につき同時に1人まで（pasBy に客の id を入れて場所取りする） */
+/* ============ 子どものおしゃべり（作者指定 2026-08-08・両章共通）============
+   `LINES.kidLine` は**いま何に入っているかを一切見ない**表だったので、
+   38℃のぬる湯で「あちー！」、45℃の超あつ湯で「つめたっ！」が出ていた。
+   `furoAtsu` / `saunaGoodHot` を湯温で分けた回の、取りこぼし。
+
+     ・「あちー！」   … **サウナ**か、**`kidHotTemp`（既定43℃）以上の湯**のときだけ
+     ・「つめたっ！」 … **水風呂**のときだけ
+     ・残りの4語（パパー、まだー？／およぐ！／牛乳のむ！／もう一回！）は**どこでも出る**
+       ＝にぎやかさの演出は殺さない
+
+   43℃の根拠は第1章のあつ湯43・超あつ湯45（js/data.js:249,255）。
+   42℃以下の湯で「あちー！」と言わせない。境目を変えたい章は `CONF.kidHotTemp` を持つ。
+   ⚠ `LINES.kidLine` の6語は**触らない。**落とすのは選ぶ側（章の指紋が動くため）*/
+const KID_HOT_LINE = 'あちー！';
+const KID_COLD_LINE = 'つめたっ！';
+function kidLinePool(c) {
+  const u = c && c.use;
+  const d = u && u.item && EQ[u.item.id];
+  const cat = u ? (u.cat || (d && d.cat)) : null;
+  const temp = d ? (u.item.temp != null ? u.item.temp : d.temp) : null;
+  const hotOK  = cat === 'sauna' || (temp != null && temp >= (CONF.kidHotTemp || 43));
+  const coldOK = cat === 'mizu';
+  if (hotOK && coldOK) return LINES.kidLine;                 // 起こりえないが、素通りさせる
+  return LINES.kidLine.filter(t =>
+    (t !== KID_HOT_LINE  || hotOK) &&
+    (t !== KID_COLD_LINE || coldOK));
+}
+
 const PAS_USE = {
   drink: { id:'cooler',   dur:[1.4, 2.6], say:0.35 },   // 冷水機で給水
   fan:   { id:'fan_bath', dur:[3.5, 6.0], say:0.30 },   // 扇風機の前でひと涼み
   sink:  { ids:SINK_IDS, dur:[3.0, 5.0], say:0.30 },   // 洗面所で髪を乾かす（古い洗面台でも同じ）
   scale: { id:'scale',    dur:[2.0, 3.4], say:0.5 },    // 体重計に乗って一喜一憂（針がぐるっと振れる）
   gacha: { id:'gacha',    dur:[2.2, 3.6], say:0.6 },    // 子どもが¥100を入れて回す（売上になる）
+  /* 駄菓子コーナー（第2章の y_dagashi）。**第1章にこの id の設備は無い**ので、
+     goPasUse が必ず false になり、第1章の挙動は1ミリも変わらない */
+  dagashi: { id:'y_dagashi', dur:[2.5, 4.0], say:0.6 },
   ehon:  { id:'ehon',     dur:[4.0, 7.0], say:0.6 },    // 絵本の棚の前に座って読む（子どもだけ）
   // トイレ（作者指定）。便器の上に座って（ボットンはしゃがんで）用を足し、出てきた時に一言
   toilet:{ ids:TOILET_IDS, dur:[3.0, 5.0], say:0 },
 };
 const GACHA_PRICE = 100;      // ガチャガチャ1回（作者指定）
 const GACHA_KID_RATE = 0.30;  // 子どものうち、回していく割合（作者指定）
-// この3つは「置くだけ」に見えて実際に歩いて行く＝道が要る（needsAccess で使う）
-const PAS_USE_IDS = new Set(Object.values(PAS_USE).flatMap(p => p.ids || [p.id]));
+/* ⚠ 上の表のIDは**第1章のもの**。章ごとの表（sinkIds / toiletIds / roleIds）があれば
+   そちらを見る。ここを直さないあいだ、第2章では
+   **冷水機にも洗面所にもトイレにも、客が一度も歩いて行っていなかった**
+   （100日通しで発見・2026-08-07）。章が表を持たなければ [p.id] に落ちる＝第1章は同じ */
+function pasIds(kind) {
+  const p = PAS_USE[kind]; if (!p) return [];
+  if (kind === 'sink')   return sinkIds();
+  if (kind === 'toilet') return toiletIds();
+  if (kind === 'drink')  return roleIds('cooler', 'cooler');
+  if (kind === 'fan')    return roleIds('fan', 'fan_bath');
+  if (kind === 'scale')  return roleIds('scale', 'scale');
+  return p.ids || [p.id];
+}
+// これらは「置くだけ」に見えて実際に歩いて行く＝道が要る（needsAccess で使う）
+function pasUseIds() { return new Set(Object.keys(PAS_USE).flatMap(pasIds)); }
 function pasLineFor(kind) {
   if (kind === 'drink') return LINES.coolerGood;
   if (kind === 'fan') return LINES.fanGood;
   if (kind === 'scale') return LINES.scaleGood;
   if (kind === 'gacha') return LINES.gachaGood;
+  if (kind === 'dagashi') return ['ラムネ、1本だけな', '10円チョコ、まだあるんだ', '駄菓子、懐かしいなあ'];
   if (kind === 'ehon') return LINES.ehonGood;
   if (kind === 'toilet') return LINES.toiletDone;
   return G.opts.dryerFee ? LINES.dryerPaid : LINES.dryerFree;
 }
 function goPasUse(c, kind, next) {
   const p = PAS_USE[kind];
-  const ids = p.ids || [p.id];
+  const ids = pasIds(kind);
   const items = G.equip.filter(e => ids.includes(e.id) && e.cond > 0 && !e.pasBy && usable(e));
   if (!items.length) return false;
   const it = pick(items);
@@ -1247,6 +2306,9 @@ function nextPlan(c) {
     const want = carryFor(cat);
     if (want && !c.amen && hasEquip(rackIdOf(want)) && goRack(c, want, 'get')) return;
     c.carry = c.amen ? want : null;                  // 手に持って見せるものを、使う設備に合わせて持ち替える
+    /* 第2章：次に使うものが別の区画（休憩スペース・食堂など）にあるなら、まずそこへ移る。
+       第1章は区画がひとつなので、このフックは登録されていない＝素通りする */
+    if (hasHook('routeTo') && chHook('routeTo', c, cat)) return;
     c.plan.shift();
     const item = findFreeEquip(cat, c);
     // 空いているのに startUse が失敗する＝その台まで歩いて行く道が無い
@@ -1264,6 +2326,12 @@ function nextPlan(c) {
 function afterChange(c) {
   // 子どもは3割がガチャガチャを回して帰る（¥100が売上に立つ・作者指定）
   if (c.isChild && !c.didGacha && Math.random() < GACHA_KID_RATE && goPasUse(c, 'gacha', 'leave')) { c.didGacha = true; return; }
+  /* 駄菓子コーナー（第2章）。子どもは半分が寄り、大人も15%が湯上がりの1本を買って帰る。
+     ⚠ **設備の有無を最初に見る**＝第1章に y_dagashi は無いので Math.random() まで
+     到達しない。先に乱数を引くと、第1章でも乱数列が1つずれて挙動指紋が変わる
+     （chapterGuard(1) が落ちる。実測 8/9） */
+  if (!c.didDagashi && G.equip.some(e => e.id === 'y_dagashi' && e.cond > 0)
+      && Math.random() < (c.isChild ? 0.5 : 0.15) && goPasUse(c, 'dagashi', 'leave')) { c.didDagashi = true; return; }
   // 親の着替えを待つあいだ、絵本の棚の前に座って読む子ども（作者指定）
   if (c.isChild && !c.didEhon && Math.random() < 0.5 && goPasUse(c, 'ehon', 'leave')) { c.didEhon = true; return; }
   // 帰る前にトイレへ寄る客（作者指定）。トイレが無ければ、そのまま我慢して帰ることになる
@@ -1271,7 +2339,11 @@ function afterChange(c) {
   if (!c.didSink && Math.random() < 0.7 && goPasUse(c, 'sink', 'leave')) { c.didSink = true; return; }
   // 風呂上がり、つい体重計に乗って一喜一憂する（乗るまでが風呂、という田所の言い分）
   if (!c.didScale && Math.random() < 0.55 && goPasUse(c, 'scale', 'leave')) { c.didScale = true; return; }
-  const vends = G.equip.filter(e => (e.id === 'vend1' || e.id === 'vend2') && e.cond > 0 && usable(e));
+  /* **飲み物を売る機械の一覧**（作者指定 8/5）。
+     ここを id で名指ししていたせいで、**第2章の自販機は1本も売れていなかった**。
+     表に出しておけば、章が増えても足すだけで済む。値段はここが正             */
+  const vends = G.equip.filter(e => DRINK_VEND[e.id] && e.cond > 0 && usable(e)
+                                 && (areaCount() <= 1 || (e.f | 0) === (c.f | 0)));
   const vend = vends.length ? pick(vends) : null;
   if (vend && Math.random() < c.type.milk) {
     const ap = pathToEquip(c, vend);
@@ -1281,8 +2353,15 @@ function afterChange(c) {
 }
 
 function goLocker(c, dir) {
+  /* 区画が複数ある章（第2章）＝**脱衣ロッカーは自分の階にある。**
+     受付は1階、脱衣所は2階、という作りなので、金を払った客はまず階を移る。
+     移動が始まったらここでは何もしない（着いた先で、あらためて着替えに向かう）。
+     第1章は区画がひとつなので、この行は素通りする                        */
+  if (dir === 'in' && areaCount() > 1 && hasHook('routeTo') && chHook('routeTo', c, 'locker')) return;
   // 壁一面に並べたロッカーは、手前に立てる1台の前で着替える（奥の列は開けに行けない）
-  const lockers = G.equip.filter(e => EQ[e.id].cat === 'locker' && e.cond > 0 && usable(e));
+  // 区画が複数ある章では、**いまいる区画のロッカーだけ**を見る（別の階の台まで歩けない）
+  const lockers = G.equip.filter(e => (areaCount() <= 1 || (e.f | 0) === (c.f | 0))
+    && EQ[e.id].cat === 'locker' && e.cond > 0 && usable(e));
   const lk = lockers.length ? pick(lockers) : null;
   if (!lk) { c.state = 'toExit'; walkToExit(c); return; }
   // 脱衣ロッカーに近づけない＝着替えられずに帰るしかない。いちばん痛い塞ぎ方なので必ず知らせる
@@ -1293,10 +2372,21 @@ function goLocker(c, dir) {
   c.timer = 1.2;
 }
 /* 帰り道。戸を出たあとは入口の左手へ抜けていく（来る客は右手から来る＝すれ違わない） */
+/* 帰り道。**その区画の入口まで歩いて、外の壁沿いに消える。**
+   ⚠ 区画が階になっている章（第2章）では、これが嘘になる。2階の男湯の「入口」は
+   エレベーターの扉なので、**扉まで歩いたあと、その階の左下の壁へ向かって消えて**いた
+   （作者指摘 8/8「一回EVに行ってから左下の壁を通って消える」）。
+   章が帰し方を持っていればそちらに任せる＝第1章はフックが無いので従来どおり */
 function walkToExit(c) {
+  if (chHook('walkToExit', c)) return;
   const t0 = tileOf(c);
   const ent = CONF.entrance;
-  c.path = (findPath(t0.x, t0.y, ent.x, ent.y) || []).concat([{ x: 0, y: CONF.H - 1 }]);
+  /* 玄関に着いたあと、盤の外へ消えるための最後の一歩。
+     第1章は玄関そのものが (0, H-1) ＝同じ升目を2回指しているだけで、動きは起きない。
+     第2章は玄関が下辺の真ん中(8,18)なので、ここが左下の角だと**そこまで突っ切る**＝
+     「EVから左下へワープする」の正体（作者報告 8/8）。章が行き先を持てばそちらへ */
+  const gone = chHook('exitTile') || { x: 0, y: CONF.H - 1 };
+  c.path = (findPath(t0.x, t0.y, ent.x, ent.y) || []).concat([gone]);
 }
 
 /* ---- 施設の充実度と、料金への納得感 ----
@@ -1342,7 +2432,7 @@ function facilityScore(condFloor) { return facilityParts(condFloor).total; }   /
 /* ============ 評判＝10項目の採点方式（作者指定・新評判システム） ============
    旧方式（設備の充実度＋おもてなし の2本立て）は、設備を積むだけで簡単に高得点になった。
    新方式は「10項目 × 10点満点 ＝ 100点」。どれか1つを極めても100にはならず、
-   清潔・混雑・値ごろ感・湯とサウナ・脱衣所・動線・接客の全部を同時に立てて初めて高得点になる。
+   清潔・混雑・値ごろ感・湯とサウナ・脱衣所・導線・接客の全部を同時に立てて初めて高得点になる。
    ・10項目は毎晩その日ぶんを採点し、直近7日の平均を表に出す＝良い営業を続けた店だけが伸びる
    ・最初の7日は母数が足りないので「集計中」と表示し、評判は開店時の10のまま据え置く
    ・【その他】の減点だけは即時反映。直せばその場で消える＝手を打った手応えがすぐ出る
@@ -1360,7 +2450,7 @@ const REP_ITEMS = [
   { key: 'mizu',   name: '水風呂',           hint: 'いい水風呂・水温の選択肢・槽の数' },
   { key: 'datsui', name: '脱衣所サービス',   hint: '備品・洗面所・ロッカーの余裕' },
   { key: 'rest',   name: 'ととのいスペース', hint: 'いいイス・脚数・種類' },
-  { key: 'dosen',  name: '動線',             hint: '客が使う順に設備を近く並べる' },
+  { key: 'dosen',  name: '導線',             hint: '客が使う順に設備を近く並べる' },
   { key: 'omote',  name: 'おもてなし',       hint: '愛想のいいバイト・アメニティを安く' },
 ];
 
@@ -1369,7 +2459,10 @@ const REP_ITEMS = [
    「適正値」＝客が受け入れる上限（worthFee など）と同じ¥100の段。
    その1段でも下げれば「安い」＝満点、超えたら一発で0。入浴料・子供料金・サウナ料の3本立て。 */
 const FEE_FAIR = 2.0, FEE_CHEAP = 3.0;   // 3本とも「適正より安い」で9点。残り1点は黒字経営（作者指定）
-function feeScore(price, fair) { return price > fair ? 0 : price > fair - 100 ? FEE_FAIR : FEE_CHEAP; }
+/* 「適正」と見なす帯の幅も、章の値段の幅で変わる（feeUnit）。
+   ¥100固定のままだと、¥2,300幅の第2章では帯が実質ゼロ＝
+   **目安の¥100手前まではずっと満点、1円でも超えたら0点**という崖になっていた */
+function feeScore(price, fair) { return price > fair ? 0 : price > fair - feeUnit(fair) ? FEE_FAIR : FEE_CHEAP; }
 
 /* ---- アメニティ1品ごとの評価（作者指定）＝「おもてなし」の1要素 ----
    適正値 +1.5 ／ 適正値より安い +2 ／ 適正値より高い 0 ／ なし 0。
@@ -1413,24 +2506,38 @@ function amenityParts() {
   else add('手ぶらセット', 0, 'なし');
   return { list, total: list.reduce((a, b) => a + b.v, 0) };
 }
+/* コスパ部門の中身。**どの料金で測るかは章ごと**（CONF.cospaAxes）。
+   第2章は子どもを受け入れず（banKids）サウナ料も取らない（noSaunaFee）ので、
+   その2本を並べると**使っていない軸から自動で5点入る**＝
+   入浴料の値付けがコスパ部門の3割しか動かせなくなっていた。
+   使う軸だけを並べて、9点ぶんをその中で山分けする（残り1点は黒字経営）    */
 function cospaParts() {
   const o = G.opts;
+  const axes = CONF.cospaAxes || ['fee', 'kid', 'sauna'];
   const list = [];
   const fw = worthFee();
-  list.push({ name: '入浴料', v: feeScore(o.fee, fw), note: `¥${o.fee}（適正 ¥${fw}）` });
-  const kw = kidFeeCap();
-  const kf = o.kidFee || KID_FEES[0];
-  list.push({ name: '子供料金', v: kf > kw ? 0 : kf === kw ? FEE_FAIR : FEE_CHEAP, note: `¥${kf}（適正 ¥${kw}）` });
-  // サウナがまだ無い店は、サウナ料で損も得もしない（サウナ自体の点で評価される）
-  if (!hasCat('sauna')) list.push({ name: 'サウナ料金', v: FEE_FAIR, note: 'サウナがない' });
-  else {
-    const sw = worthSaunaFee();
-    list.push({ name: 'サウナ料金', v: feeScore(o.saunaFee, sw), note: `¥${o.saunaFee}（適正 ¥${sw}）` });
+  if (axes.includes('fee'))
+    list.push({ name: '入浴料', v: feeScore(o.fee, fw), note: `¥${o.fee}（適正 ¥${fw}）` });
+  if (axes.includes('kid')) {
+    const kw = kidFeeCap();
+    const kf = o.kidFee || KID_FEES[0];
+    list.push({ name: '子供料金', v: kf > kw ? 0 : kf === kw ? FEE_FAIR : FEE_CHEAP, note: `¥${kf}（適正 ¥${kw}）` });
   }
+  if (axes.includes('sauna')) {
+    // サウナがまだ無い店は、サウナ料で損も得もしない（サウナ自体の点で評価される）
+    if (!hasCat('sauna')) list.push({ name: 'サウナ料金', v: FEE_FAIR, note: 'サウナがない' });
+    else {
+      const sw = worthSaunaFee();
+      list.push({ name: 'サウナ料金', v: feeScore(o.saunaFee, sw), note: `¥${o.saunaFee}（適正 ¥${sw}）` });
+    }
+  }
+  // 3本ある章（第1章）は ×1 ＝これまでと1点も変わらない
+  const scale = 3 / Math.max(list.length, 1);
+  for (const it of list) it.v = Math.round(it.v * scale * 10) / 10;
   return { list, total: list.reduce((a, b) => a + b.v, 0) };
 }
 
-/* ---- 動線＝設備の並び順（作者指定） ----
+/* ---- 導線＝設備の並び順（作者指定） ----
    浴室入口→洗い場→風呂→サウナ→水風呂→ととのいイス。
    となり合う工程の「いちばん近い設備どうしの距離」を測り、3マス以内なら+3、4マス以内なら+1。
    4本ぜんぶ近ければ12点ぶん取れるが上限10＝どこか1本が遠くても他で埋められる余地を残してある。
@@ -1439,29 +2546,37 @@ function equipRect(e) { const d = EQ[e.id]; return { x1: e.x, y1: e.y, x2: e.x +
 function rectDist(a, b) {
   return Math.max(0, Math.max(a.x1 - b.x2, b.x1 - a.x2)) + Math.max(0, Math.max(a.y1 - b.y2, b.y1 - a.y2));
 }
-function liveOf(cat) { return G.equip.filter(e => EQ[e.id].cat === cat && !e.dead && e.cond > 0); }
+/* 生きている設備。`f` を足すと**その階のものだけ**（導線を浴室ごとに測るのに使う）。
+   省けばこれまでどおり全部＝既存の呼び出しは1つも挙動が変わらない */
+function liveOf(cat, f) {
+  return G.equip.filter(e => EQ[e.id].cat === cat && !e.dead && e.cond > 0
+    && (f == null || (e.f | 0) === (f | 0)));
+}
 // 脱衣所の備品（ロッカーは数えない・作者指定）。洗面所・体重計・扇風機・自販機・テレビなど
 function datsuiGoods() {
   return G.equip.filter(e => EQ[e.id].room === 'datsui' && EQ[e.id].cat !== 'locker'
     && !e.dead && e.cond > 0);
 }
-// そのカテゴリどうしで、いちばん近い組み合わせの距離（片方でも無ければ null＝測れない）
-function catDist(a, b) {
-  const A = Array.isArray(a) ? a : liveOf(a).map(equipRect);
-  const B = liveOf(b).map(equipRect);
+/* そのカテゴリどうしで、いちばん近い組み合わせの距離（片方でも無ければ null＝測れない）。
+   `f` を渡すと**その階の設備だけ**で測る。渡さなければ全部＝これまでどおり（第1章は区画が
+   ひとつなので、渡しても渡さなくても同じ結果になる）                          */
+function catDist(a, b, f) {
+  const A = Array.isArray(a) ? a : liveOf(a, f).map(equipRect);
+  const B = liveOf(b, f).map(equipRect);
   if (!A.length || !B.length) return null;
   let m = Infinity;
   for (const p of A) for (const q of B) m = Math.min(m, rectDist(p, q));
   return m;
 }
-function dosenParts() {
+/* 1つの浴室について4区間を測る。扉の座標は**その浴室のもの**を受け取る */
+function dosenLegsOn(doorX, divideY, f) {
   // 浴室の入口＝脱衣所とのあいだのガラス引き戸（浴室側の1マス）
-  const doorRect = [{ x1: CONF.doorX, y1: CONF.divideY - 1, x2: CONF.doorX, y2: CONF.divideY - 1 }];
+  const doorRect = [{ x1: doorX, y1: divideY - 1, x2: doorX, y2: divideY - 1 }];
   const legs = [
-    { name: '入口 → 洗い場', d: catDist(doorRect, 'wash') },
-    { name: '風呂 → サウナ', d: catDist('furo', 'sauna') },
-    { name: 'サウナ → 水風呂', d: catDist('sauna', 'mizu') },
-    { name: '水風呂 → イス', d: catDist('mizu', 'rest') },
+    { name: '入口 → 洗い場', d: catDist(doorRect, 'wash', f) },
+    { name: '風呂 → サウナ', d: catDist('furo', 'sauna', f) },
+    { name: 'サウナ → 水風呂', d: catDist('sauna', 'mizu', f) },
+    { name: '水風呂 → イス', d: catDist('mizu', 'rest', f) },
   ];
   for (const l of legs) {
     // 4本すべて3マス以内で10点ちょうど。1本でも遠いと満点は取れない（作者指定でシビアに）
@@ -1469,6 +2584,27 @@ function dosenParts() {
     l.note = l.d == null ? 'どちらかが無い' : `${l.d}マス`;
   }
   return { list: legs, total: legs.reduce((a, b) => a + b.v, 0) };
+}
+/* ---- 導線の採点（作者指定 8/9 に浴室ごとへ作り替え）--------------------
+   ⚠ **浴室が複数ある章で、2つ壊れていた**（第2章で実測）。
+
+   ①**点が「いま見ている階」で変わっていた。** 扉の座標に `CONF.doorX` /
+     `CONF.divideY` を使っていたが、これは**表示中の区画**の値。第2章で1Fを
+     表示していると `divideY = 0` になり、扉が y=−1 という無い場所に置かれる。
+     同じ店・同じ配置で 1F表示中=6.2点／2F表示中=8.7点 になっていた。
+   ②**階をまたいでいるのに「隣」と数えていた。** サウナ=2F・水風呂=3F の店で
+     「サウナ → 水風呂 = 2マス」。男湯に水風呂が1つも無いのに高得点だった。
+
+   章が `dosenFloors` を返せば、**浴室ごとに測って、いちばん悪い浴室を採る**
+   （男湯7点・女湯3点なら3点＝片方だけ良くしても逃げられない）。
+   **フックを持たない章＝第1章は、これまでとまったく同じ1回の計算がそのまま走る。** */
+function dosenParts() {
+  const rooms = chHook('dosenFloors');
+  if (!rooms || !rooms.length) return dosenLegsOn(CONF.doorX, CONF.divideY);
+  const each = rooms.map(r => Object.assign({ f: r.f, name: r.name },
+    dosenLegsOn(r.doorX, r.divideY, r.f)));
+  const worst = each.reduce((a, b) => (b.total < a.total ? b : a));
+  return { list: worst.list, total: worst.total, rooms: each, worstName: worst.name };
 }
 
 /* ---- △・×の項目に出す「次にやること」（作者指定） ----
@@ -1482,23 +2618,44 @@ function repAdvice(key) {
     // まだ置いていないもののうち、いま置いてある一番いい台より質(q)が上で、いちばん安いもの
     const best = bestQ(cat);
     // 決戦仕様（◯◯スペシャル）は物語の内緒なので、ここでは勧めない（作者指定）
+    /* まだ買えない設備を勧めない。**`(d.rep||0) <= G.rep` の直書きだった**（2026-08-08 修正）＝
+       解放を8部門スコアに移した第2章で、ここだけ旧ゲートのまま残っていた。
+       `unlockOk` はフックの無い章では同じ比較に落ちるので、第1章は不変 */
     const up = Object.entries(EQ).filter(([id, d]) => d.cat === cat && (d.q || 1) > best
-      && (d.rep || 0) <= G.rep && !d.old && id !== DUEL_ONLY_EQ).sort((a, b) => a[1].price - b[1].price)[0];
+      && unlockOk(id) && !d.old && id !== DUEL_ONLY_EQ).sort((a, b) => a[1].price - b[1].price)[0];
     return up ? `${up[1].name}に買い替えると伸びる` : '種類を増やすほうが早い';
   };
   switch (key) {
     case 'clean': {
       const d = dirtCounts();
+      /* 階ごとに採点する章は、**どの階が汚いのかを名指しする**（作者指定 8/7）。
+         「バイトはあと◯人」だけでは、いちばん効く手＝どの階に立たせるか、が伝わらない */
+      if (CONF.dirtPerFloor) {
+        const f = dirtiestFloor(t);
+        if (f != null) {
+          const a = (CONF.areas || [])[f] || {};
+          const here = G.roster.filter(e => (e.f | 0) === f && e.f != null).length;
+          const max = a.staffMax || 1;
+          return here < max ? `${a.name}が汚れている。もう1人立たせる（いま${here}／${max}人）`
+                            : `${a.name}が汚れている。${max}人では手が足りない`;
+        }
+      }
       // 営業中に汚れを拭けるのはバイトだけ（主人公は番台から動けない）
       if (d.thick) return G.roster.length ? `濃い汚れが${d.thick}つ。バイトが足りていない`
         : `濃い汚れが${d.thick}つ。拭けるのはバイトだけ`;
       if (d.thin >= CONF.dirtThinN) return `薄い汚れが${d.thin}つ。濃くなる前に拭く`;
       // 満点には観葉植物が要る（作者指定）＝床が綺麗なだけでは10点にならない
-      if (!G.equip.some(e => e.id === 'plant1' && e.cond > 0 && usable(e))) return '観葉植物が無いと8点止まり';
-      /* 掃除の人手が客数に足りていないと、点そのものが大きく削られる（バイト0なら1.5点どまり） */
-      const need = Math.max(1, Math.ceil((t.paid || 0) / 25));
+      if (!G.equip.some(e => plantIds().includes(e.id) && e.cond > 0 && usable(e))) return '観葉植物が無いと8点止まり';
+      /* 掃除の人手が客数に足りていないと、点そのものが大きく削られる（バイト0なら1.5点どまり）。
+         目安は客25人につき1人だが、**雇えるのは CONF.maxStaff 人まで**（作者指定 8/7）＝
+         上限を超えた数を「あと◯人」と言わない。以前は客150人で「あと5人」と、
+         雇いようのない人数を指示していた */
+      const need = Math.min(Math.max(1, Math.ceil((t.paid || 0) / 25)), CONF.maxStaff);
       if (!G.roster.length) return 'バイトを雇わないと点が伸びない';
       if (G.roster.length < need) return `客${t.paid || 0}人なら、バイトはあと${need - G.roster.length}人`;
+      // 上限まで雇っても手が足りない＝人ではなく「汚れの出方」を減らすしかない
+      if (G.roster.length >= CONF.maxStaff && (t.paid || 0) > CONF.maxStaff * 25)
+        return `バイトは上限の${CONF.maxStaff}人。あとは汚れの出る設備を減らすか、客を捌ける配置に`;
       return '汚れの無い日を7日続ければ満点';
     }
     case 'crowd': {
@@ -1544,9 +2701,9 @@ function repAdvice(key) {
       if (!hasToilet()) return 'トイレが1つもない。まず1つ置く';
       if (!hasSink()) return '洗面所を置くと大きく伸びる';
       if (!hasNewToilet()) return '古いボットン便所を洋式に替える';
-      if (!hasWorking('sink')) return '古い洗面台をちゃんとした洗面所に替える';
+      if (!hasGoodSink()) return '古い洗面台をちゃんとした洗面所に替える';
       if (n < 6) return `脱衣所の備品あと${6 - n}個で満点`;
-      return hasWorking('massage') ? '脱衣所はもう十分' : 'マッサージチェアで満点に届く';
+      return hasRole('massage', 'massage') ? '脱衣所はもう十分' : 'マッサージチェアで満点に届く';
     }
     case 'rest': {
       const ch = liveOf('rest'), k = new Set(ch.map(e => e.id)).size;
@@ -1589,16 +2746,65 @@ function capOf(cat) {
    「1台置けば◯点」の下駄を外し、席数が客数に追いついているかで測る＝
    評判が上がって客が増えるほど足りなくなり、次の投資が要る、という循環をつくる。
    per＝1席で1日に何人まで無理なく捌けるか（滞在時間の長い設備ほど小さい） */
-function scaleScore(cat, want, per, max) {
+/* per は「1席で1日に何人まで無理なく捌けるか」。**章ごとに差し替えられる**
+   （第2章＝都市型サウナは風呂に浸かりに来る店ではないので、浴槽の per が大きい）。
+   CONF.scalePer を持たない第1章は、呼び出し側の数字がそのまま効く */
+function perOf(cat, per) { return ((CONF.scalePer || {})[cat]) || per; }
+function scaleScore(cat, want, per0, max) {
+  const per = perOf(cat, per0);
   const cap = liveOf(cat).reduce((a, e) => a + (EQ[e.id].cap || 0), 0);
   if (!cap) return 0;
   const r = want / cap;                                   // 1席あたりの人数
   return clamp((per * 2 - r) / per, 0, 1) * max;          // r<=per で満点、r>=per*2 で0点
 }
 // 収容の内訳（データ画面の▶に出す）
-function scaleNote(cat, want, per) {
+function scaleNote(cat, want, per0) {
+  const per = perOf(cat, per0);          // 点数と同じ物差しで説明する（食い違うと読めない）
   const cap = liveOf(cat).reduce((a, e) => a + (EQ[e.id].cap || 0), 0);
   return { cap, want, r: cap ? want / cap : Infinity, per };
+}
+/* ============ 清潔度の物差し（作者決定 2026-08-07）============
+   **章が `CONF.dirtPerFloor` を立てていれば、階ごとに点をつけて平均する。**
+
+   汚れは「その階を使った客の数」ぶん出る。それを建物ぜんぶの合計ひとつで測っていたので、
+   **階を建てるほど不利になっていた。** 実測（第2章・5階建て・客180人）：
+     男湯 8.17／女湯 2.49／ラウンジ・食堂・受付 0　→ 合計 10.67 → **清潔度0点**
+   合計だと「濃い汚れ2.7個で0点」の線を、7階建ては1階あたり0.4個で越えてしまう。
+   雇える人（10人）を全部つぎ込んでも0点のままだった。
+
+   階ごとに測れば、上の店は 6.2点。浴室に2人目を立てれば 7.5点まで戻る＝
+   **人手が効くようになる**（いままでは何人雇っても0点だった）。
+   採点するのは**客が使う設備が1つでもある階**だけ＝廊下や空の階で薄めない。
+   フラグを持たない章（第1章）は、これまでどおり建物の合計をそのまま見る＝値は変わらない */
+function dirtScoreOf(x) { return clamp(10 - x * 2.4 - x * x * 0.5, 0, 10); }
+function cleanFloors() {
+  const areas = areaList();
+  if (!areas) return [];
+  const out = [];
+  areas.forEach((a, f) => {
+    if (!a || a.home) return;
+    if (!G.equip.some(e => (e.f | 0) === f && EQ[e.id] && (EQ[e.id].cap || 0) > 0 && e.cond > 0)) return;
+    out.push(f);
+  });
+  return out;
+}
+/* その日、階ごとに床へ転がっていた濃い汚れの平均個数 */
+function dirtAvgOn(t, f) {
+  return t.dirtN ? (((t.dirtSumF && t.dirtSumF[f]) || 0) / t.dirtN) : 0;
+}
+function cleanDirtScore(t) {
+  const whole = t.dirtN ? t.dirtSum / t.dirtN : dirtCounts().thick;
+  if (!CONF.dirtPerFloor) return dirtScoreOf(whole);
+  const fs = cleanFloors();
+  if (!fs.length) return dirtScoreOf(whole);
+  return fs.reduce((a, f) => a + dirtScoreOf(dirtAvgOn(t, f)), 0) / fs.length;
+}
+/* いちばん汚れている階（日報のひと言に名前を出す） */
+function dirtiestFloor(t) {
+  const fs = cleanFloors();
+  if (!fs.length) return null;
+  const f = fs.slice().sort((a, b) => dirtAvgOn(t, b) - dirtAvgOn(t, a))[0];
+  return dirtAvgOn(t, f) > 0 ? f : null;
 }
 function repDayScores() {
   const t = G.today || {};
@@ -1613,11 +2819,12 @@ function repDayScores() {
      15点満点中1.5点どまり＝「放っておけば10日で汚れだらけ、15日でゴキブリが出る」店として扱う。
      店主ひとりで拭いて回るのには限界がある、という当たり前を数字にした。
      さらに満点には観葉植物（緑がないと「気持ちのいい店」にはならない） */
-  const dirtAvg = t.dirtN ? t.dirtSum / t.dirtN : dirtCounts().thick;
-  const dirtScore = clamp(10 - dirtAvg * 2.4 - dirtAvg * dirtAvg * 0.5, 0, 10);
-  const hands = clamp(G.roster.length / Math.max(paid / 25, 1), 0, 1);
+  const dirtScore = cleanDirtScore(t);
+  /* 客何人につきバイト1人か。**章ごとに違う**（第2章は7階建てなので60人に1人）。
+     ここを25で直書きしていたので、300人の店は 12人 雇わないと頭打ちだった */
+  const hands = clamp(G.roster.length / Math.max(paid / (CONF.cleanPerStaff || 25), 1), 0, 1);
   s.clean = dirtScore * (0.15 + 0.85 * hands);
-  if (!G.equip.some(e => e.id === 'plant1' && e.cond > 0 && usable(e))) s.clean = Math.min(s.clean, 8);
+  if (!G.equip.some(e => plantIds().includes(e.id) && e.cond > 0 && usable(e))) s.clean = Math.min(s.clean, 8);
 
   /* ── 混雑度：待たせなかったか6点＋ロッカーの余裕2点＋番台の捌け2点（作者指定）。
      客が少ない日は待ちが出ないので、以前はそれだけで満点だった＝
@@ -1657,8 +2864,8 @@ function repDayScores() {
      ＋ロッカーの収容3点。1.5万のポスターを並べるだけでは満点にならない（作者指定） */
   const gd = datsuiGoods().length;
   // 古い洗面台は「あるだけまし」＝ちゃんとした洗面所の半分以下しか効かない（作者指定）
-  const bigDatsui = (hasWorking('sink') ? 1.2 : hasWorking('sink_old') ? 0.5 : 0) + (hasWorking('massage') ? 1 : 0)
-    + (hasWorking('vend1') ? 0.4 : 0) + (hasWorking('vend2') ? 0.4 : 0);
+  const bigDatsui = (hasGoodSink() ? 1.2 : hasOldSink() ? 0.5 : 0) + (hasRole('massage', 'massage') ? 1 : 0)
+    + vendIds().filter(hasWorking).length * 0.4;
   s.datsui = clamp(Math.min(gd, 6) / 6 * 4 + Math.min(bigDatsui, 3)
     + clamp(lockerCapacity() / Math.max(paid * 0.35, 1), 0, 1) * 3, 0, 10);
 
@@ -1669,7 +2876,7 @@ function repDayScores() {
     bestQ('rest') * 1.25 + scaleScore('rest', wantSauna, 6, 3)
     + Math.min(new Set(chairs.map(e => e.id)).size - 1, 2), 0, 10);
 
-  // ── 動線：4本すべて3マス以内で満点（1本でも遠いと満点は取れない・作者指定）
+  // ── 導線：4本すべて3マス以内で満点（1本でも遠いと満点は取れない・作者指定）
   s.dosen = clamp(dosenParts().total, 0, 10);
 
   /* ── おもてなし：満足度4＋バイトの愛想2＋番台で待たせない1＋アメニティ3（作者指定）。
@@ -1687,21 +2894,24 @@ function repDayScores() {
 /* ---- 【その他】直せばその場で消える減点（作者指定・即時反映） ---- */
 function repPenalties() {
   const p = [];
-  const add = (l, v, sub) => p.push({ l, v, sub });
+  // k＝章ごとに拾い直すための目印（文言で照合すると、言い回しを直した日に静かに外れる）
+  const add = (k, l, v, sub) => p.push({ k, l, v, sub });
   if (!G.opts.banYakuza)
-    add('入墨・ヤクザが入店できる', 30,
+    add('yakuza', '入墨・ヤクザが入店できる', 30,
       kitoAccepted() ? '鬼頭と交わした約束がある' : '運営メニューで「お断り」にすれば消える');
   const olds = G.equip.filter(e => EQ[e.id].old && !e.dead);
-  if (olds.length) add('親父の代からの古い設備', 10,
+  if (olds.length) add('old', '親父の代からの古い設備', 10,
     olds.map(e => EQ[e.id].name).slice(0, 2).join('・') + (olds.length > 2 ? ` ほか${olds.length - 2}台` : ''));
   const broken = G.equip.filter(e => e.cond <= 0);
-  if (broken.length) add('故障したまま放置している設備', 10, `${broken.length}台。修理すれば消える`);
-  if (hasCat('sauna') && !hasMat()) add('サウナマットがない', 5, '浴室に置き場を設置する（無料）');
-  if (!hasAkasuri()) add('垢すりタオルがない', 5, '浴室に置き場を設置する（無料）');
+  if (broken.length) add('broken', '故障したまま放置している設備', 10, `${broken.length}台。修理すれば消える`);
+  if (hasCat('sauna') && !hasMat()) add('mat', 'サウナマットがない', 5, '浴室に置き場を設置する（無料）');
+  if (!hasAkasuri()) add('akasuri', '垢すりタオルがない', 5, '浴室に置き場を設置する（無料）');
   /* 「ドライヤー有料 −2」「アメニティが高い −10」はここから外した（作者指定）。
      高い＝一発で引かれる、ではなく、1品ごとの評価（amenityParts）が
      「おもてなし」の3点ぶんとして増減する形にしてある */
-  return p;
+  /* 減点の顔ぶれは章で変わる（第2章は「強面の客」が正規の客層）。
+     フックを持たない章（第1章）はそのまま返る＝いままでと同じ並び・同じ点 */
+  return chHook('repPenalties', p) || p;
 }
 
 /* ---- 直近7日の平均。今日ぶんは客が入り始めてから混ぜる ---- */
@@ -1768,8 +2978,10 @@ function gradePts(id) {
 /* 【廃止】ミッションのクリア状況による評判の上限（30/40/55/70/100）。
    旧方式で「何もしなくても評判が上がる」のを無理やり押さえるための仕掛けだったが、
    天井＋速度方式では店の格そのものが天井になるので不要。むしろ
-   「設備を入れたのに評判が動かない」という不可解な壁になっていたので撤廃した（作者指定）。 */
-function addRep(d) { G.rep = clamp(G.rep + d, 0, 100); }
+   「設備を入れたのに評判が動かない」という不可解な壁になっていたので撤廃した（作者指定）。
+   ※ 旧方式の addRep（G.rep へ直接足す）もここに残っていて、上の repBonus 版を
+     同名の後勝ちで隠していた＝直接足しても毎晩の syncRep で消える＝
+     物語イベントの評判の増減が全部無効になっていた。残骸のほうを削除した（2026-08-09）。 */
 
 /* その種類の湯温が何段階に分かれているか（1種類だけ=0／熱いのとぬるいの=1…）。
    90℃派と110℃派、キンキン派とぬるめ派の両方に応えられているかの指標。
@@ -1810,16 +3022,44 @@ function totonoiChance() {
 }
 // 客が受け入れられる入浴料の水準。設備の数ではなく「街での評判」で決まる（作者指定）。
 // 評判50まで¥600／60まで¥700／80まで¥800／90まで¥900／それ以上¥1,000。名の知れた湯だけが高くても許される
+/* 客が「まあこれなら」と思う入館料。評判が上がるほど高く取れる。
+   金額の帯は章ごとに違う（第1章＝路地裏の銭湯 ¥600〜¥1,000／
+   第2章＝国道沿いのサウナ施設 ¥900〜¥2,500）ので、表は CONF に置く。
+   第1章は CONF.worthFee を持たないので、これまでどおりの数字が出る          */
 function worthFee() {
   const r = G.rep;
-  if (r <= 50) return 600;
-  if (r <= 60) return 700;
-  if (r <= 80) return 800;
-  if (r <= 90) return 900;
-  return FEE_CEIL;   // 1000
+  /* **評判いくらにつき¥いくら**、という決め方を持つ章はそちらが正（第2章＝評判×¥30）。
+     評判が10上がるごとに1段（＝¥300）上がる階段にしてある＝
+     「上がった」が数字で分かるが、1点ごとにチャラチャラ動かない。
+     第1章は段の表（CONF.worthFee）を持っているので、これまでどおり表から引く */
+  const per = CONF.worthFeePerRep;
+  if (per) {
+    const step = CONF.worthFeeStep || 10;
+    const v = Math.floor(r / step) * step * per;
+    return clamp(Math.round(v), CONF.worthFeeMin || 0, FEE_CEIL);
+  }
+  const tbl = CONF.worthFee || [[50, 600], [60, 700], [80, 800], [90, 900]];
+  for (const [upTo, yenv] of tbl) if (r <= upTo) return yenv;
+  return FEE_CEIL;
 }
+/* ============ 料金の物差し（作者決定 2026-08-05）============
+   「¥100ちがう」の重みは、章の値段の幅で変わる。
+   第1章は¥600〜¥800（上限¥1,000）＝幅¥400なので、¥100は大きな一歩。
+   第2章は¥700〜¥3,000＝**幅が7.7倍**なので、同じ¥100きざみで殴ると、
+   目安どおりの値付け（評判90で¥2,700）が満足度−42・集客−28人になっていた＝
+   **目安がいくつでも「安いほど良い」が勝つ**状態だった。
+
+   ・`feeVsWorth` を持つ章（第2章）は、**基準を目安（worthFee）そのものに置く**＝
+     目安どおりなら±0、安くすれば喜ばれ、超えれば痛い。画面が言っているとおりの意味になる
+   ・きざみも**目安の1割**にする（¥2,700なら¥270が1目盛）
+   ・第1章はフラグを持たないので、基準は FEE_BASE、きざみは¥100のまま        */
+function feeUnit(fair) {
+  if (!CONF.feeVsWorth) return 100;
+  return Math.max(50, Math.round((fair != null ? fair : worthFee()) * 0.1));
+}
+function feeBaseFor() { return CONF.feeVsWorth ? worthFee() : FEE_BASE; }
 // 料金への不満の強さ。0=不満なし。充実度が上がるほど小さくなる
-function feeGripe() { return Math.max(0, (G.opts.fee - worthFee()) / 100); }
+function feeGripe() { return Math.max(0, (G.opts.fee - worthFee()) / feeUnit()); }
 // 客が受け入れられるサウナ料。サウナ1つで¥300、1つ増えるごとに＋¥100（作者指定）
 function worthSaunaFee() {
   const n = G.equip.filter(e => EQ[e.id].cat === 'sauna').length;
@@ -1830,8 +3070,8 @@ function saunaFeeGripe() {
   return Math.max(0, (G.opts.saunaFee - worthSaunaFee()) / 100);
 }
 function feeSatMod() {
-  // フェーズ2：目安超過の痛みを2倍に強化（¥100超過あたり-2→-4）
-  return Math.round((FEE_BASE - G.opts.fee) / 100 * 3) - Math.round(feeGripe() * 4 + saunaFeeGripe() * 2);
+  // フェーズ2：目安超過の痛みを2倍に強化（1目盛の超過あたり-2→-4）
+  return Math.round((feeBaseFor() - G.opts.fee) / feeUnit() * 3) - Math.round(feeGripe() * 4 + saunaFeeGripe() * 2);
 }
 
 /* ヒントの吹き出し1件が、実際にどれくらい満足度を削っているか（日報の並び順に使う）。
@@ -1874,7 +3114,7 @@ function pickHintKey() {
   // 設備そのものが足りない不満（買えば直る）
   // 洗面所がない＝ドライヤーも化粧水もない。不満のセリフは髪と肌の2種類から選ぶ
   if (!hasSink()) cands.push([Math.random() < 0.65 ? 'hintDryer' : 'hintLotion', 1.6]);
-  if (hasCat('sauna') && !hasWorking('cooler')) cands.push(['hintCooler', 2.0]);
+  if (hasCat('sauna') && !hasRole('cooler', 'cooler')) cands.push(['hintCooler', 2.0]);
   if (!hasCat('rest')) cands.push(['hintRest', 1.6]);
   /* 脱衣所の備品が無い（作者指定）。「牛乳ないの？」のように名指しで言わせる＝
      何を置けばいいのかが、そのままカタログへの案内になる */
@@ -1882,12 +3122,16 @@ function pickHintKey() {
      ボットンしか無い店は、使った客がその場で文句を言う（usingPas）ので、ここでは弱めでいい */
   if (!hasToilet()) cands.push(['hintToilet', 2.6]);
   else if (!hasNewToilet()) cands.push(['toiletOld', 0.8]);
-  if (!hasWorking('vend1')) cands.push(['hintMilk', 1.5]);
-  if (!hasWorking('fan_bath')) cands.push(['hintFan', 1.1]);
-  if (!hasWorking('scale')) cands.push(['hintScale', 0.7]);
-  if (!hasWorking('tv')) cands.push(['hintTv', 0.7]);
-  if (hasWorking('vend1') && !hasWorking('vend2')) cands.push(['hintDrink', 0.8]);
-  if (!hasWorking('massage')) cands.push(['hintMassage', 0.6]);
+  /* ⚠ **カタログに1つも無い物を欲しがらせない**（roleBuildable）。
+     第2章には扇風機も体重計もテレビも無いので、直書きのままだと
+     「扇風機ないのか…」が100日間ずっと出続ける＝直しようのない不満になっていた */
+  const vends = vendIds();
+  if (!hasWorking(vends[0])) cands.push(['hintMilk', 1.5]);
+  if (roleBuildable('fan', 'fan_bath') && !hasRole('fan', 'fan_bath')) cands.push(['hintFan', 1.1]);
+  if (roleBuildable('scale', 'scale') && !hasRole('scale', 'scale')) cands.push(['hintScale', 0.7]);
+  if (roleBuildable('tv', 'tv') && !hasRole('tv', 'tv')) cands.push(['hintTv', 0.7]);
+  if (vends[1] && hasWorking(vends[0]) && !hasWorking(vends[1])) cands.push(['hintDrink', 0.8]);
+  if (!hasRole('massage', 'massage')) cands.push(['hintMassage', 0.6]);
   // 品揃え＝好みの違う客を取りこぼしている。風呂は「種類」、サウナ・水風呂は「温度の幅」で見る
   const ft = furoTemps();
   if (ft.length) {
@@ -1923,12 +3167,12 @@ function customerLeave(c) {
   c.sat -= Math.min(G.dirts.length * 0.8, 10);
   // 混雑＝ロッカーが埋まれば次の客はそもそも入店できないので、店全体の人数では二重に絞らない。
   // 「混んでて入れなかった」は浴室内の設備待ち（waitEquip）の話＝そちらで扱う
-  const plants = G.equip.filter(e => e.id === 'plant1').length;
+  const plants = G.equip.filter(e => plantIds().includes(e.id)).length;
   c.sat += Math.min(plants * 1.5, 6);
-  /* 動線（作者指定）。1回の来店で歩かされたマス数で判定する。
+  /* 導線（作者指定）。1回の来店で歩かされたマス数で判定する。
      設備をばらばらに置くと、客はそのぶん館内を歩かされる＝それが不満として返ってくる。
      ロッカー→洗い場→湯→サウナ→水風呂→イスが近くにまとまっているほど良い。
-     玄人のサウナ客は動線にうるさく、基準が厳しい */
+     玄人のサウナ客は導線にうるさく、基準が厳しい */
   const tiles = (c.walkPx || 0) / T;
   const pro = c.wantsSauna && (c.type.likesSauna || 0) >= 0.9;
   const lim = pro ? CONF.dosenProTiles : CONF.dosenTiles;
@@ -1936,19 +3180,23 @@ function customerLeave(c) {
     // 基準をどれだけ超えたかで痛みが増す（最大2倍まで）
     c.sat -= Math.round(CONF.dosenHit * Math.min(tiles / lim, 2));
     gripe('dosen');
-    if (!c.bub) hintBubble(c, pick(pro ? LINES.dosenPro : LINES.dosen));
-    voice(c, pick(pro ? LINES.dosenPro : LINES.dosen), 'dosen',
+    /* 台詞は章に選ばせる（作者報告 8/8）。この判定は**歩いた総マス数**であって
+       サウナと水風呂の距離ではないので、「サウナ→水風呂が遠すぎ」と決め打ちすると、
+       隣に並べてある店で言われて嘘になる。第1章はフックが無い＝これまでどおり */
+    const lines = chHook('dosenLines', c, pro) || (pro ? LINES.dosenPro : LINES.dosen);
+    if (!c.bub) hintBubble(c, pick(lines));
+    voice(c, pick(lines), 'dosen',
           Math.round(CONF.dosenHit * Math.min(tiles / lim, 2)), '⚠');
   }
   /* トイレが1つも無い（作者指定）。用を足せない銭湯は、それだけで話にならない＝
      一律で効く減点にしてある（ボットンでも、あるだけましという扱い） */
   if (!hasToilet()) { c.sat -= 5; gripe('lack'); }
   // フェーズ3：ないものねだり（ミスト・塩・熱波師）。帰り際に「あれが無かったな…」とがっかりする
-  if (c.wantsMist && !hasWorking('sauna_mist')) { c.sat -= 3; gripe('lack'); if (!c.bub && Math.random() < .5) bubble(c, pick(LINES.wantMist)); }
-  if (c.wantsShio && !hasWorking('sauna_shio')) { c.sat -= 3; gripe('lack'); if (!c.bub && Math.random() < .5) bubble(c, pick(LINES.wantShio)); }
+  if (c.wantsMist && !hasRole('mist', 'sauna_mist')) { c.sat -= 3; gripe('lack'); if (!c.bub && Math.random() < .5) bubble(c, pick(LINES.wantMist)); }
+  if (c.wantsShio && !hasRole('shio', 'sauna_shio')) { c.sat -= 3; gripe('lack'); if (!c.bub && Math.random() < .5) bubble(c, pick(LINES.wantShio)); }
   if (c.wantsSauna && c.wantsNappa && !nappaOn()) { c.sat -= 2; gripe('lack'); if (!c.bub && Math.random() < .5) bubble(c, pick(LINES.wantNappa)); }
   // フェーズ3：バイトの愛想。感じのいい接客は帰り際の印象に少し乗る（店にいる中でいちばん愛想のいい子基準・最大+2）
-  const present = G.staff.filter(s => !(s.lateT > 0) && s.emp);
+  const present = G.staff.filter(s => workerHere(s) && s.emp);
   if (present.length) c.sat += Math.min(Math.max(...present.map(s => s.emp.aiso)) * 0.5 - 0.5, 2);
   // 置くだけで効く設備（脱衣所の洗面所・体重計・テレビ・ポスター／扇風機・冷水機…）
   // 客のタイプによって刺さるものが違う＝爺さんはポスターと将棋、若いのはテレビと化粧水
@@ -1975,7 +3223,7 @@ function customerLeave(c) {
     if (key && LINES[key]) bubble(c, pick(LINES[key]));
   }
   if (!c.bub && hasSink() && Math.random() < 0.12) bubble(c, pick(G.opts.dryerFee ? LINES.dryerPaid : LINES.dryerFree));
-  if (!c.bub && hasWorking('cooler') && Math.random() < 0.10) bubble(c, pick(LINES.coolerGood));
+  if (!c.bub && hasRole('cooler', 'cooler') && Math.random() < 0.10) bubble(c, pick(LINES.coolerGood));
   // フェーズ4：上位志向の客（10%）＝どんな店でも「上には上がある」と少し不満げに帰る。
   // 満足の天井が常に下がる＝評判の伸びが構造的に鈍る（作者指定）
   if (c.snob) {
@@ -2012,18 +3260,30 @@ function customerLeave(c) {
       else if (G.opts.towel === 'paid' && G.opts.towelPrice >= 150) bubble(c, pick(LINES.towelPricey));
     }
   }
+  /* **客層ごとの「求めるもの」**（第2章・chHook で章を跨がない）。
+     老人は電気風呂、OLは女性スタッフ…と、層ごとに加減点する。
+     ここを通さない章では satisfaction の式は一切変わらない            */
+  const want = hasHook('segWant') ? (chHook('segWant', c) || 0) : 0;
+  if (want) c.sat += want;
   c.sat = clamp(c.sat, 0, 100);
   G.today.satSum += c.sat; G.today.satN++;
   addSegSat(c);
   /* 行きつけになるか、足が遠のくか。
      気持ちよく帰った新規の一部が常連に変わり、がっかりした常連はそのぶん離れる＝
      「客をどれだけ集めたか」より「集めた客をどれだけ満足させたか」が効いてくる */
+  /* **その層の常連が増えたか、減ったか**も同時に控える（第2章）。
+     G.regulars は店全体でひとつの数字なので、「老人には支持されているが
+     女子大生には見放されている」が表せない。章が受け口を持っていれば、
+     同じ出来事を層ごとにも数えておく＝来店する客層の比率がそこから決まる。
+     フックを持たない章（第1章）では何も起きない                       */
   if (c.isNew) {
     if (c.sat >= CONF.regularSatKeep && Math.random() < CONF.regularConvert) {
       G.regulars = clamp(G.regulars + 1, 0, CONF.regularMax); G.today.regularsUp++;
+      chHook('segFan', c, 1);
     }
   } else if (c.sat < CONF.regularSatLose) {
     G.regulars = clamp(G.regulars - 1, 0, CONF.regularMax); G.today.regularsDown++;
+    chHook('segFan', c, -1);
   }
   // 帰り際の一言。ヒントの吹き出しが出ている時は上書きしない（赤枠を消さない）
   if (c.sat >= 70) { if (!c.bub) bubble(c, pick(LINES.leaveGood)); voice(c, pick(LINES.leaveGood), 'leaveGood', 0); }
@@ -2038,8 +3298,11 @@ function customerLeave(c) {
 }
 
 /* 強面・刺青の客が浴室に入っている（脱衣を済ませて中にいる）か */
-function yakuzaPresent() {
-  return G.customers.some(o => o.typeKey === 'yakuza' && o.mode === 'towel');
+/* **客のIDではなく `tattoo` で見る**（第2章対応 8/5）。
+   'yakuza' と名指ししていたので、章が変わって客の名前が変わると静かに効かなくなる。
+   第1章で tattoo を持っているのは強面の親分ただひとり＝挙動は変わらない */
+function tattooPresent() {
+  return G.customers.some(o => o.type && o.type.tattoo && o.mode === 'towel');
 }
 /* 子どもが浴室にいるか。「刺青・ヤクザお断り」にすると家族連れが増える＝
    そのぶん、静かに浸かりたい客からは不満も出る（作者指定＝どちらを取るかの選択） */
@@ -2048,25 +3311,42 @@ function kidPresent() {
 }
 
 function updateCustomer(c, dt) {
-  // 強面・刺青の客が中にいると、居合わせた一般客が怖がって満足度を落とす（運営メニューの「お断り」で避けられる）
-  if (!c.sawYakuza && c.typeKey !== 'yakuza' && c.mode === 'towel' && yakuzaPresent()) {
-    c.sawYakuza = true; c.sat = clamp(c.sat - 12, 0, 100);   // フェーズ2で-7→-12に強化
-    if (!c.bub) hintBubble(c, pick(LINES.yakuzaGripe));
+  /* 強面・刺青の客が中にいると、居合わせた一般客が怖がって満足度を落とす
+     （運営メニューの「お断り」で避けられる）。
+     **どれだけ堪えるかは章が決められる**（第2章＝子連れがいちばん堪える。作者決定 8/5）。
+     子どもの声（下の kidGripe）と同じ形＝**どちらを取るかの選択**が、両側から効く */
+  if (!c.sawYakuza && !(c.type && c.type.tattoo) && c.mode === 'towel' && tattooPresent()) {
+    const yh = chHook('yakuzaGripe', c);
+    const hit = yh !== undefined ? yh : 12;                  // フェーズ2で-7→-12に強化
+    if (hit > 0) {
+      c.sawYakuza = true; c.sat = clamp(c.sat - hit, 0, 100);
+      if (!c.bub) hintBubble(c, pick(LINES.yakuzaGripe));
+    }
   }
-  // 子ども連れが騒がしくて落ち着かない客（親子連れ本人と、寛容な客は言わない）
-  if (!c.sawKid && !c.isChild && c.typeKey !== 'oyako' && c.mode === 'towel' && kidPresent()
-      && (c.type.tolerant || 0) < 6) {
-    c.sawKid = true; c.sat = clamp(c.sat - 8, 0, 100);
-    if (!c.bub) bubble(c, pick(LINES.kidGripe), 3.0);
+  /* 子ども連れが騒がしくて落ち着かない客（親子連れ本人と、寛容な客は言わない）。
+     **連れて来た親を外すのは `withKid` を持っているかで見る**（`kidOf`）＝
+     'oyako' と名指ししていたので、第2章の「子連れの母」が自分の子に文句を言っていた。
+     どれだけ堪えるかは章が決められる（第2章＝老人がいちばん堪える） */
+  if (!c.sawKid && !c.isChild && !kidOf(c.typeKey) && c.mode === 'towel' && kidPresent()) {
+    const hook = chHook('kidGripe', c);
+    const hit = hook !== undefined ? hook : ((c.type.tolerant || 0) < 6 ? 8 : 0);
+    if (hit > 0) {
+      c.sawKid = true; c.sat = clamp(c.sat - hit, 0, 100);
+      if (!c.bub) bubble(c, pick(LINES.kidGripe), 3.0);
+    }
   }
   // 子どもは湯でも脱衣所でもよく喋る（にぎやかさの演出）
-  if (c.isChild && !c.bub && Math.random() < dt * 0.12) bubble(c, pick(LINES.kidLine), 2.4);
+  if (c.isChild && !c.bub && Math.random() < dt * 0.12) bubble(c, pick(kidLinePool(c)), 2.4);
   /* 滞在時間の制限。時間が来た客に印を付けるだけ＝実際に伝えに行くのは人間の仕事で、
      バイト（いなければ主人公）がそこまで歩いて行く。その間、掃除も会計も止まる（作者指定） */
   if (G.opts.timeLimit && c.inAt != null && !c.told && !c.timeUp && c.mode === 'towel'
       && (c.plan.length || c.state === 'using' || c.state === 'waitEquip')
       && G.minutes - c.inAt >= G.opts.timeLimit) c.timeUp = true;
   switch (c.state) {
+    // 第2章：区画のあいだを移動している最中（通路まで歩いて、隣の区画へ移る）
+    case 'ch2Transit': chHook('stepTransit', c, dt); break;
+    // 移った先で、あらためて次の予定を選び直す
+    case 'plan': nextPlan(c); break;
     case 'turnAway':
       if (stepMove(c, dt)) {
         c.timer -= dt;
@@ -2088,10 +3368,13 @@ function updateCustomer(c, dt) {
       const t0 = tileOf(c);
       if (want && (t0.x !== want.x || t0.y !== want.y)) { sendToQueueSpot(c); c.state = 'toPay'; break; }
       c.waitT += dt;
-      c.sat -= dt * 0.12;
-      if (c.waitT > 25 && !c.bub && Math.random() < .02) bubble(c, pick(LINES.crowded));
+      /* 章が「客の我慢」を持っていれば、そのぶん粘る（第2章＝山下公園で大道芸を見た週）。
+         フックを持たない章は 1.0 が返る＝これまでどおり45分で帰る */
+      const pat = chHook('waitPatience') || 1;
+      c.sat -= dt * 0.12 / pat;
+      if (c.waitT > 25 * pat && !c.bub && Math.random() < .02) bubble(c, pick(LINES.crowded));
       // 待ちくたびれて帰る＝取り逃がし。受付が追いつかないと外の行列がそのまま損になる
-      if (c.waitT > 45) {
+      if (c.waitT > 45 * pat) {
         bubble(c, pick(LINES.giveUp), 2.6);
         const qi = G.payQueue.indexOf(c); if (qi >= 0) G.payQueue.splice(qi, 1);
         G.today.gaveUp++; gripe('bandai');
@@ -2196,6 +3479,14 @@ function updateCustomer(c, dt) {
           addFloater(c.px, c.py - 24, '+' + yen(GACHA_PRICE));
           c.sat += 6;
         }
+        /* 駄菓子コーナー：子どもは10円菓子の袋（¥100）、大人は湯上がりの1本（¥250）。
+           値段は章の CONF が持つ（第1章はこの kind に到達しない＝設備が無い） */
+        if (c.pas && c.pas.kind === 'dagashi') {
+          const dp = c.isChild ? (CONF.dagashiKidPrice || 100) : (CONF.dagashiPrice || 250);
+          G.cash += dp; G.today.amenRev += dp; G.today.amenN++; G.today.revenue += dp;
+          addFloater(c.px, c.py - 24, '+' + yen(dp));
+          c.sat += c.isChild ? 6 : 3;
+        }
         /* トイレから出てきた一言（作者指定）。洋式なら「スッキリ〜」、
            親父の代からのボットンなら、顔をしかめて出てくる＝替えろ、の合図 */
         if (c.pas && c.pas.kind === 'toilet') {
@@ -2232,7 +3523,12 @@ function updateCustomer(c, dt) {
       }
       break;
     case 'slideIn':
-      if (stepMove(c, dt)) { c.state = 'using'; c.timer = c.use.dur; }
+      if (stepMove(c, dt)) {
+        c.state = 'using'; c.timer = c.use.dur;
+        /* 使い始めた瞬間。第2章の食堂は、ここで**注文を取る**
+           （席に着いた＝食べた、ではなく、頼んで・作られて・運ばれてくる） */
+        chHook('useStart', c, c.use.item, c.use.cat);
+      }
       break;
     case 'using':
       c.timer -= dt;
@@ -2261,8 +3557,12 @@ function updateCustomer(c, dt) {
     case 'vend':
       c.timer -= dt;
       if (c.timer <= 0) {
-        const pr = c.vendId === 'vend2' ? 180 : 130;
+        const pr = DRINK_VEND[c.vendId] || 130;
         G.cash += pr; G.today.milk++; G.today.milkRev += pr; G.today.revenue += pr;
+        // 台ごとの内訳（日報で「牛乳」「ドリンク」を分けて見せる）
+        const vk = c.vendId || 'vend1';
+        const tv = G.today; (tv.vendN || (tv.vendN = {})); (tv.vendRev || (tv.vendRev = {}));
+        tv.vendN[vk] = (tv.vendN[vk] || 0) + 1; tv.vendRev[vk] = (tv.vendRev[vk] || 0) + pr;
         bubble(c, pick(LINES.milk));
         addFloater(c.px, c.py - 24, '+' + yen(pr));
         c.sat += 4;
@@ -2283,6 +3583,65 @@ function removeCustomer(c) {
   const i = G.customers.indexOf(c); if (i >= 0) G.customers.splice(i, 1);
 }
 
+/* ============ 番台に立って会計する ============
+   主人公も、ロビー担当のバイトも、同じことをする（第2章＝**番台の2人目**）。
+   番台に着いた人が呼ぶ。列の先頭が目の前に立っていれば、金を受け取って中へ通す。  */
+function tendBandai(w, dt) {
+  const front = G.payQueue[0];
+  const fs = queueSpots()[0];
+  if (!front || front.state !== 'pay') { if (!G.payQueue.length) w.task = null; return; }
+  const t0 = tileOf(front);
+  if (t0.x !== fs.x || t0.y !== fs.y) return;
+  w.timer += dt;
+  if (w.timer < 0.7) return;
+  w.timer = 0;
+  takePayment(front);
+}
+/* 金を受け取って、暖簾の内側へ通す。**番台でも、券売機でも、やることは同じ**なので
+   ここに切り出してある（第2章の券売機が、番台を通さずに同じ処理を呼ぶ）。
+   切り出しただけで、中身は1行も変えていない＝第1章の会計はそのまま        */
+function takePayment(front) {
+  const extra = front.wantsSauna && hasCat('sauna') ? G.opts.saunaFee : 0;
+  if (front.wantsSauna && hasCat('sauna')) G.today.sauna++;
+  // 子どもは子供料金（作者指定）。サウナには入らないので上乗せもない
+  let take = front.isChild ? (G.opts.kidFee || 0) : G.opts.fee + extra;
+  /* 深夜の入館は割増。開けている店が他に無いので、客は払う。
+     G.minutes は**開店からの分**なので、深夜の始まりも開店時刻から数える。
+     ここを 24時と直書きしていたので、深夜が22時から始まる第2章では
+     **22時〜24時の2時間ぶんだけ割増が取れていない**ところだった（nightStartHour） */
+  if (!front.isChild && nightOpenOn() && G.minutes >= (nightStartHour() - openHourNow()) * 60) {
+    take += CONF.nightOpen.fee || 0;
+    G.today.nightRev = (G.today.nightRev || 0) + (CONF.nightOpen.fee || 0);
+  }
+  // 手ぶらセット。手ぶらで来た客が買う（高いほど手が出ない）。タオルが無料なら買う理由がない
+  // 手ぶらセットは¥300〜¥500の3段（作者指定）。¥300ならほぼ全員が買い、¥500だと半分を切る
+  if (!front.isChild && G.opts.tebura && front.tebura && G.opts.towel !== 'free'
+      && Math.random() < clamp(0.95 - (G.opts.teburaPrice - 300) / 400, 0.35, 0.95)) {
+    take += G.opts.teburaPrice;
+    G.today.teburaRev += G.opts.teburaPrice; G.today.teburaN++;
+    front.boughtTebura = true; front.boughtTowel = true;
+  }
+  // 有料タオルを買う客（手ぶらセットに含まれている客は買わない）
+  if (!front.isChild && !front.boughtTebura && G.opts.towel === 'paid' && Math.random() < 0.45) {
+    take += G.opts.towelPrice; G.today.towelRev += G.opts.towelPrice; G.today.towelN++;
+    front.boughtTowel = true;
+  }
+  /* 無料貸出の日に、実際に借りていった枚数を数える（**枚数で維持費がかかる章だけ**）。
+     借りるのは手ぶらで来た客＝自前のタオルを持っている客は借りない。
+     金は動かないので、数えるだけ。第1章は towelCostPer を持たないので、この行は通らない */
+  if (CONF.towelCostPer && !front.isChild && G.opts.towel === 'free' && front.tebura)
+    G.today.towelFreeN = (G.today.towelFreeN || 0) + 1;
+  G.cash += take; G.today.paid++; G.today.revenue += take;
+  if (front.isNew) G.today.newN++; else G.today.repeatN++;
+  const b = bandai();
+  if (b) addFloater(b.x * T + T / 2, b.y * T - 6, '+' + yen(take));
+  bubble(front, pick(LINES.pay), 1.6);
+  G.payQueue.shift();
+  front.inAt = G.minutes;          // 滞在時間はここから数える（＝金を払って暖簾をくぐった時刻）
+  goLocker(front, 'in');
+  for (const c2 of G.payQueue) if (c2.state === 'pay') { sendToQueueSpot(c2); c2.state = 'toPay'; }
+}
+
 /* ---- 主人公 ---- */
 function makePlayer() {
   const s = playerSpot();
@@ -2291,23 +3650,66 @@ function makePlayer() {
   return p;
 }
 function updatePlayer(p, dt) {
+  /* 勤務時間の外＝店にいない（家にいる）。やりかけの仕事は畳んで、次の朝までいなくなる。
+     ※時刻は onDuty と同じところから引く。ここで CONF.workHours を直に読んでいたので、
+       それを持たない第2章が深夜営業を始めた瞬間に落ちていた                */
+  const wh = chHook('workHours') || CONF.workHours || [0, 24];
+  if (!onDuty()) {
+    if (p.task || p.path) { p.task = null; p.target = null; p.path = null; p.moving = false; }
+    p.bub = null; p.dozeT = 0;
+    if (!G.offDutySaid) { G.offDutySaid = true; log(`🏠 ${wh[1]}時。今日はここまで。店を出た`); }
+    return;
+  }
+  if (G.offDutySaid) { G.offDutySaid = false; log(`🌅 ${wh[0]}時。店に来た`); }
+  /* 章が「いま主人公は手が離せない」と言うなら、番台にも掃除にも回さない
+     （第2章＝垢すりの施術中。60分は他に何もできない）。
+     フックを持たない章は素通り＝これまでどおり                          */
+  if (chHook('playerBusy', p, dt)) return;
   /* バイトが誰も居ない（全員まだ来ていない場合も含む）店では、営業中も主人公が
      掃除・ゴキブリ退治・時間切れの声かけまで全部やる（作者指定）。
      受付・掃除・声かけをひとりで回す＝どれかが必ず後手に回り、店が回らない。
      手を付けた仕事は最後までやり切る。番台へ戻るのはそれからなので、その間、行列は伸びる */
-  const solo = G.phase === 'biz' && !G.staff.some(s => !(s.lateT > 0));
+  /* **主人公が出勤しない日**（第2章）＝立っているのは妻ひとり。
+     番台だけを回して、掃除にも他の階にも手が回らない＝汚れが残り、行列が伸びる */
+  if (p.wifeOnly) {
+    const deskF = areaCount() <= 1 || ((bandai() || { f: 0 }).f | 0) === (p.f | 0);
+    if (deskF && G.payQueue.length) {
+      if (p.task !== 'bandai') {
+        p.task = 'bandai'; p.target = null;
+        const sp = playerSpot(), t0 = tileOf(p);
+        p.path = findPath(t0.x, t0.y, sp.x, sp.y) || [];
+      }
+      if (stepMove(p, dt)) tendBandai(p, dt);
+    } else { p.task = null; p.target = null; }
+    return;
+  }
+  /* **第2章の主人公は、体力が尽きるまで動き続ける**（作者指定 8/5）。
+     バイトが居ようが居まいが番台に張り付かない＝汚れのある階へ自分で上がっていく。
+     止まるのは体力がゼロになった時だけで、そこで番台の横に崩れ落ちる。
+     第1章はフックを持たないので、これまでどおり「バイトが1人でも居れば番台」のまま */
+  const keepWork = !!chHook('playerKeepWorking');
+  const solo = G.phase === 'biz' && (keepWork || !G.staff.some(workerHere));
   if (solo) {
-    const busy = p.task === 'clean' || p.task === 'tell' || p.task === 'roach';
+    const busy = p.task === 'clean' || p.task === 'tell' || p.task === 'roach' || p.task === 'ch2go';
     /* 時間切れの声かけだけは番台より先（客を裸で待たせたまま放ってはおけない）。
-       掃除に出られるのは行列が切れた時だけ＝ひとりで回す店の床は、まず片づかない */
-    if (busy || findTimeUpTarget(p) || !G.payQueue.length) {
+       掃除に出られるのは行列が切れた時だけ＝ひとりで回す店の床は、まず片づかない。
+       **番台に人が立っている店（deskCovered）は、行列があっても掃除に出る**＝
+       会計はその人の仕事。主人公は自分の体を、床とゴキブリのほうに使う */
+    if (busy || findTimeUpTarget(p) || !G.payQueue.length || chHook('deskCovered')) {
       if (p.task === 'bandai') { p.task = null; p.target = null; }   // 番台を離れる（maintain は手が空いた人しか動かせない）
-      maintain(p, dt, playerSpot());
+      maintain(p, dt, playerHome());
+      playerDoze(p, dt);
       return;
     }
   }
-  // 支払い待ちが最優先
-  if (G.payQueue.length && (!p.task || p.task !== 'bandai')) {
+  /* 支払い待ちが最優先。ただし**番台のある部屋に居るときだけ。**
+
+     ここに部屋の確認が無かったせいで、休憩スペースや食堂に立っている主人公が
+     その部屋の何もない床へ歩いて行き、**客のいないところで会計を始めていた**
+     （番台は別の部屋にあるので、その部屋の地図で「番台の隣」を計算すると、
+     ただの床のどこかが出てくる）。バイト側（deskHelper）には最初から入っている確認 */
+  const deskArea = areaCount() <= 1 || ((bandai() || { f: 0 }).f | 0) === (p.f | 0);
+  if (deskArea && G.payQueue.length && (!p.task || p.task !== 'bandai')) {
     p.task = 'bandai'; p.target = null;
     const s = playerSpot(), t0 = tileOf(p);
     const pth = findPath(t0.x, t0.y, s.x, s.y);
@@ -2315,69 +3717,75 @@ function updatePlayer(p, dt) {
     p.path = pth || [];
   }
   if (p.task === 'bandai') {
-    const done = stepMove(p, dt);
-    if (done) {
-      const front = G.payQueue[0];
-      const fs = queueSpots()[0];
-      if (front && front.state === 'pay') {
-        const t0 = tileOf(front);
-        if (t0.x === fs.x && t0.y === fs.y) {
-          p.timer += dt;
-          if (p.timer >= 0.7) {
-            p.timer = 0;
-            const extra = front.wantsSauna && hasCat('sauna') ? G.opts.saunaFee : 0;
-            if (front.wantsSauna && hasCat('sauna')) G.today.sauna++;
-            // 子どもは子供料金（作者指定）。サウナには入らないので上乗せもない
-            let take = front.isChild ? (G.opts.kidFee || 0) : G.opts.fee + extra;
-            // 手ぶらセット。手ぶらで来た客が買う（高いほど手が出ない）。タオルが無料なら買う理由がない
-            // 手ぶらセットは¥300〜¥500の3段（作者指定）。¥300ならほぼ全員が買い、¥500だと半分を切る
-            if (!front.isChild && G.opts.tebura && front.tebura && G.opts.towel !== 'free'
-                && Math.random() < clamp(0.95 - (G.opts.teburaPrice - 300) / 400, 0.35, 0.95)) {
-              take += G.opts.teburaPrice;
-              G.today.teburaRev += G.opts.teburaPrice; G.today.teburaN++;
-              front.boughtTebura = true; front.boughtTowel = true;
-            }
-            // 有料タオルを買う客（手ぶらセットに含まれている客は買わない）
-            if (!front.isChild && !front.boughtTebura && G.opts.towel === 'paid' && Math.random() < 0.45) {
-              take += G.opts.towelPrice; G.today.towelRev += G.opts.towelPrice; G.today.towelN++;
-              front.boughtTowel = true;
-            }
-            G.cash += take; G.today.paid++; G.today.revenue += take;
-            if (front.isNew) G.today.newN++; else G.today.repeatN++;
-            addFloater(bandai().x * T + T / 2, bandai().y * T - 6, '+' + yen(take));
-            bubble(front, pick(LINES.pay), 1.6);
-            G.payQueue.shift();
-            front.inAt = G.minutes;          // 滞在時間はここから数える（＝金を払って暖簾をくぐった時刻）
-            goLocker(front, 'in');
-            for (const c2 of G.payQueue) if (c2.state === 'pay') { sendToQueueSpot(c2); c2.state = 'toPay'; }
-          }
-        }
-      } else if (!G.payQueue.length) { p.task = null; }
-    }
-    return;
+    if (!deskArea) { p.task = null; p.target = null; p.path = null; }   // 部屋を移った＝番台の仕事は持ち越さない
+    else { if (stepMove(p, dt)) tendBandai(p, dt); return; }
   }
   /* バイトが1人でも出勤していれば、営業中の主人公は番台から離れない（作者指定）。
      会計をさばきながら床まで拭いて回れるなら、バイトを雇う理由が無くなる。
      ＝雇ったその日から、掃除も声かけもバイトの仕事になる。
      バイトが誰も居ない日だけは主人公が全部やる（この関数の頭の solo）＝店が回らない、を体で分からせる */
-  if (G.phase === 'biz') {
-    const t0 = tileOf(p), home = playerSpot();
+  if (G.phase === 'biz' && !keepWork) {
+    const t0 = tileOf(p), home = playerHome();
     if (!p.task && (t0.x !== home.x || t0.y !== home.y)) { p.task = 'home'; p.path = findPath(t0.x, t0.y, home.x, home.y) || []; }
     if (p.task === 'home' && stepMove(p, dt)) p.task = null;
     return;
   }
-  maintain(p, dt, playerSpot());
-  /* 番台に戻ってきても、すぐには寝ない。ひと息ついてから、ゆっくり崩れ落ちる（作者指定）。
-     いきなり突っ伏すと、一瞬で切り替わって見えてしまう */
-  p.dozeT = playerSpent() ? (p.dozeT || 0) + dt : 0;
+  /* 手が空いた時に戻る場所は、その人がいる部屋で決まる（playerHome）。
+     番台のあるロビーなら台の横、それ以外の部屋なら入口のそば、家なら玄関の内側。
+     ここで番台の座標をそのまま使うと、家に居るのに番台の前に立とうとする */
+  maintain(p, dt, playerHome());
+  playerDoze(p, dt);
 }
+/* 番台に戻ってきても、すぐには寝ない。ひと息ついてから、ゆっくり崩れ落ちる（作者指定）。
+   いきなり突っ伏すと、一瞬で切り替わって見えてしまう */
+function playerDoze(p, dt) { p.dozeT = playerSpent() ? (p.dozeT || 0) + dt : 0; }
 /* 開店前に、主人公ひとりで拭いて回れる汚れの数（作者指定）。
    準備中は時間が無限に使えるので、ここに上限が無いと毎朝ぴかぴかになってしまう */
-const PREP_CLEAN_MAX = 5;
+const PREP_CLEAN_MAX_BASE = 5;
+/* 章ごとに増やせるようにしてある（いまはどの章も上乗せなし） */
+function prepCleanMax() { return PREP_CLEAN_MAX_BASE + (chHook('prepCleanBonus') || 0); }
 /* 営業中、バイトが誰も居ない日に、主人公が番台を離れて拭ける数（作者指定）。
    受付を放り出して掃除し続けられるなら、やはりバイトを雇う理由が無くなる。
    ここを使い切ったら、汚れが残っていても番台に張り付く＝「人を雇え」の合図 */
 const BIZ_CLEAN_MAX = 3;
+
+/* ============ 体力 ============
+   主人公の**一日ぶんの手**。第2章だけ（CONF.stamMax がある章だけ）動く。
+   汚れを拭く・ゴミを運ぶ・ゴキブリを叩く——主人公が自分の体でやることは、全部ここから引く。
+   金を出して人を雇えば減らない＝**金と体力は交換できる**。
+   第1章は CONF.stamMax を持たないので、従来の「1晩に5つ／営業中は3つ」のまま動く。 */
+// CONF.staminaOn === false でまるごと止まる（数値は残したまま隠せる）
+function staminaOn() { return !!CONF.stamMax && CONF.staminaOn !== false; }
+function stamCost(kind) { return (CONF.stamCost || {})[kind] || 0; }
+function stamLeft() { return staminaOn() ? (G.stam ?? CONF.stamMax) : Infinity; }
+function canSpendStam(kind) { return stamLeft() >= stamCost(kind); }
+function spendStam(kind) {
+  if (!staminaOn()) return;
+  G.stam = Math.max(0, stamLeft() - stamCost(kind));
+}
+/* 朝が来た＝寝て回復する。まるまる1日ぶん戻る */
+function restStamina() { if (staminaOn()) G.stam = CONF.stamMax; }
+/* 主人公がもう動けないか。体力のある章はこれ1本、無い章は従来の数え方 */
+function playerTired(w) {
+  if (!w || w.kind !== 'player') return false;
+  /* 店を開けない日は、主人公はそもそも店に居ない（第2章の定休日）。
+     ここを塞がないと、行き先を選んでいる間に館内の掃除で体力を使い切ってしまう */
+  if (G.phase !== 'biz' && chHook('offDayNoWork')) return true;
+  if (staminaOn()) {
+    if (!canSpendStam('clean')) return true;
+    /* **夜（準備中）に拭ける数は、体力とは別に頭打ちにする**（2026-08-07）。
+       体力のある章は「尽きるまで動き続ける」だけを見ていたので、
+       準備中に主人公が掃除できるようになった日から、
+       **カタログを眺めている間に体力を使い切って開店する**ようになった
+       （汚れ1つ15・体力100＝朝のうちに6つ拭くと空になる）。
+       ここは第1章と同じ prepCleanMax() で止める＝夜に拭けるのは5つまで */
+    if (G.phase !== 'biz' && (G.prepCleaned || 0) >= prepCleanMax()) return true;
+    return false;
+  }
+  return G.phase === 'biz'
+    ? (G.bizCleaned || 0) >= BIZ_CLEAN_MAX
+    : (G.prepCleaned || 0) >= prepCleanMax();
+}
 /* 汚れ1つを拭き終えるまでの時間（秒）。バイトは主人公の2倍かかる（作者指定）。
    雇った初日から床が一瞬で片づいてしまうと、人数を増やす意味も、
    汚れを溜めない工夫（掃除しやすい配置・客を捌く速さ）も要らなくなる */
@@ -2387,9 +3795,17 @@ function cleanSec(w) { return w.kind === 'player' ? CLEAN_SEC : CLEAN_SEC * 2; }
    汚れが残っていようが、今日はもう動けない。掃除はバイトの仕事だと、絵で伝える */
 function playerSpent() {
   const p = G.player;
-  if (G.phase !== 'prep' || !p || p.task || p.moving) return false;
+  if (!p || p.task || p.moving) return false;
+  /* **第2章は営業中でも寝る**（作者指定 8/5）＝体力が尽きたその場で一日が終わる。
+     第1章は夜（準備中）だけ。フックを持たないので、これまでどおり */
+  if (G.phase !== 'prep' && !chHook('sleepAnyPhase')) return false;
+  if (isHomeArea(p.f)) return false;          // 家では番台に突っ伏さない（寝るのはベッド）
+  /* 寝るのは**番台のある階**だけ。部屋が複数ある章で、ここを見ていないと
+     6階のなにも無い床の上で 💤 が浮く（playerSpot は「いま計算中の部屋」の座標を返すため） */
+  const b0 = bandai();
+  if (areaCount() > 1 && b0 && (b0.f | 0) !== (p.f | 0)) return false;
   // 5つ拭いて力尽きた夜だけでなく、拭ききって汚れが無くなった夜も番台で寝る（作者指定）
-  if ((G.prepCleaned || 0) < PREP_CLEAN_MAX && G.dirts.length) return false;
+  if (!playerTired(p) && G.dirts.length) return false;
   const t = tileOf(p), h = playerSpot();
   return t.x === h.x && t.y === h.y;
 }
@@ -2421,19 +3837,26 @@ function drawSleep(p, rt) {
 /* ---- スタッフ（アルバイト） ---- */
 function makeStaff(i) {
   const emp = G.roster[i];
+  /* 第2章は持ち場が1人1部屋（emp.f）。その部屋の間取りで立ち位置を決める。
+     第1章は部屋がひとつなので、これまでどおり */
+  const f = hasHook('staffAreaOf') ? (chHook('staffAreaOf', emp) | 0) : 0;
+  const back = G.actF;
+  if (areaCount() > 1) applyArea(f, true);
   const s = staffSpot(i);
   // スピードと慣れ（働きぶり）で足の速さが変わる。ふてくされ中はダラダラ歩く ※係数は叩き台
   const spd = CONF.staffSpd * (0.8 + (emp.spd || 3) * 0.07) * (0.9 + (emp.skill || 40) / 500) * (emp.sulk ? 0.8 : 1);
   const w = makeEntity(s.x, s.y, spd);
-  Object.assign(w, { kind: 'staff', task: null, timer: 0, target: null, home: s, sidx: i, emp });
+  Object.assign(w, { kind: 'staff', task: null, timer: 0, target: null, home: s, sidx: i, emp, f });
   // 真面目さが低いと遅刻してくる（真面目5=遅刻なし〜真面目1=3割弱）
   if (Math.random() < (5 - (emp.maji || 3)) * 0.07) w.lateT = rand(60, 200);
+  if (areaCount() > 1) applyArea(back, true);
   return w;
 }
 function staffSpot(i) {
-  // 脱衣所側の空きマスに待機
+  // 脱衣所側の空きマスに待機（部屋が浅いときは上から探す）
   const cands = [];
-  for (let y = 7; y < CONF.H - 1; y++)
+  const y0 = Math.min(7, Math.max(1, CONF.H - 4));
+  for (let y = y0; y < CONF.H - 1; y++)
     for (let x = 1; x < CONF.W - 1; x++)
       if (walkable(x, y)) cands.push({ x, y });
   return cands[(i * 3 + 2) % Math.max(cands.length, 1)] || { x: 2, y: 8 };
@@ -2499,15 +3922,52 @@ function maintain(w, dt, home) {
   /* ただし主人公が力尽きていたら、ゴキブリが出ても動かない（作者指定）。
      営業中は番台を離れられる回数のうちだけ。夜は拭ける数を使い切った時点で終わり
      ＝番台で寝ている主人公は、目の前を走られても、そのまま寝ている */
-  const outOfSteam = w.kind === 'player' && (G.phase === 'biz'
-    ? (G.bizCleaned || 0) >= BIZ_CLEAN_MAX
-    : (G.prepCleaned || 0) >= PREP_CLEAN_MAX);
-  if (!outOfSteam && (!w.task || w.task === 'home' || w.task === 'clean') && G.roach && !claimedBy(G.roach, w)) {
-    const pth = pathToNear(w, G.roach.tx, G.roach.ty);
-    if (pth) { w.task = 'roach'; w.target = G.roach; w.path = pth; }
+  const outOfSteam = playerTired(w);
+  /* 第2章の開店前：運べと言われたゴミが最優先（掃除より・ゴキブリより先）。
+     これは主人公の仕事で、拭ける数（5つ）の枠には数えない＝金の代わりに足で払う */
+  if (w.kind === 'player' && canSpendStam('junk')
+      && (!w.task || w.task === 'home' || w.task === 'clean' || w.task === 'roach')) {
+    const j0 = nextJunk(w);
+    if (j0 && j0 !== w.target) {
+      const t0 = tileOf(w);
+      const pth = findPath(t0.x, t0.y, j0.x, j0.y);
+      if (pth) { w.task = 'haul'; w.target = j0; w.path = pth; w.timer = 1.1; }
+      else { j0.want = false; stuckBubble(w, 'そこまで行けない…'); }
+    }
+  }
+  if (w.task === 'haul') {
+    const j = w.target;
+    if (!j || !G.junk.includes(j)) { w.task = null; w.target = null; }
+    else if (stepMove(w, dt)) {
+      w.timer -= dt;
+      if (w.timer <= 0) {
+        const i = G.junk.indexOf(j);
+        if (i >= 0) G.junk.splice(i, 1);
+        spendStam('junk');
+        addSparkle(j.x * T + T / 2, j.y * T + T / 2);
+        Sfx.play('fix');
+        floaters.push({ x: j.x * T + T / 2, y: j.y * T + T / 2 - 12, text: 'よいしょ', t: 1.4 });
+        const left = G.junk.length;
+        const nm = chHook('junkName', j) || 'ゴミ';
+        log(`🗑 ${nm}を運び出した（残り${left}個）`);
+        // 上の一行に「片付けた」を出す＝手を動かした結果が、その場で数字になって減る
+        flashTip(left ? `🗑 <b>${nm}</b>を片付けた。あと <b>${left}個</b>`
+                      : '🧹 <b>ゴミは全部出し切った</b>');
+        if (!left) { log('🧹 これで、ゴミは全部出し切った'); bubble(w, '……ようやく、床が見えた', 4.5); }
+        w.task = null; w.target = null;
+        if (hasHook('prepHint')) setHint(chHook('prepHint'));   // 「残り○個」を数え直す
+        saveGame();
+      }
+    }
+    return;
+  }
+  const myRoach = roachAt(w.f);            // 追いかけるのは、自分がいる区画の1匹だけ
+  if (!outOfSteam && (!w.task || w.task === 'home' || w.task === 'clean') && myRoach && !claimedBy(myRoach, w)) {
+    const pth = pathToNear(w, myRoach.tx, myRoach.ty);
+    if (pth) { w.task = 'roach'; w.target = myRoach; w.path = pth; }
   }
   if (w.task === 'roach') {
-    const r = G.roach;
+    const r = myRoach;
     if (!r || r !== w.target) { w.task = null; w.target = null; }
     else {
       const arrived = stepMove(w, dt);
@@ -2515,7 +3975,10 @@ function maintain(w, dt, home) {
       if (Math.abs(t0.x - r.tx) <= 1 && Math.abs(t0.y - r.ty) <= 1) {
         killRoach(w, t0); w.task = null; w.target = null;
         // 番台を離れて叩きに行った1回ぶん（掃除と同じ枠で数える）
-        if (w.kind === 'player' && G.phase === 'biz') G.bizCleaned = (G.bizCleaned || 0) + 1;
+        if (w.kind === 'player') {
+          spendStam('roach');
+          if (G.phase === 'biz') G.bizCleaned = (G.bizCleaned || 0) + 1;
+        }
       } else if (arrived) {                       // 逃げられた＝いまの居場所へ追い直す
         const pth = pathToNear(w, r.tx, r.ty);
         if (pth) w.path = pth; else { w.task = null; w.target = null; }
@@ -2523,6 +3986,7 @@ function maintain(w, dt, home) {
       return;
     }
   }
+  if (w.task === 'ch2go') { chHook('stepRoam', w, dt); return; }   // 第2章：部屋を移っている最中
   if (w.task === 'tell') {
     const c0 = w.target;
     if (!c0 || c0.told || !G.customers.includes(c0)) { w.task = null; w.target = null; }
@@ -2544,22 +4008,23 @@ function maintain(w, dt, home) {
        その日は受付も掃除も声かけも全部ひとりで背負う。開店前の「5つで手が止まる」上限は
        夜の話なので、営業中には掛けない */
     const soloPlayer = w.kind === 'player' && G.phase === 'biz';
-    /* 主人公が拭ける数には限りがある。夜（準備中）は PREP_CLEAN_MAX、
+    /* 主人公が拭ける数には限りがある。夜（準備中）は prepCleanMax()、
        営業中に番台を離れて拭けるのは BIZ_CLEAN_MAX まで（作者指定）。
        ここに上限が無いと、客の少ない序盤は主人公ひとりで床が全部片づいてしまい、
        汚れも、ゴキブリも、バイトを雇う理由も丸ごと消える */
-    const tired = w.kind === 'player' && (soloPlayer
-      ? (G.bizCleaned || 0) >= BIZ_CLEAN_MAX
-      : (G.prepCleaned || 0) >= PREP_CLEAN_MAX);
+    const tired = playerTired(w);
     // 拭ける数を使い切ったのに、まだ汚れが残っている＝そこで音を上げる（1回だけ）
     if (tired && G.dirts.length && !G.tiredSaid) {
       G.tiredSaid = true;
       bubble(w, pick(soloPlayer ? LINES.bizTired : LINES.prepTired), 5.0);
-      log(soloPlayer
+      log(staminaOn()
+        ? `🧹 体力が尽きた。残り${G.dirts.length}つは、明日か、人の手だ`
+        : soloPlayer
         ? `🧹 ${BIZ_CLEAN_MAX}つ拭いたところで手を止め、番台に戻った。ひとりでは、これ以上は手が回らない`
-        : `🧹 ${PREP_CLEAN_MAX}つ拭いたところで手が止まった。残り${G.dirts.length}つはバイトの仕事だ`);
+        : `🧹 ${prepCleanMax()}つ拭いたところで手が止まった。残り${G.dirts.length}つはバイトの仕事だ`);
     }
-    const avail = tired ? [] : G.dirts.filter(d => !claimedBy(d, w));
+    // 掃除できるのは、その人がいる区画の汚れだけ（第2章＝主人公は女湯に入れない・バイトは担当区画のみ）
+    const avail = tired ? [] : G.dirts.filter(d => (d.f | 0) === (w.f | 0) && !claimedBy(d, w));
     if (avail.length) {
       const t0 = tileOf(w);
       /* 近い順に、実際にたどり着ける汚れを探す。
@@ -2577,6 +4042,8 @@ function maintain(w, dt, home) {
       // どの汚れにも道が通っていない＝設備で通路を塞いでいる。赤字で知らせる
       if (!w.task) stuckBubble(w, '汚れの所まで行けない…');
     } else {
+      // 第2章：いまの部屋に汚れが無くても、ほかの部屋に残っていれば歩いて拭きに行く
+      if (w.kind === 'player' && chHook('roamPlayer', w, tired)) return;
       const t0 = tileOf(w);
       if (t0.x !== home.x || t0.y !== home.y) { w.task = 'home'; w.path = findPath(t0.x, t0.y, home.x, home.y) || []; }
     }
@@ -2588,6 +4055,7 @@ function maintain(w, dt, home) {
         const i = G.dirts.indexOf(w.target);
         if (i >= 0) G.dirts.splice(i, 1);
         if (w.kind === 'player') {
+          spendStam('clean');              // 体力のある章（第2章）はここから引く
           if (G.phase === 'biz') G.bizCleaned = (G.bizCleaned || 0) + 1;
           else G.prepCleaned = (G.prepCleaned || 0) + 1;
         }
@@ -2599,14 +4067,26 @@ function maintain(w, dt, home) {
     if (stepMove(w, dt)) w.task = null;
   }
 }
-function updateStaff(dt) {
+function updateStaff(dt, onlyF) {
   for (const s of G.staff) {
+    // 第2章は区画ごとに計算するので、担当区画にいるバイトだけを動かす（第1章は onlyF が来ない）
+    if (onlyF !== undefined && (s.f | 0) !== onlyF) continue;
     if (s.lateT > 0) {                              // 遅刻中＝まだ店に来ていない
       s.lateT -= dt;
       if (s.lateT <= 0) { toast(`⏰ ${s.emp.name}が遅刻してきた…`); log(`⏰ ${s.emp.name}が遅刻してきた`); }
       continue;
     }
+    /* もう帰った人（第2章＝22時で日勤は上がる）。やりかけの仕事は畳んでおく＝
+       持ち主のいない「予約済みの汚れ」が残ると、他の人がそこを拭けなくなる */
+    if (chHook('workerOff', s)) { s.task = null; s.target = null; s.path = null; s.bub = null; continue; }
     if (s.slackT > 0) { s.slackT -= dt; continue; }  // サボり中（真面目さが低いと起きる）
+    /* ロビー担当は**番台の2人目**（第2章）。主人公が番台を離れている間
+       （＝21時に帰ったあと、他の用事の最中）に、代わって会計をさばく。
+       行列が切れているあいだは、いつもどおり掃除して回る                */
+    if (deskHelper(s, dt)) continue;
+    /* 章ごとの持ち場の仕事（第2章の食堂＝作る・運ぶ）。
+       手が空いていれば false が返るので、いつもどおり掃除に回る */
+    if (chHook('staffJob', s, dt)) continue;
     // 真面目さが低いバイトは、手が空くとたまにサボる（毎秒 真面目1=4%〜真面目5=0%）
     if (s.emp && !s.task && G.dirts.length && Math.random() < (5 - s.emp.maji) * 0.01 * dt) {
       s.slackT = rand(8, 16);
@@ -2616,15 +4096,57 @@ function updateStaff(dt) {
     maintain(s, dt, s.home);
   }
 }
-/* 日給の合計（フェーズ3：人ごとにスペックで違う） */
-function rosterWages() { return G.roster.reduce((a, e) => a + (e.wage || CONF.staffWage), 0); }
+/* ロビー担当のバイトが番台に入るか。
+   主人公が番台に着いていれば任せる＝2人で同じ客を捌かない。
+   主人公が帰ったあと（21時〜）や、他の用事で離れている間はこの人が受付を回す。
+   券売機の使い方が分からない客の相手も、この人の仕事（tellTicket）           */
+function deskHelper(s, dt) {
+  if (!CONF.staffRooms || G.phase !== 'biz') return false;
+  const b = bandai();
+  if (!b || (b.f | 0) !== (s.f | 0)) return false;      // ロビー（番台のある部屋）の担当だけ
+  const p = G.player;
+  const playerOnDesk = p && onDuty() && p.task === 'bandai' && !p.moving;
+  if (!G.payQueue.length || playerOnDesk) {
+    if (s.task === 'bandai') { s.task = null; s.target = null; }
+    return false;                                       // 手が空いた＝いつもどおり掃除へ
+  }
+  if (s.task !== 'bandai') {
+    s.task = 'bandai'; s.target = null;
+    const spot = deskHelperSpot(), t0 = tileOf(s);
+    s.path = findPath(t0.x, t0.y, spot.x, spot.y) || [];
+  }
+  if (stepMove(s, dt)) tendBandai(s, dt);
+  return true;
+}
+/* 番台の2人目が立つところ。主人公の隣（番台に寄れるマスのうち、主人公と別のところ） */
+function deskHelperSpot() {
+  const L = deskLayout(); if (L && L.staff2) return L.staff2;
+  const b = bandai(); if (!b) return { x: 2, y: 2 };
+  const ps = playerSpot();
+  const ts = approachTiles(b).filter(t => !(t.x === ps.x && t.y === ps.y));
+  return ts[0] || ps;
+}
+
+/* 日給の合計（フェーズ3：人ごとにスペックで違う）。
+   深夜営業をしている日は、深夜に立てる人に**割増25%**（法定どおり）が付く */
+function rosterWages() {
+  const rate = nightOpenOn() ? (CONF.nightOpen.wageRate || 1.25) : 1;
+  return G.roster.reduce((a, e) =>
+    a + Math.round((e.wage || CONF.staffWage) * (e.night ? rate : 1)), 0);
+}
 
 /* ============ 一日の流れ ============ */
 function startDay() {
   G.phase = 'biz';
   G.minutes = 0;
   G.bizCleaned = 0;                        // 営業中に主人公が拭いた数（バイト0人の日だけ増える）
-  G.roachCool = 0;                         // 前日の「仕留めた直後」は持ち越さない（朝は出直し）
+  G.roachCool = {};                        // 前日の「仕留めた直後」は持ち越さない（朝は出直し）
+  /* 朝＝体力が戻る（第1章）。**第2章はここを通さない。**
+     第2章は「閉めていた時間ぶんだけ戻す」という自前の仕組みを持っていて、
+     ここで毎朝満タンに戻してしまうと**営業時間を伸ばす代償が消える**
+     （実際、これを見落としていて18時間営業でも一度も倒れなかった）        */
+  if (!G.homeRested && !chHook('keepStamina')) restStamina();
+  G.homeRested = false;
   G.tiredSaid = false;                     // 「これ以上は手が回らない」の独り言は1日1回
   for (const d of G.dirts) d.t = -9999;    // 前日から持ち越した汚れは、開店の時点で「放置」扱い
   refreshDead();                 // 開店前に、道が通っていない設備を洗い直す
@@ -2635,23 +4157,48 @@ function startDay() {
   G.riotDone = false;              // 暴動は1日に1回まで（毎日ぶっ壊されたら立て直せない）
   for (const it of G.equip) { it.occ = Array(EQ[it.id].cap).fill(null); it.pasBy = null; }
   autoRepair();                    // 昨日の傷みで壊れたものがあれば、開店と同時に業者が来る
-  G.player = makePlayer();
+  /* 主人公は**必ず番台のある部屋**に立たせる（第2章）。
+     男湯を見ている状態で【営業開始】を押すと、これまでは主人公が男湯に湧いて、
+     ロビーの番台に一生たどり着けず、**客が誰も金を払えないまま一日が終わっていた**。
+     第1章は部屋がひとつなので、これまでどおり                              */
+  if (areaCount() > 1) {
+    /* **持ち場（playerArea）に立たせる**（2026-08-08 修正）。
+       それまでは `bandai()` のある区画に固定していたので、バイト管理画面で
+       主人公を男湯へ動かしても、**毎朝かならず番台の階に湧き直していた**
+       ＝配置そのものが効いていなかった（第1章は区画が1つなので永久に同値＝気づけない）。
+       持ち場に番台があれば、これまでどおりそこで会計をする。
+       離れているあいだの会計は、妻かロビー担当のバイト（deskHelper）が受ける      */
+    const deskF = playerArea(), back = G.actF;
+    applyArea(deskF, true);
+    G.player = makePlayer(); G.player.f = deskF;
+    applyArea(back, true);
+  } else G.player = makePlayer();
+  /* 章が「今日は主人公が出ない」と言えば、立っているのは妻ひとり（第2章） */
+  if (G.player && chHook('absentToday')) G.player.wifeOnly = true;
   G.staff = [];
   for (let i = 0; i < G.roster.length; i++) G.staff.push(makeStaff(i));
-  // 求人広告を出した翌朝は、開店と同時に応募者3人が面接に来る
-  if (G.jobAdDay && G.day >= G.jobAdDay) { G.jobAdDay = 0; openJobModal(); }
+  /* 章が「バイト以外にも店に立つ人」を持っていれば、ここで足す（第2章＝妻）。
+     **G.roster には入れない**＝給料もクビも面接も無い。持ち場だけを持つ人 */
+  for (const ex of (chHook('extraWorkers') || [])) if (ex) G.staff.push(ex);
+  /* 求人広告を出した翌朝、応募者3人が面接に来る。
+     第2章は**準備中**に来る（enterPrep）＝どの部屋に立たせるかを、開店前に決められる。
+     第1章はこれまでどおり、開店と同時に面接が始まる                        */
+  if (!CONF.staffRooms && G.jobAdDay && G.day >= G.jobAdDay) { G.jobAdDay = 0; openJobModal(); }
   // ── 今日の来訪者を1人だけ決める（田所 → 鬼頭 → 黒田 → 玲奈 の順に焦点が移る）
   G.benz = null; G.mika = null; G.mikaFired = false; G.mikajimeAt = null;
   G.npcs = G.npcs.filter(n => n.role === 'fixer');   // 作業中の修理業者は開店をまたいでも居残る（作者指定）
   G.visitKey = null; G.visitAt = null; G.visitFired = false;
-  if (G.flags.reinaTV === 1) G.flags.reinaRumorAt = rand(120, 480);   // テレビ特集の翌日は常連が噂する
-  const v = pickTodaysVisitor();
-  if (v === 'mikajime') G.mikajimeAt = rand(120, 720);
-  // 田所の顔合わせだけは開店まもなく（10〜12時台）。「暖簾を出して間もなく」の一幕なので
-  else if (v) { G.visitKey = v; G.visitAt = (v === 'tadokoro' && !G.tadokoro.hello) ? rand(60, 190) : rand(150, 660); }
-  // サラ金の集金は毎週水曜、開店直後にやってくる（作者指定＝毎日の取り立ては廃止）
-  G.yamiFired = false;
-  G.yamiAt = (G.yami && G.yami.debt > 0 && dayOfWeek(G.day) === 2) ? 30 : null;
+  G.yamiFired = false; G.yamiAt = null;
+  /* 「今日は誰が来るか」も章ごとに別。第2章が自前の仕掛けを持っていればそちらへ渡す */
+  if (hasHook('scheduleDay')) { chHook('scheduleDay'); } else {
+    if (G.flags.reinaTV === 1) G.flags.reinaRumorAt = rand(120, 480);   // テレビ特集の翌日は常連が噂する
+    const v = pickTodaysVisitor();
+    if (v === 'mikajime') G.mikajimeAt = rand(120, 720);
+    // 田所の顔合わせだけは開店まもなく（10〜12時台）。「暖簾を出して間もなく」の一幕なので
+    else if (v) { G.visitKey = v; G.visitAt = (v === 'tadokoro' && !G.tadokoro.hello) ? rand(60, 190) : rand(150, 660); }
+    // サラ金の集金は毎週水曜、開店直後にやってくる（作者指定＝毎日の取り立ては廃止）
+    G.yamiAt = (G.yami && G.yami.debt > 0 && dayOfWeek(G.day) === 2) ? 30 : null;
+  }
   // 客の来店予定を作る。土台は評判＝評判が上がるほど客が増える。
   // フェーズ3.5：傾きを0.7→0.45に緩和（評判50で行列が捌けなくなっていたため。※数値は叩き台）
   let n = CONF.guestBase + G.rep * CONF.guestPerRep + G.adBoost;
@@ -2664,8 +4211,13 @@ function startDay() {
   if (G.equip.some(e => e.id === 'sauna3' && e.cond > 0)) n += 5;
   if (G.equip.some(e => e.id === 'sauna2' && e.cond > 0)) n += 7;
   if (G.equip.some(e => e.id === 'sauna_sp' && e.cond > 0)) n += 7;   // 決戦仕様＝この店にしかない一台
+  /* 上の4行は**第1章の設備の id を名指ししている**。章が変われば id も変わるので、
+     章が自前の足し算を持っていればそれも足す（第2章＝サウナ室の数と広さで増える）。
+     ここが無いと、第2章はサウナを何室建てても客がまったく増えなかった（作者指摘 8/5） */
+  n += chHook('guestBonus') || 0;
   // 運営メニューの集客補正
-  n += (FEE_BASE - G.opts.fee) / 100 * 2;   // 安いほど客が増える（基準は定額ボタンの真ん中¥700）
+  // 安ければ客は増える。**基準もきざみも章ごと**（第2章は目安そのものが基準）
+  n += (feeBaseFor() - G.opts.fee) / feeUnit() * 2;   // 安いほど客が増える（基準は定額ボタンの真ん中¥700）
   if (G.opts.towel === 'free') n += 3;
   if (G.opts.towel === 'paid') n -= 1;
   if (G.opts.soapMode === 'free') n += 2;
@@ -2688,18 +4240,34 @@ function startDay() {
   const cap = soutenGuestCap();
   const capped = n > cap;
   if (capped) n = cap;
+  /* 章ごとの客足の補正。第2章は国道沿いなので、**停められる台数で客数が決まる**。
+     砂利のままだと誰も停めない＝歩いて来られる近所の人しか来ない */
+  const adj = chHook('guestAdjust', n);
+  if (adj !== undefined) n = adj;
   G.plannedGuests = n;      // 新規／常連の振り分けはこの見込み数を母数にする
   G.repeatShareToday = repeatShare();
   G.stuckLogged = false;    // 「通路が塞がっている」の営業ログは1日1回だけ
   // 9時→23時。開店直後(9〜11時)は待ち時間が間延びするので少し底上げしてある
   const hw = [4, 4, 4, 4, 4, 4, 5, 6, 8, 9, 9, 8, 6, 4, 2];
   const hwSum = hw.reduce((a, b) => a + b, 0);
-  G.spawnQueue = [];
-  for (let i = 0; i < n; i++) {
-    let r = Math.random() * hwSum, h = 0;
-    for (let j = 0; j < hw.length; j++) { r -= hw[j]; if (r <= 0) { h = j; break; } }
-    const m = h * 60 + rand(0, 60);
-    if (m < 870) G.spawnQueue.push(m);
+  /* この曲線は**15時間の店**（第1章＝9時〜24時）に合わせて作ってある。
+     第2章はそれより短い（既定15時〜22時の7時間）ので、そのまま使うと
+     **閉店後の時刻に振られた客が一人も来ない**＝見込みの2割強が黙って消えていた（作者指摘 8/5）。
+     開けている長さに合わせて時刻を縮める。第1章は 900分＝等倍なので、何も変わらない */
+  const dayLen = Math.max(60, (closeHourNow() - openHourNow()) * 60);
+  const shrink = dayLen / 900;
+  /* 章が自前の時間割を持っていれば、そちらが正（第2章＝yHourWeight で抽選する）。
+     伸縮では、深夜まで開けたときに**第1章の夕方の山が翌1時に来てしまう** */
+  const times = chHook('spawnTimes', n);
+  if (times) G.spawnQueue = times.slice();
+  else {
+    G.spawnQueue = [];
+    for (let i = 0; i < n; i++) {
+      let r = Math.random() * hwSum, h = 0;
+      for (let j = 0; j < hw.length; j++) { r -= hw[j]; if (r <= 0) { h = j; break; } }
+      const m = (h * 60 + rand(0, 60)) * shrink;
+      if (m < 870 * shrink) G.spawnQueue.push(m);
+    }
   }
   G.spawnQueue.sort((a, b) => a - b);
   G.adBoost = 0;
@@ -2708,7 +4276,7 @@ function startDay() {
   $('selPanel').classList.add('hidden');
   $('confirmBar').classList.add('hidden');
   $('bizPanel').classList.remove('hidden');
-  $('shopPanel').classList.remove('hidden');   // 営業中も設備を買える
+  if (!onGuide() && !onHome()) $('shopPanel').classList.remove('hidden');   // 営業中も設備を買える（案内図では出さない）
   renderShop();
   G.paused = false; $('btnPause').textContent = '⏸ 一時停止';
   setHint(null);
@@ -2724,21 +4292,60 @@ function startDay() {
   }
 }
 
+/* 1フレームぶんの営業を進める。
+   速度を上げすぎた章が出てきたとき用の保険。まとめて1回で計算すると
+   行列・滞在時間・汚れの蓄積が壊れる（客が湯に入る前に一日が終わる）ので、
+   CONF.subStepMin より大きい幅は、その幅に分けて何回も回す＝精度は落ちない。
+   いまはどの章も subStepMin を持たない（速度表は [1,2,4,8] 共通）ので、常に1回で回る */
+function stepBiz(dt) {
+  const sub = CONF.subStepMin || 0;
+  if (!sub || dt <= sub) { updateBiz(dt); return; }
+  let left = dt;
+  while (left > 0.0001 && G.phase === 'biz') {
+    const d = Math.min(sub, left);
+    updateBiz(d);
+    left -= d;
+  }
+}
 function updateBiz(dt) {
   G.minutes += dt;
+  chHook('bizTick', dt);   // 第2章：桑田がふらりと番台の前に立つ
   /* 清潔度の採点用に「その日、床に平均いくつ汚れが転がっていたか」を測り続ける（新評判システム）。
      不満の声（dirty）の数で測ると、汚れ1つの脇を客が何度も通るだけで数百件に膨れ、
      満足度95の店が清潔度1点になってしまった（シム実測）。見るべきは、掃除できていたかどうか */
   const dcNow = dirtCounts();
   G.today.dirtSum += dcNow.thick * dt;        // 薄い汚れは数えない（作者指定）
   G.today.dirtN += dt;
-  while (G.spawnQueue.length && G.spawnQueue[0] <= G.minutes) {
-    G.spawnQueue.shift();
-    spawnCustomer();
+  /* 階ごとの内訳も測る（清潔度を階ごとに採点する章＝第2章）。
+     フラグを持たない章はここを通らない＝これまでどおり合計だけを見る */
+  if (CONF.dirtPerFloor) {
+    const bf = G.today.dirtSumF || (G.today.dirtSumF = {});
+    for (const d of G.dirts) if (isThickDirt(d)) { const f = d.f | 0; bf[f] = (bf[f] || 0) + dt; }
   }
-  for (const c of [...G.customers]) updateCustomer(c, dt);
-  updatePlayer(G.player, dt);
-  updateStaff(dt);
+  /* 客は**必ず番台のある部屋**＝入口のある部屋に湧かせる。
+     ここは下の forEachArea の外なので、放っておくと「いま画面に映している部屋」に湧く。
+     男湯を見たまま【営業開始】を押すと、客が全員その浴室に湧いて、
+     ありもしない番台の前に並んだまま一日が終わっていた（**客0人**）。
+     主人公については同じ手当てを startDay で済ませてある。
+     第1章は部屋がひとつなので、ここは素通りする                          */
+  if (G.spawnQueue.length && G.spawnQueue[0] <= G.minutes) {
+    const back = G.actF, b = bandai();
+    applyArea(b ? (b.f | 0) : playerArea(), true);
+    while (G.spawnQueue.length && G.spawnQueue[0] <= G.minutes) {
+      G.spawnQueue.shift();
+      spawnCustomer();
+    }
+    applyArea(back, true);
+  }
+  /* 客・主人公・バイトは、区画ごとに計算する。
+     CONF（間取り）を区画ぶんだけ差し替えながら回すので、経路探索も当たり判定も
+     その区画の地図で正しく動く。第1章は区画がひとつなので、これまでと同じく一周だけ回る */
+  forEachArea(f => {
+    for (const c of [...G.customers]) if ((c.f | 0) === f) updateCustomer(c, dt);
+    if (G.player && (G.player.f | 0) === f) updatePlayer(G.player, dt);
+    updateStaff(dt, f);
+  });
+  chHook('tick', dt);                 // 章ごとの毎分の処理（第2章＝券売機が列を捌く）
   autoRepair();                       // 壊れた設備があれば、勝手に業者がやって来る
   maybeRiot(dt);                      // 汚れ・混雑を何日も放置していると、ついに客がキレる
   if (G.yamiAt !== null && !G.yamiFired && G.minutes >= G.yamiAt) startYamiCollect();
@@ -2758,7 +4365,7 @@ function updateBiz(dt) {
     G.crisisAt.shift();
     if (G.player && !G.player.bub) bubble(G.player, pick(SOUTEN_CRISIS), 4.5);
   }
-  if (G.minutes >= (CONF.closeHour - CONF.openHour) * 60) closeDay();
+  if (G.minutes >= (closeHourNow() - openHourNow()) * 60) closeDay();
 }
 
 /* ---- 暴動（作者指定） ----
@@ -2836,11 +4443,12 @@ function startMikajime() {
      割って入るのは【田所が主人公を「認めた」あと】＝それまでは、みかじめを何回払っても助けは来ない。
      認められていないうちは若い衆が7日ごとに集金に来続ける（作者指定）。
      500万の手切れ金はいつ選んでもいい（選択画面に常に並ぶ） */
-  /* 数えるのは「みかじめ料を払った回数」（作者指定）。集金に来た回数（encounters）で数えると、
-     突っぱねて設備を壊された回まで頭数に入り、1回しか払っていないのに田所が助けに来てしまう */
-  if (k && !k.resolved && (k.paid || 0) >= 2 && tadokoroAllyOn()) {
+  /* 田所が割って入る条件は【みかじめを3回以上払った】か【連中が5回以上来た】のどちらか（作者指定 8/5）。
+     払った回数だけで数えていたころは、**修理代のほうが安いと踏んで一度も払わない店**で
+     田所が永久に動かず、話が止まってしまった。突っぱね続けても、来られた回数は積み上がる */
+  if (kitoRescueReady()) {
     G.flags.lastMikaDay = G.day;
-    log('🚗 黒塗りのベンツが乗りつけてきた…3度目の集金だ');
+    log('🚗 黒塗りのベンツが乗りつけてきた…また集金だ');
     startBenz({ hold: true, thugs: true, onPark: () => startKitoRescue() });
     return;
   }
@@ -2940,8 +4548,8 @@ function payMikajime() {
   G.today.mikajime = (G.today.mikajime || 0) + amount;
   if (G.kito) {
     G.kito.paid++; G.kito.encounters++; G.kito.paidTotal += amount;
-    // 新フロー：2回目の要求が済んだら、翌日に田所が異変を察して声をかけてくる（打ち明け→3回目で田所が動く）
-    if (G.kito.paid >= 2 && !G.kito.resolved && !G.flags.tadokoroConsulted) G.flags.tadokoroConsultDay = G.day + 1;
+    // 新フロー：2回目の集金が済んだら、翌日に田所が異変を察して声をかけてくる（打ち明け→3回目で田所が動く）
+    if (G.kito.encounters >= 2 && !G.kito.resolved && !G.flags.tadokoroConsulted) G.flags.tadokoroConsultDay = G.day + 1;
   }
   log(`💸 みかじめ料 ${yen(amount)}を払った。連中は満足げに帰っていった`);
   toast(`みかじめ料 ${yen(amount)}を払った…`);
@@ -2964,7 +4572,7 @@ function refuseMikajime() {
   if (G.kito) {
     G.kito.refused++; G.kito.encounters++; G.kito.destroyed += targets.length;
     // 断っても回数は進む＝2回目のあと田所が声をかけ、3回目は田所が割って入る（新フロー）
-    if (G.kito.paid >= 2 && !G.kito.resolved && !G.flags.tadokoroConsulted) G.flags.tadokoroConsultDay = G.day + 1;
+    if (G.kito.encounters >= 2 && !G.kito.resolved && !G.flags.tadokoroConsulted) G.flags.tadokoroConsultDay = G.day + 1;
   }
   if (targets.length) {
     log('💢 みかじめを断った。若い衆がバットを持って降りてきた…');
@@ -3171,6 +4779,13 @@ function resolveKito(id) {
 /* ============ ライバル①「田所源造」＝地域・伝統（古参常連の顔）／常連客問題を統合 ============ */
 /* ※セリフは叩き台。倒す敵でなく“味方に引き込む”。「共存」を選び続け、常連の絆と評判を育てると認める */
 function tadokoroAllyOn() { return !!(G.tadokoro && G.tadokoro.ally); }
+/* 田所が割って入る番かどうか（作者指定 8/5）＝【田所が主人公を認めた】×【みかじめ3回以上 または 来訪5回以上】。
+   認められていないうちは、何回来られても、何回払っても助けは来ない */
+function kitoRescueReady() {
+  const k = G.kito;
+  return !!(k && !k.resolved && tadokoroAllyOn()
+    && ((k.paid || 0) >= KITO_RESCUE_PAID || (k.encounters || 0) >= KITO_RESCUE_VISITS));
+}
 /* 田所の来訪：初対面 → 要求（無茶ぶり）→ 達成報告 → …を3回 → 認められる */
 /* 湯船の二人芝居を一度だけ流してから本題（モーダル）を開く。
    フラグで「その場面で一度きり」を保証する＝毎回の来訪で繰り返さない */
@@ -3562,6 +5177,11 @@ function resolveKuroda(kind, arg) {
    設備を置いた直後は「○○を設置した！」を先に読ませたいので、親父の小言は少し待たせる
    （即出しすると設置のトーストが一瞬で上書きされ、置いた実感が消える） */
 function oyajiNag(kind, delaySec) {
+  /* 親父の小言は**夕凪湯の話**（「銭湯にゃ要らん」「銭湯は身の丈だ」）。
+     その台詞表（OYAJI_NAG）は第1章のデータで、章を切り替えても差し替わらない＝
+     第2章で設備を置くたびに、出てくるはずのない親父から電話が掛かってきていた。
+     CONF に oyajiNag: false を持つ章では黙らせる（第1章はこの欄を持たない＝従来どおり） */
+  if (CONF.oyajiNag === false) return false;
   if (G.solved && G.solved.oyaji) return false;         // 和解後はもう小言を言わない
   if (G.day <= 1) return false;                          // 初日は控える（チュートリアル中）
   if (G.flags.lastOyajiNagDay === G.day) return false;   // 同じ日に何度も言わせない
@@ -3990,10 +5610,15 @@ function returnToTitle() {
   Sfx.bgmStop(); Sfx.engine(false);                // タイトルへ戻ったら音は全部止める
   G.npcs = [];
   deselect(); endPlacing(); G.placing = null;      // 配置や選択の途中で戻っても、次に入った時に持ち越さない
+  /* 盤面を空にしてから戻る。ここを残したまま別の章を選ぶと、
+     前の章の設備を新しい章の設備表で引くことになり、描画ループが落ちる */
+  G.phase = 'title';
+  G.equip = []; G.dirts = []; G.junk = []; G.customers = []; G.staff = []; G.player = null;
+  G.roaches = []; G.roachSplats = [];
   ['reinaModal', 'reportModal', 'manageModal', 'dataModal', 'yamiModal', 'menuModal', 'sendenModal', 'loanModal']
     .forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   $('game-ui').classList.add('hidden');
-  if (localStorage.getItem(SAVE_KEY)) $('btnContinue').classList.remove('hidden');
+  if (localStorage.getItem(saveKey())) $('btnContinue').classList.remove('hidden');
   // タイトルに戻ったら、まず章の選択からやり直す
   $('titleStart').classList.add('hidden');
   $('titleChapters').classList.remove('hidden');
@@ -4010,13 +5635,25 @@ function menuBtn(label, cls, fn) {
 }
 function closeMenu() { $('menuModal').classList.add('hidden'); }
 function openMenu() { renderMenu(false); $('menuModal').classList.remove('hidden'); }
+/* ストアの返事は遅れて届く（値段の取り寄せ・購入・復元）。
+   ☰メニューを開いたまま返事が来たら、その場で描き直す＝押したのに変わらない、を防ぐ */
+IAP.onChange(() => {
+  if ($('menuModal').classList.contains('hidden')) return;
+  if (menuConfirming) return;      // 「トップへもどる？」の確認中に横入りして消さない
+  renderMenu(false);
+});
+let menuConfirming = false;
 /* confirming=true＝「トップ画面へ」を押した後の確認。保存し忘れで進行を失わせない */
 function renderMenu(confirming) {
+  menuConfirming = !!confirming;
   const box = $('menuBody'); box.innerHTML = '';
   if (confirming) {
     $('menuInfo').textContent = '保存していないぶんは消える。どうする？';
-    box.appendChild(menuBtn('💾 保存してもどる', '', () => { saveGame(); closeMenu(); returnToTitle(); }));
-    box.appendChild(menuBtn('保存せずもどる', 'danger', () => { closeMenu(); returnToTitle(); }));
+    /* 「保存してもどる」を赤にして、押してほしい方を目立たせる（作者指定 8/7）。
+       赤は「営業開始」と同じ**いちばん押す色**（危険色ではない）。
+       保存せずに戻る方は、うっかり選ばないように地味なままにしておく */
+    box.appendChild(menuBtn('💾 保存してもどる', 'open-btn', () => { saveGame(); closeMenu(); returnToTitle(); }));
+    box.appendChild(menuBtn('保存せずもどる', '', () => { closeMenu(); returnToTitle(); }));
     box.appendChild(menuBtn('やめる', '', () => renderMenu(false)));
     return;
   }
@@ -4027,25 +5664,36 @@ function renderMenu(confirming) {
   box.appendChild(menuBtn(Sfx.on ? '🔊 効果音 ON' : '🔇 効果音 OFF', '', () => { Sfx.toggle(); renderMenu(false); }));
   box.appendChild(menuBtn(Sfx.music ? '🎵 BGM ON' : '🎵 BGM OFF', '', () => { Sfx.toggleMusic(); renderMenu(false); }));
   /* オート修理＝課金コンテンツ（作者指定）。耐久5%で自動で修理業者が来る。修理費は手動と同じ。
-     v1.0（初回リリース）では売り場を出さない。理由：
-     ・ストア（App Store / Google Play）の決済連携が未実装で、「購入」と書いて金を取らない画面になる
-     ・App Store には「App内課金なし」で申告しており、画面に「課金」の文字があると記載と食い違う
-     決済を実装したら PREMIUM_SALE = true にすれば、下の購入ボタンがそのまま戻る。
-     すでに持っている店（開発中に押した／将来の購入者）は、下の ON/OFF がちゃんと出る */
+     売り場は「ストアにつながっていて、値段が言えるとき」だけ出す（＝iOS/Androidのアプリ版だけ）。
+     PCのブラウザで遊んでいるときは何も出ない＝買えないのに購入ボタンがある画面を作らない。
+     解禁の判定は IAP 側に集約してある（購入・復元・起動時の問い合わせが全部そこへ合流する）。
+     PREMIUM_SALE は、何かあったときに売り場ごと引っ込めるための手元スイッチ */
   if (!(G.premium && G.premium.autoRepair)) {
-    if (PREMIUM_SALE) {
-      box.appendChild(menuBtn('🔧 オート修理を購入', '', () => {
-        G.premium = G.premium || {};
-        G.premium.autoRepair = true; G.premium.autoRepairOn = true;
-        toast('🔧 オート修理を購入した！ 耐久5%で自動で業者が来る（費用は手動と同額）');
-        log('🔧 オート修理を購入した。以後、傷んだ設備には自動で業者が来る');
-        saveGame(); renderMenu(false);
-      }));
+    if (PREMIUM_SALE && IAP.available()) {
+      const yen = IAP.price();
+      box.appendChild(menuBtn('🔧 オート修理を購入' + (yen ? `（${yen}）` : ''), '', () => IAP.buy()));
+      // Appleは買い切り商品に「復元」を必ず求める（機種変更・入れ直しのため）
+      box.appendChild(menuBtn('🔄 購入を復元', '', () => IAP.restore()));
+    }
+    /* 開発用（localhost のときだけ出る）。6階ぶんの故障を毎朝タップして回るのは
+       確かめたいことの邪魔でしかないので、作っている間は業者を勝手に呼べるようにしておく。
+       **「買った」印（autoRepair）は立てない**＝製品版の売り場には一切さわらない。
+       第1章では効かせない＝chapterGuard の「5通りの営業」が動かなくなるのを避ける      */
+    if (devBuild() && G.chapter !== 1) {
+      const dv = !!(G.premium && G.premium.devAutoRepair);
+      box.appendChild(menuBtn(dv ? '🔧 オート修理 ON（開発用）' : '🔧 オート修理 OFF（開発用）',
+        '買わずに切り替えられる。製品版には出ない', () => {
+          G.premium.devAutoRepair = !dv;
+          savePremium();
+          toast(dv ? '🔧 オート修理をOFFにした' : '🔧 オート修理をONにした（開発用）');
+          renderMenu(false);
+        }));
     }
   } else {
     const on = G.premium.autoRepairOn !== false;
     box.appendChild(menuBtn(on ? '🔧 オート修理 ON（購入済み）' : '🔧 オート修理 OFF（購入済み）', '', () => {
       G.premium.autoRepairOn = !on;
+      savePremium();              // ON/OFFの状態も章をまたいで共有する
       toast(on ? '🔧 オート修理をOFFにした（手動修理のみ）' : '🔧 オート修理をONにした');
       saveGame(); renderMenu(false);
     }));
@@ -4156,7 +5804,7 @@ function triggerCareGameOver() {
   $('bizPanel').classList.add('hidden');
   $('shopPanel').classList.add('hidden');
   Story.play(STORY_CARE_GAMEOVER, () => {
-    localStorage.removeItem(SAVE_KEY);   // 本当のゲームオーバー＝「つづきから」は無い
+    localStorage.removeItem(saveKey());   // 本当のゲームオーバー＝「つづきから」は無い
     returnToTitle();
   });
 }
@@ -4191,11 +5839,34 @@ function closeDay() {
      無料でも有料でも、置いている限り毎日この額。「1本いくらの仕入れ」は廃止した＝
      無料にすると経費が跳ね上がる／売れば売るほど仕入れが伸びる、という読みにくさをなくす */
   const keihiCut = kurodaAllyOn() ? 0.94 : 1;   // 黒田が仲間なら経費6%off（仕入れ・タオルの無駄を締める）
-  const amenityCost = Math.round(((G.opts.soapMode !== 'none' ? CONF.soapCostPerDay : 0)
-                    + (hasSink() && G.opts.lotionOn !== false ? CONF.lotionCostPerDay : 0)
-                    + (hasMat() ? 500 : 0) + (hasAkasuri() ? 500 : 0)) * keihiCut);
-  // タオルも一律の定額（無料貸出の洗濯代という従量ぶんは廃止・作者指定）
-  const towelCost = Math.round((G.opts.towel !== 'none' ? CONF.towelCostPerDay : 0) * keihiCut);
+  /* ── アメニティの経費（作者決定 2026-08-05）──────────────────────
+     **`〜CostPer` を持つ章（第2章）は「使われたぶん」、持たない章（第1章）は一律の定額。**
+     定額だと、客が何人来ても経費が同じ＝**大箱ほど得をする**という逆の絵になる。
+
+       シャンプー・ボディソープ … 客ひとりにつき（浴びれば必ず使う）
+       化粧水・乳液             … 客ひとりにつき（洗面所がある日だけ）
+       サウナマット             … **サウナに入った客**ひとりにつき
+       垢すりタオル             … 手に取られた枚数ぶん（goRack で数えている）           */
+  const guests = t.paid || 0, saunaGuests = t.sauna || 0;
+  const soapOn = G.opts.soapMode !== 'none';
+  const lotionOn = hasSink() && G.opts.lotionOn !== false;
+  const soapCost = !soapOn ? 0
+    : (CONF.soapCostPer ? guests * CONF.soapCostPer : CONF.soapCostPerDay);
+  const lotionCost = !lotionOn ? 0
+    : (CONF.lotionCostPer ? guests * CONF.lotionCostPer : CONF.lotionCostPerDay);
+  const matCost = !hasMat() ? 0
+    : (CONF.matCostPer ? saunaGuests * CONF.matCostPer : 500);
+  const akasuriCost = !hasAkasuri() ? 0
+    : (CONF.akasuriCostPer ? (t.akasuriUseN || 0) * CONF.akasuriCostPer : 500);
+  const amenityCost = Math.round((soapCost + lotionCost + matCost + akasuriCost) * keihiCut);
+  /* タオルの維持費。
+     ・`towelCostPer` を持つ章（第2章）＝**貸した枚数 × 単価**（リネン業者の従量課金と同じ）。
+       枚数＝有料で買った人＋手ぶらセットを買った人＋（無料貸出の日に）手ぶらで来た人
+     ・持たない章（第1章）＝これまでどおり一律の定額 */
+  const towelUsed = (t.towelN || 0) + (t.teburaN || 0) + (t.towelFreeN || 0);
+  const towelCost = Math.round((CONF.towelCostPer
+    ? towelUsed * CONF.towelCostPer
+    : (G.opts.towel !== 'none' ? CONF.towelCostPerDay : 0)) * keihiCut);
   // 牛乳・ドリンクも売れた本数ぶんだけ仕入れる（1本¥50）
   const milkStock = Math.round(t.milk * CONF.milkUnitCost * keihiCut);
   const shiire = amenityCost + towelCost + milkStock;                                          // 日報ではこの3つを「仕入れ」にまとめる
@@ -4216,7 +5887,12 @@ function closeDay() {
   // 今日が請求日（15日ごと）なら「病院で払う予定額」を立てるだけ。実際の支払い・親父との一幕・
   // 支払い回数や関係の深まりは、営業結果を確認したあとの病院の場面（careScene）で処理する
   if (careOn() && G.day >= (G.careNext || CONF.careFirstDay)) t.care = careDue();
-  G.cash -= util + water + loanPay + shiire + staffCost;   // 治療費は営業収支に含めない（私費）
+  /* 章ごとの固定費。第2章は「買った店」なので、家賃の代わりに
+     事業ローンの返済と固定資産税・保険が、客が0人でも毎日出ていく（CHAPTER2.md §10-2）。
+     第1章はこのフックが無いので 0＝何も変わらない */
+  const extraFix = chHook('dailyExtraCost') || 0;
+  t.extraFix = extraFix;
+  G.cash -= util + water + loanPay + shiire + staffCost + extraFix;   // 治療費は営業収支に含めない（私費）
   /* 資金ショート → 頼れるのは灰田だけ（銀行は貸してくれない）。10万刻みで足りるぶんだけ自動で借りる。
      限度は100万＝ここで借り切ってしまうと、次に足りなくなった日は本当に打つ手がない */
   while (G.cash < 0 && G.yami.debt < CONF.sarakinMax) { G.cash += CONF.sarakinUnit; G.yami.debt += CONF.sarakinUnit; t.autoYami += CONF.sarakinUnit; G.yami.met = true; }
@@ -4225,7 +5901,12 @@ function closeDay() {
   // 設備の傷み（1日ぶん）
   const brokeToday = applyDailyWear();
   const profit = bathRev + saunaRev + milkRev + t.amenRev + t.towelRev + t.akasuriRev + t.soapRev + t.teburaRev
-                 - util - water - loanPay - shiire - staffCost - (t.mikajime || 0) - (t.yamiPaid || 0) - (t.repairCost || 0);
+                 + (t.menuRev || 0)                     // 第2章：食堂のメニュー売上（原価は extraFix 側で引く）
+                 + (t.nightRev || 0)                    /* 深夜の割増（第2章）。入浴料は t.paid×定価で計算し直しているので、
+                                                           ここに足さないと**受け取ったのに日報から消える**（現金には入っている）。
+                                                           第1章は深夜営業が無いので 0 が足されるだけ */
+                 - util - water - loanPay - shiire - staffCost - extraFix
+                 - (t.mikajime || 0) - (t.yamiPaid || 0) - (t.repairCost || 0);
   // 日報に出ている内訳を、あとから読めるように残しておく（バランス計測用）
   t.util = util; t.water = water; t.shiire = shiire; t.staffCost = staffCost;
   t.bathRev = bathRev; t.saunaRev = saunaRev; t.milkRev = milkRev; t.profit = profit;
@@ -4299,16 +5980,35 @@ function closeDay() {
 
   // ── 収入の欄（チップ2列） ─────────────────────
   html += `<div class="rep-sec in">▼ 収入</div><div class="rep-grid">`;
-  const income = bathRev + saunaRev + milkRev + t.amenRev + t.towelRev + t.akasuriRev + t.soapRev + t.teburaRev;
+  /* 食堂の売上（第2章）も合計に入れる。収支の計算（profit）には元から入っていたので、
+     ここに足さないと**日報の中だけ辻褄が合わない**（収入合計と収支がずれる）。
+     第1章は menuRev を持たないので 0 が足されるだけ */
+  const income = bathRev + saunaRev + milkRev + t.amenRev + t.towelRev + t.akasuriRev + t.soapRev + t.teburaRev
+                 + (t.menuRev || 0) + (t.nightRev || 0);
   // 入浴料も他の項目と同じ通常チップに統一（来店人数の内訳はラベルに収める）
   html += chip(`入浴 ${t.paid}人${mix}`, yen(bathRev));
+  // 深夜の割増（第2章）。入浴料とは別の行にして、「遅くまで開けた分」が見えるようにする
+  if (t.nightRev) html += chip('深夜割増', yen(t.nightRev));
   if (t.sauna) html += chip(`サウナ ${t.sauna}人`, saunaRev ? yen(saunaRev) : '無料');
   if (t.towelRev) html += chip(`タオル ${t.towelN}本`, yen(t.towelRev));
   if (t.teburaRev) html += chip(`手ぶら ${t.teburaN}人`, yen(t.teburaRev));
   if (t.soapRev) html += chip(`アメニティ ${t.soapN}人`, yen(t.soapRev));
-  if (t.akasuriRev) html += chip(`垢すり ${t.akasuriN}本`, yen(t.akasuriRev));
+  // 垢すりは「人」で数える（第2章の垢すり台＝ひとり¥3,000。もとは垢すりタオルの枚数として作った行）
+  if (t.akasuriRev) html += chip(`垢すり ${t.akasuriN}人`, yen(t.akasuriRev));
   if (t.amenRev) html += chip(`ドライヤー等 ${t.amenN}回`, yen(t.amenRev));
-  if (t.milk) html += chip(`牛乳 ${t.milk}本`, yen(milkRev));
+  /* 自販機は台ごとに1行ずつ出す（作者指定 8/5）。牛乳とドリンクを合算していたので、
+     ドリンクが売れていても日報からは見えなかった。内訳が無い古いデータは、
+     これまで通り1行にまとめて出す（drinkLabel を持つ章はその見出しを使う） */
+  const vendKeys = Object.keys(t.vendN || {}).filter(k => t.vendN[k] > 0);
+  if (vendKeys.length) {
+    for (const k of vendKeys) {
+      const lbl = CONF.drinkLabel && k !== 'vend1' ? CONF.drinkLabel : (DRINK_VEND_LABEL[k] || 'ドリンク');
+      html += chip(`${lbl} ${t.vendN[k]}本`, yen(t.vendRev[k] || 0));
+    }
+  } else if (t.milk) html += chip(`${CONF.drinkLabel || '牛乳'} ${t.milk}本`, yen(milkRev));
+  /* 食堂（第2章）。原価は支払いの「仕入れ」に入っているので、ここは売上だけ。
+     第1章は menuRev を持たないので、この行は出ない */
+  if (t.menuRev) html += chip(`食堂 ${t.menuN}皿`, yen(t.menuRev));
   html += chip('収入 合計', yen(income), 'wide total');
   // 融資の振込は営業の売上ではないので、収支には混ぜず「別枠のお知らせ」として並べる（作者指定）
   if (t.autoYami) html += chip('💳 灰田から やむなく借入', '+' + yen(t.autoYami), 'wide');
@@ -4316,11 +6016,13 @@ function closeDay() {
 
   // ── 支払いの欄（チップ2列） ───────────────────
   html += `<div class="rep-sec out">▼ 支払い</div><div class="rep-grid">`;
-  const outlay = util + water + shiire + staffCost + (t.repairCost || 0) + (t.loanPay || 0) + (t.mikajime || 0) + (t.yamiPaid || 0);
+  const outlay = util + water + shiire + staffCost + (t.extraFix || 0) + (t.repairCost || 0) + (t.loanPay || 0) + (t.mikajime || 0) + (t.yamiPaid || 0);
   html += chip('光熱費', '-' + yen(util), 'minus');
   if (water) html += chip('水道代', '-' + yen(water), 'minus');
   if (shiire) html += chip('仕入れ', '-' + yen(shiire), 'minus');
   if (staffCost) html += chip(`人件費 ${G.roster.length}人`, '-' + yen(staffCost), 'minus');
+  // 章ごとの固定費。何の金かは章によって違う（第1章＝出番なし／第2章＝板前の日給と皿の原価）
+  if (t.extraFix) html += chip(chHook('extraFixLabel') || '返済・税', '-' + yen(t.extraFix), 'minus');
   if (t.repairCost) html += chip('修理業者', '-' + yen(t.repairCost), 'minus');
 
   if (t.mikajime) html += chip('⚠ みかじめ料', '-' + yen(t.mikajime), 'minus');
@@ -4376,6 +6078,12 @@ function closeDay() {
   } else {
     html += `<div class="rep-voice">🗣 お客の声<br>（今日は特に不満の声はなかった）</div>`;
   }
+  /* 章ごとに、日報の下へ足したいものがあれば足す。
+     第2章＝10日ごとに来る事業ローン・住宅ローン・生活費（店の損益ではないので別枠）。
+     第1章はこのフックを持たないので、日報はこれまでどおり営業の数字だけ */
+  const extra = chHook('dayReportExtra');
+  if (extra) html += extra;
+
   $('repTitle').textContent = `${G.day}日目（${dayLabel()}）の営業結果`;
   $('repBody').innerHTML = html;
   $('bizPanel').classList.add('hidden');
@@ -4388,6 +6096,15 @@ function afterReport() {
   $('reportModal').classList.add('hidden');
   const finishedDay = G.day;
   G.day++;
+  /* 夜の物語は章ごとに丸ごと別のものを動かす（作者指定＝同じアプリの中の別ゲーム）。
+     第1章＝田所・鬼頭・黒田・玲奈・親父の治療費。第2章＝寒川・宮下・東條・灯・千夏。
+     第2章は js/ch2/rules2.js が nightFlow を持っているので、そちらへ丸ごと渡す */
+  if (hasHook('nightFlow')) {
+    G.invBuy = 0; G.invMove = 0; G.invSell = 0; G.invFix = 0;
+    G.cashAtDayStart = G.cash;
+    chHook('nightFlow', finishedDay);
+    return;
+  }
   // 設備にかけた金の集計はここで仕切り直す＝「日報を閉じてから、次の日報まで」が1日ぶん。
   // 設備を買うのは主に準備中なので、この区切りだと「明日のために使った金」が明日の日報に出る
   G.invBuy = 0; G.invMove = 0; G.invSell = 0; G.invFix = 0;
@@ -4453,6 +6170,12 @@ function afterCareOK(finishedDay, tadokoroNightHello) {
     if (maybeReinaCinematic()) return;
     maybeTadokoroKessenNight();   // 田所が認めるのは営業終了後の夜（作者指定）
   };
+  /* 夜の物語は**章ごとに別**。ここから下（母の電話・治療費・親父・田所・黒田・玲奈）は
+     すべて第1章「夕凪湯」の話なので、**自前の台本を持つ章では一切流さない**。
+     CONF.noLegacyStory を立てた章（第2章「横浜編」）は、ここで朝へ抜ける */
+  /* nightStory が truthy を返した夜は朝を作らない（第2章の廃業エンド＝ending_y.js）。
+     フックが無い／falsy の章は従来どおり enterPrepPhase へ */
+  if (CONF.noLegacyStory) { if (chHook('nightStory', finishedDay)) return; enterPrepPhase(); return; }
   // その夜に流すストーリーを積む（治療費の見舞い→母の電話→親父の小言→親父の承認、の順）
   const scenes = [];
   if (G.today.care > 0) {
@@ -4532,9 +6255,23 @@ function checkGrandEnding() {
 
 function enterPrep() {
   G.phase = 'prep';
+  /* 第2章は準備も【館内案内図】から始める（どこへ手を入れるかを、まず選ぶ）。
+     第1章は区画がひとつなので、いつもの画面をそのまま出す */
+  if (areaCount() > 1) { if (!chHook('nightKeepView')) openGuide(); }
+  else enterAreaScreen(0);
   Sfx.bgm('prep');                 // 暖簾を下ろしたあとの夜の曲
   G.customers = []; G.payQueue = [];
-  G.player = makePlayer();         // 準備中の主人公は掃除して回る（1日に拭ける数は PREP_CLEAN_MAX まで）
+  /* 準備中の主人公は掃除して回る（1晩に拭ける数は prepCleanMax() まで）。
+     第2章は表示中の区画がどこでも、番台のある区画で作って立たせる */
+  if (areaCount() > 1) {
+    /* 準備中も**持ち場に立たせる**（2026-08-08 修正）。
+       ここは `: 0`（1区画目の直書き）のままだった＝営業開始側だけ直して、
+       こちらを見落としていた。**第1章では区画が1つなので永久に同値**で捕まらない  */
+    const deskF = playerArea(), back = G.actF;
+    applyArea(deskF, true);
+    G.player = makePlayer(); G.player.f = deskF;
+    applyArea(back, true);
+  } else G.player = makePlayer();
   G.prepCleaned = 0;               // 今夜これから拭いた数
   G.tiredSaid = false;             // 「もう動けない」の独り言は1晩に1回
   // 銀行融資は廃止（作者指定）。サラ金はその場で現金が出るので、振込待ちという状態はもう無い
@@ -4545,11 +6282,29 @@ function enterPrep() {
   G.adBought = {};
   $('bizPanel').classList.add('hidden');
   $('prepPanel').classList.remove('hidden');
-  $('shopPanel').classList.remove('hidden');
+  if (!onGuide() && !onHome()) $('shopPanel').classList.remove('hidden');   // 案内図では出さない
+  syncAreaBar();               // 第2章：最初の部屋に立った時点から【← 館内案内図】を出す
+  $('btnStaffMgr').classList.add('hidden');   // 【運営】の中へ移した（作者指定 8/2）
+  // 【📰 広告】も、第2章では【館内案内図】の「集客」タブへ移した（作者指定 8/2）
+  $('btnSenden').classList.toggle('hidden', !!CONF.staffRooms);
+  // 【🏦 融資】も【運営】の中へ移した（作者指定 8/8）。持たない章は下に出したまま
+  $('btnLoan').classList.toggle('hidden', !!CONF.loanInManage);
+  $('btnLoanBiz').classList.toggle('hidden', !!CONF.loanInManage);
+  // 【📌 注文】は、誰かに何か言われてから出す（第1章では一度も出ない）
+  $('btnMission').classList.toggle('hidden', !chHook('kuwataBoard'));
+  syncTip();                   // 上の一行（「ゴミを片付けよう。あと○個」）
+  // 第2章：応募者は朝の準備中に来る＝開店前に持ち場まで決められる
+  if (CONF.staffRooms && G.jobAdDay && G.day >= G.jobAdDay) { G.jobAdDay = 0; openJobModal(); }
+  chHook('syncKaigyoBtn');     // 第2章：開業前は【営業開始】が【開業準備】になる
+  chHook('syncHomeBtn');       // 第2章：【🏠 家】は準備中だけ出す
   renderShop();
   const broken = G.equip.filter(e => (CONF.wearPerDay[EQ[e.id].cat] ?? 0) > 0 && e.cond <= 0);
   const demands = demandHint();
-  if (G.day === 1 && !G.flags.tut) {
+  /* 章が自前の案内を持っていれば、そちらに任せきる（空なら黙る）。
+     第2章は「あと何個」を上の一行へ移したので、下は出さない場面が多い（作者指定） */
+  if (hasHook('prepHint')) {
+    setHint(chHook('prepHint'));
+  } else if (G.day === 1 && !G.flags.tut) {
     setHint('🛁 ここが夕凪湯だ。下のメニューで設備を買って配置しよう。<br>おすすめは【サウナ】＋【水風呂】＋【ととのいイス】。<br>準備ができたら「🏮 営業開始」！');
   } else if ((G.roughDays || 0) >= 1) {
     // 汚れ・行列を放置した日が続くと、客が設備を壊しに来る。壊れてから知らせても遅い
@@ -4560,8 +6315,12 @@ function enterPrep() {
       `原因は<b>汚れの放置</b>と<b>待たせすぎ</b>。開店前に掃除して、混んでいる設備を増やそう。<br>` +
       `<span class="opt-sub">【データ】の「客の不満」を見れば、何に怒っているか分かる</span>`);
   } else if (G.lastTurnedAway > 0) {
-    // 入れずに帰した客がいた日は、それが何より先に直すべきこと（日報の数字だけでは気づけない）
-    setHint(`🚪 昨日、<b>${G.lastTurnedAway}人</b>がロッカー満杯で入れずに帰った。<br>` +
+    /* 入れずに帰した客がいた日は、それが何より先に直すべきこと（日報の数字だけでは気づけない）。
+       **理由は章によって違う**（第2章＝1階の靴箱か、どの階の脱衣ロッカーか）。
+       ここを決め打ちにしていたので、第2章では「【脱衣所】タブでロッカーを増やそう」と
+       毎朝ウソを言うところだった */
+    setHint(chHook('turnAwayHint', G.lastTurnedAway) ||
+      `🚪 昨日、<b>${G.lastTurnedAway}人</b>がロッカー満杯で入れずに帰った。<br>` +
       `いまの受入は<b>${lockerCapacity()}人</b>。【脱衣所】タブでロッカーを増やそう。<br>` +
       `<span class="opt-sub">目安＝1日の客数の半分。12連結ロッカーなら2マスで12人ぶん</span>`);
   } else if (broken.length) {
@@ -4576,14 +6335,14 @@ function enterPrep() {
     setHint(`🗳 サウナ天下分け目の投票対決まであと${d}日！　見込み票 夕凪 ${computeYuVotes()} / 蒼天 約${SOUTEN_DUEL_VOTES}<br>設備を磨き、常連の絆を深めて“帰ってきたい湯”にしろ（準備期間は競合圧が最高潮）`);
   } else if (G.flags.freePlay) {
     // クリア後の自由営業。もう追われるものはない＝好きなだけ理想の湯を育てられる（フェーズ4）
-    const next = Object.keys(EQ).filter(k => k !== DUEL_ONLY_EQ && EQ[k].rep && EQ[k].rep > G.rep).map(k => EQ[k]).sort((a, b) => a.rep - b.rep)[0];
+    const next = nextUnlockEq();
     setHint(`🎉 第1章クリア！ 夕凪湯は街の湯として蘇った。<br>ここからは自由営業。追い立てるものはもう無い。` +
       (G.rep < 100 ? `<br>🎯 評判100を目指して全設備を解放しよう（いま ${G.rep}）`
-                   : (next ? `<br>🎯 次の解放：評判${next.rep}で【${next.name}】` : `<br>評判は最高の100。あとは思うまま、最高の湯を`)));
+                   : (next ? `<br>🎯 次の解放：${nextUnlockText(next)}` : `<br>評判は最高の100。あとは思うまま、最高の湯を`)));
   } else {
     // 次に解放される設備を準備画面に出しておく（目標が見えるように）
-    const next = Object.keys(EQ).filter(k => k !== DUEL_ONLY_EQ && EQ[k].rep && EQ[k].rep > G.rep).map(k => EQ[k]).sort((a, b) => a.rep - b.rep)[0];
-    setHint(next ? `🎯 次の解放：評判${next.rep}で【${next.name}】（いま ${G.rep}）` : null);
+    const next = nextUnlockEq();
+    setHint(next ? `🎯 次の解放：${nextUnlockText(next)}（いま ${G.rep}）` : null);
   }
   updateTopbar();
   // 閉店後の人事イベント＝賃上げ相談。
@@ -4629,8 +6388,17 @@ function walkNpcTo(n, tile) {
 }
 function sendNpcHome(n) { n.state = 'out'; walkNpcTo(n, CONF.entrance); }
 
-function updateNpcs(dt) {
-  for (const n of [...G.npcs]) {
+/* その区画の間取りを当ててから中身を実行する（第1章＝区画がひとつなら、そのまま実行するだけ）。
+   来訪者・修理業者は部屋をまたいで動くので、経路探索も当たり判定も
+   **その人が今いる部屋の地図**でやらないと、永久に目的地へ着かない */
+function inAreaOf(e, fn) {
+  if (areaCount() <= 1) return fn();
+  const back = G.actF;
+  applyArea(e.f | 0, true);
+  try { return fn(); } finally { applyArea(back, true); }
+}
+function updateNpcs(dt, only) {
+  for (const n of (only ? [only] : [...G.npcs])) {
     switch (n.state) {
       case 'in':
         if (stepMove(n, dt)) { n.state = 'wait'; if (n.onArrive) { const f = n.onArrive; n.onArrive = null; f(n); } }
@@ -4692,7 +6460,17 @@ function callRepairman(it, byPlayer) {
 function startFixTarget(n, it) {
   n.target = it; n.timer = 24; n.hit = 0;          // トンカチでガンガンやっている時間（実時間で3秒ほど）
   n.fee = fixFee(it);                              // 頼んだ時点の金額で固定（直し終わりに支払う）
-  const ap = pathToEquip(n, it);
+  /* 直す相手が別の部屋にいるなら、業者もその部屋へ移す＝館内を歩いてきた扱いにして、
+     その部屋の戸口から現れる。道順も、必ずその部屋の地図で引く */
+  const to = it.f | 0;
+  const ap = inAreaOf({ f: to }, () => {
+    if ((n.f | 0) !== to) {
+      n.f = to;
+      n.px = CONF.entrance.x * T + T / 2;
+      n.py = CONF.entrance.y * T + T / 2;
+    }
+    return pathToEquip(n, it);
+  });
   n.path = ap ? ap.path : [];
   n.state = 'in';
   n.onArrive = () => { n.state = 'work'; log(`🔧 修理業者が${EQ[it.id].name}を直しはじめた`); };
@@ -4700,12 +6478,21 @@ function startFixTarget(n, it) {
 /* 続けて直す相手を選ぶ。頼まれたぶん（queue）が先で、次に壊れているもの。
    どちらも「いま業者が立っている場所から近い順」＝店内を行ったり来たりしない */
 function nextFixTarget(n) {
-  const ok = e => G.equip.includes(e) && e !== n.target && fixable(e) && G.cash >= fixFee(e) && pathToEquip(n, e);
+  /* 道が通っているかは、**その設備がある部屋の地図**で見る（部屋をまたいで頼まれることがある） */
+  const ok = e => G.equip.includes(e) && e !== n.target && fixable(e) && G.cash >= fixFee(e)
+                  && inAreaOf(e, () => {
+                       // 同じ部屋なら今いる場所から、別の部屋ならその部屋の戸口から見る
+                       const from = (e.f | 0) === (n.f | 0) ? n
+                         : { px: CONF.entrance.x * T + T / 2, py: CONF.entrance.y * T + T / 2 };
+                       return pathToEquip(from, e);
+                     });
   const nearest = list => {
     let best = null, bd = Infinity;
     for (const e of list) {
       if (!ok(e)) continue;
-      const d = Math.hypot(e.x * T + T / 2 - n.px, e.y * T + T / 2 - n.py);
+      // 別の部屋のものは「遠い」扱い＝同じ部屋にあるものから片付けて、そのあと隣の部屋へ移る
+      const same = (e.f | 0) === (n.f | 0);
+      const d = Math.hypot(e.x * T + T / 2 - n.px, e.y * T + T / 2 - n.py) + (same ? 0 : 100000);
       if (d < bd) { bd = d; best = e; }
     }
     return best;
@@ -4744,10 +6531,20 @@ function finishFix(n) {
    修理は手動が基本＝壊れたら設備をタップして【🔧 修理】で業者を呼ぶ。
    「オート修理」を購入した店だけ、耐久が5%まで減った設備に自動で業者が来る（修理費は手動と同じ） */
 const AUTO_REPAIR_COND = 5;   // オート修理が発動する耐久(%)
-/* 課金の売り場を出すか。決済（StoreKit / Google Play Billing）を実装した版で true にする。
-   false の間、オート修理は「まだ世に出していない機能」＝App Store の「課金なし」の申告と一致する */
-const PREMIUM_SALE = false;
-function autoRepairEnabled() { return !!(G.premium && G.premium.autoRepair && G.premium.autoRepairOn !== false); }
+/* 課金の売り場を出すか＝手元の非常スイッチ。false にすれば売り場ごと消える。
+   実際に画面に出るかどうかは、これに加えて「ストアにつながっているか」（IAP.available()）で決まる＝
+   PCのブラウザ版には出ない。決済は js/iap.js（StoreKit / Google Play Billing）*/
+const PREMIUM_SALE = true;
+/* 開発中か（localhost で開いているか）。製品版では常に false＝下の開発用スイッチは出ない */
+function devBuild() {
+  return location.protocol === 'http:'
+    && (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+}
+function autoRepairEnabled() {
+  // 開発用スイッチ（買っていなくても効く。第1章では効かせない＝章の見張りを狂わせない）
+  if (devBuild() && G.chapter !== 1 && G.premium && G.premium.devAutoRepair) return true;
+  return !!(G.premium && G.premium.autoRepair && G.premium.autoRepairOn !== false);
+}
 /* 傷んだ設備を見つけたら、勝手に業者を呼ぶ（オート修理を購入した店だけ。同時に来るのは1人まで）。
    修理代が払えない日は業者が来てくれない＝壊れたまま営業することになる */
 function autoRepair() {
@@ -5071,6 +6868,11 @@ function dueTadokoroFiller() {
 function pickTodaysVisitor() {
   if (dueTadokoroConsult()) return 'tadokoroConsult';   // みかじめ2回の翌日、田所が異変を察して来る（最優先）
   if (dueKitoThanks()) return 'kitoThanks';             // お断りを下ろした翌日、鬼頭が礼を言いに来る
+  /* 黒田の課題を果たしたのに、本人が受け取りに来ない問題（作者報告 8/7）。
+     **田所は編が始まると毎日来る**ので、後ろに置かれた黒田の順番が永久に回らず、
+     データ画面に「達成！次に来た時に見せよう」と出たまま止まっていた。
+     果たした報告が待ちになっている日は、黒田を先に通す（1日ぶん田所を待たせるだけ） */
+  if (kurodaReportDue()) return 'kuroda';
   /* 田所編と鬼頭編は並行して進むが、同じ日に二人は来ない＝両方その気なら1日おきに交代（作者指定）。
      ※鬼頭の来訪（みかじめ＝要求の選択画面）は必ずこの交代に混ぜること。
        田所は編が始まると「毎日来る」ので、鬼頭を後回しの判定に置くと永久に順番が回らず、
@@ -5078,7 +6880,8 @@ function pickTodaysVisitor() {
      例外は「鬼頭の3回目＝田所が割って入る決着」で、主人公・鬼頭・田所が集合する場面なので必ず優先する */
   const mikaDue = dueMikajime(), tadoDue = dueTadokoro();
   if (mikaDue && tadoDue) {
-    const finale = !!(G.kito && !G.kito.resolved && (G.kito.paid || 0) >= 2 && tadokoroAllyOn());
+    // 田所の来訪とかち合った日は、田所が割って入る回を優先する（条件は kitoRescueReady に集約）
+    const finale = kitoRescueReady();
     const who = finale ? 'mikajime' : (G.flags.lastDuo === 'mikajime' ? 'tadokoro' : 'mikajime');
     G.flags.lastDuo = who;
     return who;
@@ -5094,8 +6897,12 @@ function pickTodaysVisitor() {
    条件は【田所が認める × みかじめ2回以上】の掛け算（作者指定）＝
    認められていない相手のために、あの爺さんが体を張ることはない。それまでは自力で耐えるしかない */
 function dueTadokoroConsult() {
-  return !!(G.flags.tadokoroConsultDay && G.day >= G.flags.tadokoroConsultDay &&
-    !G.flags.tadokoroConsulted && tadokoroAllyOn() && G.kito && !G.kito.resolved);
+  if (G.flags.tadokoroConsulted || !tadokoroAllyOn() || !G.kito || G.kito.resolved) return false;
+  /* 予約日が入っていれば、その日から。入っていなくても【田所が認めた×集金2回以上】が揃っていれば来る
+     （作者指定 8/5）＝一度も払わずに突っぱねてきた店でも、田所は異変に気づく。
+     以前は「払った回数」でしか予約日が立たなかったので、この声かけごと来なかった */
+  if (G.flags.tadokoroConsultDay) return G.day >= G.flags.tadokoroConsultDay;
+  return (G.kito.encounters || 0) >= 2;
 }
 /* フェーズ3：「刺青・ヤクザお断り」を下ろした翌日、鬼頭が礼を言いに来る */
 function dueKitoThanks() {
@@ -5212,6 +7019,15 @@ const KURODA_CASH_DEMAND = {
 function kurodaFinalPhase() { return G.rep >= KURODA_GOAL_REP || kurodaMissions().every(demandMet); }
 /* まだ達成していない黒田の課題（達成済みのものは言い渡されない）。
    評判70に届いたら、残っている評価項目ではなく「資金50万」の一本に切り替わる */
+/* 黒田が「受け取りに来る番」か＝課題を出したまま、その課題がもう達成されている状態（作者指定 8/7）。
+   鬼頭の決着待ちで黙らせる縛り（dueKuroda の met 側）も、この報告だけは通す＝
+   **プレイヤーがやることをやり終えているのに、話が進まない**状態を作らない */
+function kurodaReportDue() {
+  const k = G.kuroda;
+  if (!k || !k.met || k.resolved || !k.demand) return false;
+  const d = demandList('kuroda').find(x => x.key === k.demand);
+  return !!d && demandMet(d) && G.day >= (k.nextDay || 0);
+}
 function kurodaTodo() {
   if (kurodaFinalPhase()) return demandMet(KURODA_CASH_DEMAND) ? [] : [KURODA_CASH_DEMAND];
   return kurodaMissions().filter(d => !demandMet(d));
@@ -5297,13 +7113,38 @@ function isDemandedEquip(id) {
   }
   return false;
 }
+/* ============ 設備の解放（作者指定 8/8）============
+   章が `unlockInfo` を持てば、そちらが解放条件のすべてを決める。
+   返すのは { ok: 買えるか, label: 🔒に出す文字 }、ゲートの無い品には null。
+   （第2章＝8部門スコア。「水風呂60点で深い水風呂」のように部門ごとに開く。
+     評判ひとつで開けていたら、飯0点・くつろぎ0点の2階建ての店が
+     カタログ44品のうち41品を開けきっていた＝ゲートが機能していなかった）
+
+   **フックを持たない章＝これまでどおり `def.rep` と `G.rep` の比較だけ**＝第1章は不変 */
+function unlockOf(id) {
+  const d = EQ[id]; if (!d) return null;
+  if (hasHook('unlockInfo')) return chHook('unlockInfo', id, d) || null;
+  return d.rep ? { ok: G.rep >= d.rep, label: '評判' + d.rep } : null;
+}
+function unlockOk(id) { const u = unlockOf(id); return !u || u.ok; }
+/* 準備画面に出す「次に開くもの」。章が持たなければ、評判のいちばん近い1品 */
+function nextUnlockEq() {
+  if (hasHook('nextUnlock')) return chHook('nextUnlock') || null;
+  return Object.keys(EQ).filter(k => k !== DUEL_ONLY_EQ && EQ[k].rep && EQ[k].rep > G.rep)
+    .map(k => EQ[k]).sort((a, b) => a.rep - b.rep)[0] || null;
+}
+/* その1品の「あと何が要るか」を一言で。第1章は「評判45で【大カラン】」 */
+function nextUnlockText(d) {
+  if (!d) return null;
+  return chHook('nextUnlockText', d) || `評判${d.rep}で【${d.name}】`;
+}
+
 /* まだ評判が足りずカタログに並んでいない設備は、要求されても買えない＝出題しない
    （替わり湯もフィンランド式サウナも、解放される評判まで来てから言い出す）。
    さらに「置ける場所が1マスも無い設備」も出題しない＝買えても置けない要求は詰みになる */
 function demandBuyable(d) {
   if (d.need.type !== 'equip') return true;
-  const def = EQ[d.need.id];
-  if (def.rep > G.rep) return false;
+  if (!unlockOk(d.need.id)) return false;
   return canPlaceAnywhere(d.need.id);
 }
 // その設備を置ける場所が、いまの間取りに1つでもあるか
@@ -5395,22 +7236,36 @@ function demandHint() {
 /* ============ ログ・エフェクト ============ */
 const floaters = [], sparkles = [];
 // 金額がポーンと飛び出すやつ。売上はチャリーン、出費はバコーンと鳴らす
+/* ============ ふわっと出る演出（+¥ と ✦）============
+   **どの区画で起きたかを刻む**（作者指摘 8/8）。区画のある章（第2章）は
+   営業中に全階ぶんを順番に計算するので、階を持たせないと
+   **2階で拭いた✦が、表示している1階に出る**。
+   実際に「誰も掃除していない1階でキラキラだけ光る（汚れは無いのに）」が起きていた。
+   区画が1つしかない章では `G.actF` は常に 0 ＝これまでとまったく同じ            */
 function addFloater(x, y, text) {
-  floaters.push({ x, y, text, t: 1.6 });
+  floaters.push({ x, y, text, t: 1.6, f: G.actF | 0 });
   Sfx.play(String(text)[0] === '-' ? 'pay' : 'cash');
 }
-function addSparkle(x, y) { for (let i = 0; i < 6; i++) sparkles.push({ x: x + rand(-12, 12), y: y + rand(-10, 10), t: rand(.5, 1.1) }); }
+function addSparkle(x, y) {
+  for (let i = 0; i < 6; i++)
+    sparkles.push({ x: x + rand(-12, 12), y: y + rand(-10, 10), t: rand(.5, 1.1), f: G.actF | 0 });
+}
 /* 屋号の読み替え（作者指定）。台本もモーダルも通知も、書かれているのは親父の代の「夕凪湯」。
    プレイヤーが暖簾に別の名前を書いたら、画面に出る時にその屋号へ差し替える＝
    台本のあちこちに {店名} を書いて回らなくても、屋号がちゃんと物語に出てくる */
 function shopify(s) {
+  /* 章に関係なく読み替える。ログ・お知らせ・データ画面などは第1章の文面を共有していて、
+     そこに「夕凪湯」と書いてあるものがある＝第2章でそのまま出ると、前の章の店の名前が
+     いまの店として画面に出てしまう。
+     例外は**物語の台本だけ**（js/story.js）。第2章の台本の「夕凪湯」は、
+     本当に前の章の店を指しているので、そこだけは読み替えない */
   const nm = (typeof G !== 'undefined' && G.name) ? G.name : '';
   if (!nm || nm === '夕凪湯' || s == null) return s;
   return String(s).split('夕凪湯').join(nm);
 }
 function log(text) {
   text = shopify(text);
-  const h = CONF.openHour + (G.minutes / 60) | 0;
+  const h = openHourNow() + (G.minutes / 60) | 0;
   G.logLines.unshift(`${String(Math.min(h, 23)).padStart(2)}時 ${text}`);
   G.logLines = G.logLines.slice(0, 2);
   $('bizLog').innerHTML = G.logLines.join('<br>');
@@ -5454,31 +7309,73 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.style.opacity = 0, 2200);
 }
+let lastHint = '';
+/* ============ 上の一行 ============
+   「いま何をすればいいか」を、上に短く一行だけ出す（作者指定）。
+   下のヒント帯は長くて画面を食うので、**数えるもの**はこちらに持ってくる。
+   第1章は topTip フックを持たないので、この帯は一度も出ない。          */
+let tipFlashT = 0;
+function syncTip() {
+  const el = $('tip'); if (!el) return;
+  if (tipFlashT > 0) return;                       // 「片付けた」を出している最中は上書きしない
+  const t = chHook('topTip');
+  el.classList.remove('flash');
+  if (!t) { el.classList.add('hidden'); return; }
+  el.innerHTML = t;
+  el.classList.remove('hidden');
+}
+/* 何かを片付けた瞬間だけ、緑にして数秒出す。そのあと元の一行に戻る */
+function flashTip(html, sec) {
+  const el = $('tip'); if (!el) return;
+  el.innerHTML = html;
+  el.classList.remove('hidden');
+  el.classList.add('flash');
+  tipFlashT = sec || 2.2;
+}
+function stepTip(rDt) {
+  if (tipFlashT <= 0) return;
+  tipFlashT -= rDt;
+  if (tipFlashT <= 0) { tipFlashT = 0; syncTip(); }
+}
+
 function setHint(html) {
+  lastHint = html || '';
   const el = $('hint');
-  if (!html) { el.classList.add('hidden'); return; }
+  // 案内図を開いているあいだは、ヒントの帯が間取りを隠してしまうので出さない
+  if (!html || onGuide()) { el.classList.add('hidden'); return; }
   el.innerHTML = shopify(html); el.classList.remove('hidden');
 }
 
 /* ============ 描画 ============ */
 const cv = $('game'), ctx = cv.getContext('2d');
-cv.width = CONF.W * T * CONF.SS; cv.height = CONF.H * T * CONF.SS;
+resizeStage();                       // 画面の大きさは「いま開いている区画」に合わせる
 
 function render(rt) {
   ctx.setTransform(CONF.SS, 0, 0, CONF.SS, 0, 0);
   ctx.imageSmoothingEnabled = false;
   drawFloorAndWalls(rt);
   if (G.benz) drawBenz(rt);
-  for (const d of G.dirts) drawDirt(d);
-  if (G.roach) drawRoach(rt);                        // ゴキブリは床の上（設備の下）を這う
-  if (G.roachSplat) drawRoachSplat(1 / 60);           // 仕留めた跡
-  const items = [...G.equip].sort((a, b) => a.y - b.y);
+  if (isHomeArea(G.actF)) drawHome(rt);                     // 家の中（第2章）
+  for (const d of G.dirts) if (inArea(d)) drawDirt(d);
+  for (const j of G.junk) if (inArea(j)) drawJunk(j, rt);   // 開店前のゴミ・瓦礫（第2章）
+  const shownRoach = roachAt(G.actF);
+  if (shownRoach) drawRoach(rt, shownRoach);          // ゴキブリは床の上（設備の下）を這う
+  drawRoachSplat(1 / 60);                             // 仕留めた跡
+  /* 舗装や厨房の工事は「床そのもの」なので、設備の絵としては描かない（floorColor が塗る）。
+     ここを id 名指しにしていたせいで、厨房の工事が床ではなく
+     「厨房の工事」と書かれた札として1マスずつ並んでしまった              */
+  const items = areaEquip().filter(e => !(EQ[e.id] && EQ[e.id].floorTile)).sort((a, b) => a.y - b.y);
   for (const it of items) drawEquip(ctx, it, rt);
   if (G.placing) drawGhost(rt);
-  const ents = [...G.customers, ...G.staff.filter(s => !(s.lateT > 0)), ...G.npcs, ...(G.player ? [G.player] : [])].sort((a, b) => a.py - b.py);
+  // 勤務時間の外は、主人公は店にいない（家にいる）＝画面にも出さない
+  const ents = [...G.customers, ...G.staff.filter(workerHere), ...G.npcs, ...((G.player && onDuty()) ? [G.player] : [])]
+    .filter(inArea).sort((a, b) => a.py - b.py);
   for (const e of ents) drawChar(e, rt);
   if (G.phase === 'biz' && nappaOn()) drawNappa();   // 熱波師は営業中だけサウナ室の前に立つ（夜は帰る）
-  if (playerAsleep()) drawSleep(G.player, rt);      // 拭ける数を使い切った夜は、番台で寝てしまう
+  // 拭ける数（第2章は体力）を使い切ったら、番台で寝てしまう。※いま映している階に居るときだけ描く
+  if (onDuty() && inArea(G.player || {}) && playerAsleep()) drawSleep(G.player, rt);
+  drawSky();       // 屋外だけ、時刻に応じて暗くする（第2章のみ）
+  drawLamps();     // 暗くなったら外灯が点く
   for (const e of ents) if (e.bub) drawBubble(e);
   drawEffects();
   drawEntryLimit(rt);
@@ -5570,18 +7467,311 @@ function drawNappa() {
      文字が入ると、狭いサウナ室の絵がそれに食われてしまう */
 }
 
+/* そのマスに敷いてある「床そのもの」（舗装・厨房の工事）。無ければ null。
+   floorTile の設備は、置いた範囲の床の見た目そのものを変える＝
+   上を歩けるし、上に別の設備も置ける                                     */
+function floorTileAt(x, y) {
+  for (const e of G.equip) {
+    const d = EQ[e.id];
+    if (!d || !d.floorTile || !inArea(e)) continue;
+    if (x >= e.x && x < e.x + ew(e) && y >= e.y && y < e.y + eh(e)) return e;
+  }
+  return null;
+}
+/* そのマスが舗装済みか（駐車場だけの話） */
+function isPaved(x, y) { const t = floorTileAt(x, y); return !!t && t.id === 'p2_pave'; }
+/* そのマスの床の色。第2章は区画ごとに床が違う（浴場タイル／畳／木床／砂利・アスファルト）。
+   第1章は areaDef が null なので、これまでどおり「上が浴室・下が脱衣所」で描く */
+function floorColor(x, y) {
+  /* 章が内装（床の張り替え）を持っていれば、そちらを先に使う。
+     第1章はこのフックを持たないので、これまでどおり */
+  const nc = chHook('floorCol', x, y);
+  if (nc) return nc;
+  const a = areaDef(G.actF);
+  if (!a) return (y < 7) ? ((x + y) % 2 ? '#cfd8d4' : '#c4cec9')     // 浴場タイル
+                         : ((x + y) % 2 ? '#d9b98a' : '#d2b181');    // 脱衣所の木床
+  /* ── 敷いてある「床そのもの」があれば、その色で塗る（厨房の工事・舗装）。
+     工事した範囲がひと目で分かる＝どこまでが厨房かを、線ではなく色で見せる */
+  const ft = floorTileAt(x, y);
+  if (ft && EQ[ft.id].floorCol) {
+    const c = EQ[ft.id].floorCol;
+    return (x + y) % 2 ? c[0] : c[1];
+  }
+  // ── 駐車場（ロビー区画の下側）。買った時点は草の伸びた砂利。舗装すると色が変わる
+  if (a.park && y >= a.divideY) {
+    if (!isPaved(x, y)) {
+      // 砂利＝粒のばらついた土色。マスごとに少しだけ濃さを散らして「均されていない」感じを出す
+      const n = (x * 7 + y * 13) % 3;
+      return n === 0 ? '#8d8272' : n === 1 ? '#877c6d' : '#918676';
+    }
+    return (x + y) % 2 ? '#565049' : '#514b45';                      // アスファルト
+  }
+  // ── 屋外ゾーン（浴室の上＝外気浴デッキを置く場所）
+  if (a.outdoorY && y < a.outdoorY) return (x + y) % 2 ? '#6f7f5c' : '#677755';   // 屋外＝土と芝
+  if (a.floor === 'bath')
+    return (a.divideY && y >= a.divideY) ? ((x + y) % 2 ? '#d9b98a' : '#d2b181')   // 脱衣所の木床
+                                        : ((x + y) % 2 ? '#cfd8d4' : '#c4cec9');  // 浴場タイル
+  if (a.floor === 'tatami') return (x + y) % 2 ? '#cdc79a' : '#c5bf92';            // 畳
+  return (x + y) % 2 ? '#d9b98a' : '#d2b181';                                     // 木床
+}
+
+/* 仕切りの無い区画（休憩スペース・食堂・駐車場のある区画）の、ただの四方の壁 */
+/* 上壁の通路（作者指定）。ロビーの奥、休憩スペース・食堂の浴室側に開いている口。
+   ここを抜けると建物の奥（廊下）へ出る＝下の入口からしか入れない部屋にしない */
+function drawTopDoor() {
+  /* 廊下は行き先のぶんだけ戸が並ぶ（topDoors）。ふつうの部屋は1つ（entranceTop） */
+  if (CONF.topDoors) {
+    const lab = CONF.topLabels || {};
+    for (const dx of CONF.topDoors) drawOneTopDoor(dx * T, lab[dx] || '▲');
+    return;
+  }
+  const e = CONF.entranceTop; if (!e) return;
+  const x = e.x * T;
+  if (isHomeArea(G.actF)) { drawHomeDoor(x); return; }   // 家は「奥への通路」ではなく玄関
+  drawOneTopDoor(x, '▲奥へ');
+}
+function drawOneTopDoor(x, label) {
+  ctx.fillStyle = '#7d6647';                                  // 向こう側＝廊下の床
+  ctx.fillRect(x, 0, T, T);
+  ctx.strokeStyle = 'rgba(0,0,0,.10)'; ctx.lineWidth = 1;
+  for (let ly = 6; ly < T; ly += 10) { ctx.beginPath(); ctx.moveTo(x, ly + .5); ctx.lineTo(x + T, ly + .5); ctx.stroke(); }
+  ctx.fillStyle = '#4a3528';                                  // 木枠
+  ctx.fillRect(x - 3, 0, 4, T); ctx.fillRect(x + T - 1, 0, 4, T);
+  ctx.fillStyle = '#8a6a3a';                                  // 敷居
+  ctx.fillRect(x + 1, T - 4, T - 2, 4);
+  ctx.fillStyle = '#c9a86a'; ctx.font = 'bold 8px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(label, x + T / 2, T - 7);
+}
+/* 家の玄関（上の中央）。店の自動ドアや引き戸ではなく、**片開きの玄関ドア**（作者指定）。
+   左が丁番、右に縦長のハンドル。上に採光の小窓。内側は一段低いたたき。
+   帰ってきた主人公はこの真下に立つ＝下から歩いて入ってこない            */
+function drawHomeDoor(x) {
+  const dw = T - 6, dx = x + 3, dh = T - 8;
+  ctx.fillStyle = '#3b2f26'; ctx.fillRect(x - 4, 0, T + 8, T);          // 玄関まわりの壁
+  ctx.fillStyle = '#6b5241'; ctx.fillRect(dx - 3, 0, dw + 6, dh + 2);   // ドア枠
+  ctx.fillStyle = '#4a3528'; ctx.fillRect(dx - 3, 0, 3, dh + 2); ctx.fillRect(dx + dw, 0, 3, dh + 2);
+  // 扉そのもの（一枚板）。丁番は左＝右へ引いて開ける
+  ctx.fillStyle = '#8a5f3a'; ctx.fillRect(dx, 0, dw, dh);
+  ctx.fillStyle = '#9c6d43'; ctx.fillRect(dx, 0, dw, 3);                // 上の面取り
+  ctx.strokeStyle = 'rgba(0,0,0,.22)'; ctx.lineWidth = 1;               // framed パネルの彫り
+  ctx.strokeRect(dx + 3.5, 6.5, dw - 7, dh - 11);
+  ctx.strokeStyle = 'rgba(255,255,255,.10)';
+  ctx.strokeRect(dx + 4.5, 7.5, dw - 9, dh - 13);
+  ctx.fillStyle = 'rgba(214,228,236,.6)';                               // 採光の小窓
+  ctx.fillRect(dx + dw / 2 - 6, 5, 12, 5);
+  ctx.strokeStyle = '#c9d6dc'; ctx.lineWidth = 1;
+  ctx.strokeRect(dx + dw / 2 - 5.5, 5.5, 11, 4);
+  ctx.fillStyle = '#2b2119'; ctx.fillRect(dx + 1.5, 2, 1.5, dh - 4);    // 丁番側の合わせ目（左）
+  ctx.fillStyle = '#3a3f44'; ctx.fillRect(dx + 1, 4, 2.5, 3);           // 丁番2つ
+  ctx.fillRect(dx + 1, dh - 8, 2.5, 3);
+  ctx.fillStyle = '#c9b06a'; ctx.fillRect(dx + dw - 6, dh / 2 - 5, 2.5, 10);   // 縦長のハンドル（右）
+  ctx.fillStyle = '#8d7a44'; ctx.fillRect(dx + dw - 6, dh / 2 - 5, 2.5, 2);
+  // 内側のたたき（三和土）＝一段低い土間。ここで靴を脱ぐ
+  ctx.fillStyle = '#6b5a48'; ctx.fillRect(x + 1, dh, T - 2, T - dh);
+  ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(x + 1, dh, T - 2, 2);
+  ctx.fillStyle = '#3f4348';                                            // 脱いだ靴ふたつ
+  ctx.fillRect(x + 5, T - 5, 6, 3.5); ctx.fillRect(x + T - 12, T - 5, 6, 3.5);
+}
+/* 下壁の通路。休憩スペース・食堂は、下（ロビー側）からも入れる（作者指定）。
+   壁の内部では entrance がもともと開いていたが、絵として描いていなかったので
+   「行き止まりの部屋」に見えていた                                        */
+function drawBottomDoor(W, H) {
+  const e = CONF.entrance;
+  if (!e || e.y !== H - 1) return;                             // 下壁に入口が無い区画は何もしない
+  const x = e.x * T, y = (H - 1) * T;
+  ctx.fillStyle = '#7d6647';                                   // 向こう側＝廊下の床
+  ctx.fillRect(x, y, T, T);
+  ctx.strokeStyle = 'rgba(0,0,0,.10)'; ctx.lineWidth = 1;
+  for (let ly = y + 6; ly < y + T; ly += 10) { ctx.beginPath(); ctx.moveTo(x, ly + .5); ctx.lineTo(x + T, ly + .5); ctx.stroke(); }
+  ctx.fillStyle = '#4a3528';                                   // 木枠
+  ctx.fillRect(x - 3, y, 4, T); ctx.fillRect(x + T - 1, y, 4, T);
+  ctx.fillStyle = '#8a6a3a';                                   // 敷居
+  ctx.fillRect(x + 1, y, T - 2, 4);
+  ctx.fillStyle = '#c9a86a'; ctx.font = 'bold 8px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('▼入口', x + T / 2, y + 13);
+}
+/* 壁の色。章が内装を持っていれば、そちらに差し替える（第2章＝壁の張り替え）。
+   何も返さなければ、これまでどおりの色＝第1章の見た目は1ミリも変わらない */
+function wallColA() { return chHook('wallCol') || '#5a4436'; }
+function wallColB() { return chHook('wallCol2') || '#6b5241'; }
+
+function drawPlainWalls(W, H) {
+  ctx.fillStyle = wallColA();
+  ctx.fillRect(0, 0, W * T, T);
+  ctx.fillRect(0, 0, T, H * T); ctx.fillRect((W - 1) * T, 0, T, H * T);
+  ctx.fillRect(0, (H - 1) * T, W * T, T);
+  for (const wx of [0, (W - 1) * T]) {
+    ctx.fillStyle = wallColB();
+    ctx.fillRect(wx + (wx ? 0 : 3), T, T - 3, (H - 2) * T);
+    ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 1;
+    for (let y = T + 8; y < (H - 1) * T; y += 10) {
+      ctx.beginPath(); ctx.moveTo(wx + (wx ? 0 : 3), y + .5); ctx.lineTo(wx + (wx ? T : T), y + .5); ctx.stroke();
+    }
+  }
+  drawBandaiSign(W);
+  drawTopDoor();
+  drawBottomDoor(W, H);
+}
+/* ============ 屋号の看板 ============
+   店の名前は**番台の脇の壁**に一枚だけ掛ける（作者指定）。
+   浴室の上壁からは外した＝湯に浸かって見上げるのは、店の名前ではなく富士山だ。
+   だから看板が出るのは、番台のある部屋（ロビー）に立っているときだけ。      */
+function drawBandaiSign(W) {
+  const b = bandai();
+  if (!b || (b.f | 0) !== (G.actF | 0) || !G.name) return;
+  // 番台の左側。番台に寄せすぎず、左の壁からも離す
+  const right = Math.max(T * 2.2, b.x * T - 6);
+  const wd = Math.min(T * 3.6, right - T * 1.0);
+  if (wd < T * 1.4) return;
+  const x = right - wd;
+  ctx.fillStyle = '#2f2116'; ctx.fillRect(x - 2, 4, wd + 4, T - 8);        // 縁（濃い木）
+  ctx.fillStyle = '#4a3526'; ctx.fillRect(x, 6, wd, T - 12);               // 板
+  ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fillRect(x, 6, wd, 2);      // 上端の艶
+  // 吊り金具
+  ctx.fillStyle = '#8a7a5a';
+  ctx.fillRect(x + 5, 2, 2, 5); ctx.fillRect(x + wd - 7, 2, 2, 5);
+  ctx.fillStyle = '#ffd98a';
+  ctx.font = `bold ${wd > T * 3 ? 13 : 11}px "DotGothic16",sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(G.name, x + wd / 2, T - 11);
+}
+
+/* ============ 昼と夜 ============
+   第2章は屋外（駐車場）があるので、朝・昼・夕・夜が画面に出る。
+   暗くするのは**屋外だけ**（駐車場と外気浴デッキ）。屋内は照明があるので明るいまま。
+   第1章は屋外が無いので CONF.dayNight を持たない＝この演出は一度も走らない */
+function skyPhase() {
+  if (!CONF.dayNight) return null;                  // ＝第1章
+  const h = (((openHourNow() + G.minutes / 60) % 24) + 24) % 24;
+  /* 時間帯の切れ目（作者指定 8/8）
+       15〜17時 … 昼間      17〜19時 … 夕方
+       19〜翌6時 … 夜       翌6時〜  … 昼間（＝深夜営業の終わりは、もう朝）
+     ⚠ ここは `CONF.dayNight` を持つ章＝第2章しか通らない（上で null を返している） */
+  let light;                                        // 1.0＝真昼 0.0＝真夜中
+  if (h < 6) light = 0;                             // 夜（翌6時まで）
+  else if (h < 6.5) light = (h - 6) / 0.5;          // 夜明けの30分で明ける
+  else if (h < 17) light = 1;                       // 昼間
+  else if (h < 19) light = 1 - (h - 17) / 2;        // 夕方（17〜19時で暮れきる）
+  else light = 0;                                   // 夜
+  const dusk = (h >= 17 && h < 19) ? Math.sin(Math.PI * (h - 17) / 2) : 0;       // 夕焼け
+  const dawn = (h >= 5.5 && h < 7) ? Math.sin(Math.PI * (h - 5.5) / 1.5) : 0;    // 朝焼け
+  return { h, light, dusk, dawn };
+}
+/* いまの区画の屋外の範囲（マスの行）。無ければ null
+   外気浴デッキは**昼夜の差をつけない**（作者指定）。浴室の夜は富士山のペンキ絵で見せる */
+function outdoorBand() {
+  const a = areaDef(G.actF);
+  if (!a || !a.park) return null;
+  return { y0: a.divideY, y1: CONF.H };                        // 仕切りから下＝駐車場と国道
+}
+/* 空の色をかぶせる（屋外だけ） */
+function drawSky() {
+  const s = skyPhase(), b = outdoorBand();
+  if (!s || !b) return;
+  const top = b.y0 * T, hgt = (b.y1 - b.y0) * T, wid = CONF.W * T;
+  const dark = (1 - s.light) * 0.58;
+  if (dark > 0.01) { ctx.fillStyle = `rgba(14,22,52,${dark.toFixed(3)})`; ctx.fillRect(0, top, wid, hgt); }
+  if (s.dusk > 0.02) { ctx.fillStyle = `rgba(214,118,46,${(s.dusk * 0.20).toFixed(3)})`; ctx.fillRect(0, top, wid, hgt); }
+  if (s.dawn > 0.02) { ctx.fillStyle = `rgba(240,192,150,${(s.dawn * 0.15).toFixed(3)})`; ctx.fillRect(0, top, wid, hgt); }
+}
+/* 2色を混ぜる。t=0 で a、t=1 で b（#rrggbb のみ） */
+function mixCol(a, b, t) {
+  t = Math.max(0, Math.min(1, t));
+  const p = c => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
+  const A = p(a), B = p(b);
+  return `rgb(${Math.round(A[0] + (B[0] - A[0]) * t)},${Math.round(A[1] + (B[1] - A[1]) * t)},${Math.round(A[2] + (B[2] - A[2]) * t)})`;
+}
+/* 外灯の光。暗くなると点く＝「暗い駐車場に女性客は夜来ない」が目で分かるようになる */
+function drawLamps() {
+  const s = skyPhase();
+  if (!s || s.light > 0.55) return;
+  const on = 1 - s.light;
+  for (const e of areaEquip()) {
+    if (e.id !== 'p2_light' || e.cond <= 0) continue;
+    const cx = e.x * T + ew(e) * T / 2, cy = e.y * T + eh(e) * T / 2;
+    const r = T * 3.2;
+    const g2 = ctx.createRadialGradient(cx, cy, 2, cx, cy, r);
+    g2.addColorStop(0, `rgba(255,232,160,${(0.42 * on).toFixed(3)})`);
+    g2.addColorStop(1, 'rgba(255,232,160,0)');
+    ctx.fillStyle = g2;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(255,244,200,${(0.9 * on).toFixed(2)})`;
+    ctx.fillRect(cx - 3, cy - 3, 6, 6);
+  }
+}
+
 function drawFloorAndWalls(rt) {
   const W = CONF.W, H = CONF.H;
+  const area = areaDef(G.actF);
+  // 駐車場は屋外＝左右に壁が無い。端(x=0/W-1)まで敷地で、いちばん下の行は敷地の外＝国道
+  const parkY = (area && area.park) ? area.divideY : 0;
   // 床
-  for (let y = 1; y < H - 1; y++)
-    for (let x = 1; x < W - 1; x++) {
-      const bathArea = y < 7;
-      let c;
-      if (bathArea) c = (x + y) % 2 ? '#cfd8d4' : '#c4cec9';       // 浴場タイル
-      else c = (x + y) % 2 ? '#d9b98a' : '#d2b181';               // 脱衣所の木床
-      ctx.fillStyle = c; ctx.fillRect(x * T, y * T, T, T);
+  for (let y = 1; y < H - 1; y++) {
+    const outdoor = parkY && y >= parkY;
+    const x0 = outdoor ? 0 : 1, x1 = outdoor ? W : W - 1;
+    for (let x = x0; x < x1; x++) {
+      ctx.fillStyle = floorColor(x, y); ctx.fillRect(x * T, y * T, T, T);
       ctx.strokeStyle = 'rgba(0,0,0,.06)'; ctx.strokeRect(x * T + .5, y * T + .5, T - 1, T - 1);
     }
+  }
+  // 砂利の粒（舗装していない駐車場だけ。ざらついた見た目にする）
+  if (parkY) {
+    for (let y = parkY; y < H - 1; y++)
+      for (let x = 0; x < W; x++) {
+        if (isPaved(x, y)) continue;
+        ctx.fillStyle = 'rgba(60,52,40,.35)';
+        for (let i = 0; i < 5; i++) {
+          const gx2 = x * T + ((x * 31 + y * 17 + i * 53) % T);
+          const gy2 = y * T + ((x * 19 + y * 41 + i * 29) % T);
+          ctx.fillRect(gx2, gy2, 2, 2);
+        }
+        // ところどころ雑草（二年ぶん伸びている）
+        if ((x * 5 + y * 11) % 7 === 0) {
+          ctx.fillStyle = '#5f6b46';
+          ctx.fillRect(x * T + 12, y * T + 20, 2, 7);
+          ctx.fillRect(x * T + 16, y * T + 23, 2, 4);
+        }
+      }
+  }
+  /* ── 建物の正面（ロビー↔駐車場）。ここから外は屋外なので、間仕切りではなく外壁と自動ドアを描く ── */
+  if (parkY) {
+    const fy = parkY * T;
+    ctx.fillStyle = '#5a4436'; ctx.fillRect(0, fy - 9, W * T, 13);
+    ctx.fillStyle = '#6b5241'; ctx.fillRect(0, fy - 9, W * T, 4);
+    const ax0 = (CONF.doorX - 1) * T;
+    ctx.fillStyle = 'rgba(198,232,242,.65)'; ctx.fillRect(ax0, fy - 14, 3 * T, 22);
+    ctx.strokeStyle = '#4a3528'; ctx.lineWidth = 2; ctx.strokeRect(ax0, fy - 14, 3 * T, 22);
+    ctx.fillStyle = '#c9a86a'; ctx.font = 'bold 9px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('自動ドア', ax0 + 1.5 * T, fy + 4);
+    // 上壁は毎フレーム塗り直す（部屋を切り替えた時に、前の部屋の通路が残らないように）
+    ctx.fillStyle = '#5a4436'; ctx.fillRect(0, 0, W * T, T);
+    drawBandaiSign(W);             // 屋号は番台の脇の壁に一枚だけ（作者指定）
+    drawTopDoor();                 // ロビーの奥＝建物の中へ抜ける通路
+    // 国道の白い破線（敷地の外＝いちばん下）
+    ctx.fillStyle = '#3d3b39'; ctx.fillRect(0, (H - 1) * T, W * T, T);
+    ctx.fillStyle = 'rgba(255,255,255,.5)';
+    for (let x = 0; x < W * T; x += 26) ctx.fillRect(x, (H - 1) * T + T / 2 - 1, 14, 2);
+    return;                      // ロビー＆駐車場は、この先の銭湯用の飾りは描かない
+  }
+  // 仕切りの無い区画（休憩スペース・食堂）は、間仕切りも引き戸も描かない
+  // 家は店ではないので、屋号の看板は出さない
+  /* 仕切りの無い区画（休憩スペース・食堂・家）は、間仕切りも引き戸も描かない。
+     屋号の看板は**番台のある部屋にだけ**掛かる（drawBandaiSign）＝
+     同じ名前が全部屋に並ぶとうるさいし、浴室で見上げるのは店の名前ではなく富士山だ */
+  if (!CONF.divideY) { drawPlainWalls(W, H); return; }
+  /* 屋外ゾーンと浴室の境（外気浴デッキへ出る戸）。
+     ここを開けて外に出る＝サウナ→水風呂→外気浴、の導線がこの戸を通る */
+  if (CONF.outdoorY) {
+    const oy = CONF.outdoorY * T;
+    ctx.fillStyle = '#6b533c'; ctx.fillRect(T, oy - 5, (W - 2) * T, 9);
+    ctx.fillStyle = '#9c8465'; ctx.fillRect(T, oy - 5, (W - 2) * T, 3);
+    const dx0 = CONF.doorX * T;
+    ctx.fillStyle = '#3a2a1c'; ctx.fillRect(dx0 - 5, oy - 12, T + 10, 4);
+    ctx.fillStyle = 'rgba(198,232,242,.6)'; ctx.fillRect(dx0, oy - 10, T, 18);
+    ctx.strokeStyle = '#4a3528'; ctx.lineWidth = 2; ctx.strokeRect(dx0, oy - 10, T, 18);
+    ctx.fillStyle = '#c9a86a'; ctx.font = 'bold 8px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('外気浴へ', dx0 + T / 2, oy + 14);
+  }
   // ── 浴室と脱衣所の間仕切り壁＋中央のガラス引き戸 ──
   // ここが唯一の通り道。客も主人公もこの戸からしか行き来できない
   const dvy = CONF.divideY * T, dxL = CONF.doorX * T;
@@ -5621,13 +7811,13 @@ function drawFloorAndWalls(rt) {
   ctx.fillStyle = 'rgba(232,244,248,.5)';
   ctx.fillRect(gapX, fTop + 4, gapW, fH - 7);
   // 壁
-  ctx.fillStyle = '#5a4436';
+  ctx.fillStyle = wallColA();
   ctx.fillRect(0, 0, W * T, T);
   ctx.fillRect(0, 0, T, H * T); ctx.fillRect((W - 1) * T, 0, T, H * T);
   ctx.fillRect(0, (H - 1) * T, W * T, T);
   // 左右は“内側の壁”＝ポスターや扇風機を掛けられる面。板張りに見せて、掛けられると分かるようにする
   for (const wx of [0, (W - 1) * T]) {
-    ctx.fillStyle = '#6b5241';
+    ctx.fillStyle = wallColB();
     ctx.fillRect(wx + (wx ? 0 : 3), T, T - 3, (H - 2) * T);
     ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 1;
     for (let y = T + 8; y < (H - 1) * T; y += 10) {                 // 板の継ぎ目
@@ -5636,20 +7826,66 @@ function drawFloorAndWalls(rt) {
     ctx.fillStyle = '#8a6c52';                                       // 腰の見切り縁
     ctx.fillRect(wx + (wx ? 0 : 3), CONF.divideY * T - 3, T - 3, 3);
   }
-  // 上壁: 富士山のペンキ絵
-  ctx.fillStyle = '#7ab8d8'; ctx.fillRect(T * 5.5, 4, T * 6.7, T - 8);
-  ctx.fillStyle = '#e8f0f2';
-  ctx.beginPath();
-  ctx.moveTo(T * 7, T - 4); ctx.lineTo(T * 8.6, 8); ctx.lineTo(T * 10.2, T - 4); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.moveTo(T * 8.2, 13); ctx.lineTo(T * 8.6, 8); ctx.lineTo(T * 9, 13); ctx.lineTo(T * 8.6, 15); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#ffcf6a'; ctx.fillRect(T * 11.4, 8, 8, 8);
-  // 屋号看板
-  ctx.fillStyle = '#3a2a1c'; ctx.fillRect(T * 1.2, 5, T * 3.6, T - 10);
-  ctx.fillStyle = '#ffd98a'; ctx.font = 'bold 12px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText(G.name, T * 3, T - 11);
-  // 入口（下壁の開口部）を"入口らしく"
+  /* 上壁: 富士山のペンキ絵。**銭湯の絵なので、章によっては描かない**
+     （第2章「横浜編」＝都市型サウナのビルに富士山は無い）。
+     CONF.noMural を立てた章では、代わりに素の壁面だけを残す              */
+  if (CONF.noMural) { drawTopDoor(); return; }
+  const sky = skyPhase();
+  const lit = sky ? sky.light : 1;
+  const skyCol = mixCol('#1a2a4e', '#7ab8d8', lit);
+
+  /* 上壁の絵は章で違う。
+     第1章＝**屋号の看板＋その右に富士山**（これまでどおり。1行も変えない）。
+     第2章＝**富士山だけ**（作者指定）＝湯に浸かって見上げるのは、店の名前ではなく山だ。
+             店の名前はロビーの番台の脇に掛けてある（drawBandaiSign）          */
+  if (!CONF.fujiWide) {
+    ctx.fillStyle = skyCol; ctx.fillRect(T * 5.5, 4, T * 6.7, T - 8);
+    ctx.fillStyle = mixCol('#9aa8c4', '#e8f0f2', lit);
+    ctx.beginPath();
+    ctx.moveTo(T * 7, T - 4); ctx.lineTo(T * 8.6, 8); ctx.lineTo(T * 10.2, T - 4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = mixCol('#c8d2e6', '#ffffff', lit);
+    ctx.beginPath();
+    ctx.moveTo(T * 8.2, 13); ctx.lineTo(T * 8.6, 8); ctx.lineTo(T * 9, 13); ctx.lineTo(T * 8.6, 15); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffcf6a'; ctx.fillRect(T * 11.4, 8, 8, 8);
+    ctx.fillStyle = '#3a2a1c'; ctx.fillRect(T * 1.2, 5, T * 3.6, T - 10);
+    ctx.fillStyle = '#ffd98a'; ctx.font = 'bold 12px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(G.name, T * 3, T - 11);
+  } else {
+    const bx = T * 0.8, bw = T * (W - 1.6);            // 壁いっぱいに広げる
+    ctx.fillStyle = skyCol; ctx.fillRect(bx, 4, bw, T - 8);
+    const peak = bx + bw * 0.42;                       // 山の頂（すこし左寄り＝ペンキ絵らしく）
+    ctx.fillStyle = mixCol('#9aa8c4', '#e8f0f2', lit);
+    ctx.beginPath();
+    ctx.moveTo(peak - T * 1.9, T - 4); ctx.lineTo(peak, 7); ctx.lineTo(peak + T * 1.9, T - 4);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = mixCol('#c8d2e6', '#ffffff', lit); // 冠雪
+    ctx.beginPath();
+    ctx.moveTo(peak - T * 0.42, 13); ctx.lineTo(peak, 7); ctx.lineTo(peak + T * 0.42, 13);
+    ctx.lineTo(peak + T * 0.12, 15.5); ctx.lineTo(peak - T * 0.16, 13.5);
+    ctx.closePath(); ctx.fill();
+    // 裾野の松（ペンキ絵の定番）。右下に小さく二本
+    ctx.fillStyle = mixCol('#25402f', '#3f6a4a', lit);
+    for (const px of [bx + bw * 0.74, bx + bw * 0.80]) {
+      ctx.beginPath();
+      ctx.moveTo(px - 5, T - 5); ctx.lineTo(px, T - 15); ctx.lineTo(px + 5, T - 5);
+      ctx.closePath(); ctx.fill();
+    }
+    const sx = bx + bw * 0.92;
+    if (lit > 0.5) {                                   // 昼＝お日さま（四角いペンキ絵のまま）
+      ctx.fillStyle = '#ffcf6a'; ctx.fillRect(sx - 4, 8, 8, 8);
+    } else {                                           // 夜＝三日月
+      const my = 12;
+      ctx.fillStyle = '#f2f4ff';
+      ctx.beginPath(); ctx.arc(sx, my, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = skyCol;                          // 空の色でえぐって欠けさせる
+      ctx.beginPath(); ctx.arc(sx + 2.8, my - 1.6, 4.4, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  /* 入口（下壁の開口部）を"入口らしく"。
+     **下の壁に開いている階だけ**＝第2章の2階から上は、外への入口を持たない
+     （エレベーターで上がってくるので、のれんも玄関マットも要らない）。
+     第1章の入口は必ず下壁にあるので、これまでどおり描かれる            */
+  if (CONF.entrance.y < CONF.H - 1) return;
   const ex = CONF.entrance.x, ey = CONF.entrance.y;
   const exX = ex * T, eyY = ey * T;
   // 開口部の外＝夜の外気
@@ -5810,10 +8046,210 @@ function drawDirt(d) {
   ctx.ellipse(d.x * T + T / 2 - 6, d.y * T + T / 2 + 4, 5, 3, 0, 0, Math.PI * 2);
   ctx.fill();
 }
+/* ============ 家の中 ============
+   店ではないので設備（EQ）は置かない。間取りは固定で、ここに直接描く。
+   タップできるのは ベッド／台所／食卓 と、千夏。                    */
+function homeSpots() { return CONF.homeSpots || []; }
+function homeSpotAt(x, y) {
+  for (const s of homeSpots())
+    if (x >= s.x && x < s.x + s.w && y >= s.y && y < s.y + s.h) return s;
+  const w = CONF.chinatsuSpot;
+  if (w && Math.abs(x - w.x) <= 1 && Math.abs(y - w.y) <= 1) return { key: 'wife', name: '千夏' };
+  return null;
+}
+function drawHome(rt) {
+  const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
+  for (const s of homeSpots()) {
+    const x = s.x * T, y = s.y * T, w = s.w * T, h = s.h * T;
+    ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(x + 3, y + 5, w, h);   // 影
+    if (s.key === 'bed') {
+      px(x, y, w, h, '#6b5241');                                   // 木のフレーム
+      px(x + 3, y + 3, w - 6, h - 8, '#d8cdbc');                    // 敷布団
+      px(x + 3, y + 3, w - 6, 10, '#f0e8dc');                       // 枕
+      px(x + 5, y + 5, 16, 6, '#fff');
+      px(x + 3, y + h * 0.42, w - 6, h * 0.5, '#7a94b8');           // 掛け布団
+      px(x + 3, y + h * 0.42, w - 6, 4, '#94aacc');
+      ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 1;
+      for (let i = 1; i < 3; i++) {
+        const ly = y + h * 0.42 + i * (h * 0.5) / 3;
+        ctx.beginPath(); ctx.moveTo(x + 4, ly); ctx.lineTo(x + w - 4, ly); ctx.stroke();
+      }
+    } else if (s.key === 'kit') {
+      px(x, y, w, h, '#8a7a68');                                   // 流し台
+      px(x, y, w, 5, '#a2917c');
+      px(x + 5, y + 8, w * 0.45, h - 14, '#c6ccc8');                // シンク
+      ctx.strokeStyle = '#8d9490'; ctx.lineWidth = 1;
+      ctx.strokeRect(x + 5.5, y + 8.5, w * 0.45 - 1, h - 15);
+      ctx.strokeStyle = '#b8bdc0'; ctx.lineWidth = 2;               // 蛇口
+      ctx.beginPath(); ctx.moveTo(x + 10, y + 10); ctx.lineTo(x + 10, y + 3); ctx.lineTo(x + 20, y + 3); ctx.stroke();
+      px(x + w * 0.55, y + 9, w * 0.36, h - 16, '#3f4348');         // コンロ
+      for (let i = 0; i < 2; i++) {
+        ctx.fillStyle = '#6d7278';
+        ctx.beginPath(); ctx.arc(x + w * 0.63 + i * 15, y + h / 2 + 1, 5, 0, Math.PI * 2); ctx.fill();
+      }
+    } else {
+      px(x + 2, y + 4, w - 4, h - 10, '#a07a4e');                   // 卓
+      px(x + 2, y + 4, w - 4, 4, '#bb9264');
+      px(x + 5, y + h - 8, 5, 7, '#6d4f30'); px(x + w - 10, y + h - 8, 5, 7, '#6d4f30');
+      ctx.fillStyle = '#e8ddc8';                                     // 茶碗ふたつ
+      ctx.beginPath(); ctx.arc(x + w * 0.34, y + h * 0.45, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + w * 0.66, y + h * 0.45, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#c9b89a';
+      ctx.beginPath(); ctx.arc(x + w * 0.34, y + h * 0.45, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + w * 0.66, y + h * 0.45, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    // 名札
+    ctx.fillStyle = 'rgba(20,16,12,.6)';
+    const lw = s.name.length * 9 + 8;
+    ctx.fillRect(x + 2, y + h - 13, lw, 12);
+    ctx.fillStyle = '#f0e2c8'; ctx.font = 'bold 9px "DotGothic16",sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(s.name, x + 5, y + h - 4);
+  }
+  drawChinatsu(rt);
+  ctx.textAlign = 'center';
+}
+/* 千夏。エプロン姿で台所の横に立っている */
+function drawChinatsu(rt) {
+  const w = CONF.chinatsuSpot; if (!w) return;
+  const cx = w.x * T + T / 2, cy = w.y * T + T / 2 + Math.sin(rt * 1.6) * 0.6;
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.fillStyle = 'rgba(0,0,0,.28)';
+  ctx.beginPath(); ctx.ellipse(0, 9, 8, 3, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#d88aa0'; ctx.fillRect(-6, -2, 12, 11);          // 部屋着
+  ctx.fillStyle = '#f2e4d0'; ctx.fillRect(-4.5, 1, 9, 8);           // エプロン
+  ctx.fillStyle = '#f0c9a8';                                        // 顔
+  ctx.beginPath(); ctx.arc(0, -6, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#5a3a2a';                                        // 髪（後ろでまとめている）
+  ctx.beginPath(); ctx.arc(0, -7.5, 6, Math.PI, Math.PI * 2); ctx.fill();
+  ctx.fillRect(-6, -8, 2.5, 7); ctx.fillRect(3.5, -8, 2.5, 7);
+  ctx.beginPath(); ctx.arc(0, -1.5, 3, Math.PI, Math.PI * 2, true); ctx.fill();
+  ctx.fillStyle = '#2b2119';                                        // 目
+  ctx.fillRect(-2.6, -6, 1.7, 1.7); ctx.fillRect(1, -6, 1.7, 1.7);
+  ctx.restore();
+}
+
+/* ============ ゴミ・瓦礫（第2章の開店前） ============
+   1マスに1つ。**設備は置けないが、人は上を歩ける**（そうでないと拾いに行けない）。
+   タップすると印が付き、主人公がそこまで歩いて行って担ぎ出す。金はかからない。
+   かかるのは主人公の足だけ＝「金が無いから自分でやる」という第2章の入口（作者指定） */
+function junkAt(x, y, f) {
+  const ff = (f === undefined ? G.actF : f) | 0;
+  return G.junk.find(j => j.x === x && j.y === y && (j.f | 0) === ff) || null;
+}
+function junkInArea(f) { return G.junk.filter(j => (j.f | 0) === (f | 0)); }
+/* タップ＝運ぶ指示。もう一度タップすると取り消す */
+function markJunk(j) {
+  const name = chHook('junkName', j) || 'ゴミ';
+  if (j.want) { j.want = false; toast(`${name}はそのままにした`); return; }
+  j.want = true;
+  const p = G.player;
+  // 主人公が入れない部屋（女湯）は自分では運べない
+  const a = areaDef(j.f | 0);
+  if (playerBanned(j.f | 0)) { j.want = false; toast('営業中は女湯に入れない'); return; }
+  /* 「○○を運び出す」のトーストは出さない（作者指定）。
+     運び終わった瞬間に上の一行が「○○を片付けた。あと○個」と言うので、
+     押した時と終わった時で二度、同じことを画面に重ねることになる。
+     押したことは、主人公がそこへ歩き出す動きで分かる                    */
+  if (!hasHook('topTip')) toast(`${name}を運び出す`);
+  if (p && (p.f | 0) !== (j.f | 0)) warpPlayerTo(j.f | 0);
+}
+/* 主人公が次に運ぶゴミ（自分がいる部屋の、印の付いたもののうち、たどり着けるいちばん近いもの） */
+function nextJunk(w) {
+  const mine = junkInArea(w.f).filter(j => j.want);
+  if (!mine.length) return null;
+  const t0 = tileOf(w);
+  mine.sort((a, b) => (Math.abs(a.x - t0.x) + Math.abs(a.y - t0.y)) - (Math.abs(b.x - t0.x) + Math.abs(b.y - t0.y)));
+  return mine[0];
+}
+/* ゴミ・瓦礫（第2章の開店前）。1マスに1つ。タップすると主人公が担ぎに行く。
+   運ぶ順番が決まっているものには、待っている印を出す                       */
+function drawJunk(j, rt) {
+  const cx = j.x * T + T / 2, cy = j.y * T + T / 2;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = 'rgba(0,0,0,.30)';                       // 影
+  ctx.beginPath(); ctx.ellipse(0, 7, 10, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+  const p = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); };
+  switch (j.kind) {
+    case 'gareki':                                          // コンクリの塊
+      p(-9, 0, 8, 7, '#8c8478'); p(-9, 0, 8, 2, '#a9a196');
+      p(0, -3, 9, 10, '#7d766b'); p(0, -3, 9, 2, '#9a9288');
+      p(-4, -6, 6, 6, '#948c80'); p(-4, -6, 6, 2, '#b0a89c');
+      ctx.strokeStyle = '#5d574e'; ctx.lineWidth = .8;
+      ctx.beginPath(); ctx.moveTo(-6, 3); ctx.lineTo(-2, 5); ctx.stroke();
+      ctx.strokeStyle = '#c2762e'; ctx.lineWidth = 1;       // 飛び出した鉄筋
+      ctx.beginPath(); ctx.moveTo(4, -3); ctx.lineTo(9, -8); ctx.stroke();
+      break;
+    case 'wood':                                            // 折れた木材
+      p(-10, 2, 20, 3.5, '#8a6a44'); p(-10, 2, 20, 1, '#a9855a');
+      ctx.save(); ctx.rotate(-.35);
+      p(-9, -3, 18, 3.5, '#9a7850'); p(-9, -3, 18, 1, '#b8926a'); ctx.restore();
+      ctx.save(); ctx.rotate(.5);
+      p(-7, -6, 14, 3, '#7d6039'); ctx.restore();
+      p(6, 1, 1.4, 1.4, '#d8d0c0'); p(-4, 3, 1.4, 1.4, '#d8d0c0');   // 出ている釘
+      break;
+    case 'tile':                                            // 割れたタイル
+      p(-9, 1, 7, 6, '#cfd8d6'); p(-9, 1, 7, 1.5, '#e6eeec');
+      p(-1, -2, 8, 8, '#c3ccca'); p(-1, -2, 8, 1.5, '#dde5e3');
+      p(-5, -5, 5, 5, '#d6dedc');
+      ctx.strokeStyle = '#8f9a98'; ctx.lineWidth = .8;
+      ctx.beginPath(); ctx.moveTo(-1, 2); ctx.lineTo(6, -1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-8, 4); ctx.lineTo(-3, 6); ctx.stroke();
+      break;
+    case 'bag':                                             // ゴミ袋
+      ctx.fillStyle = '#3f4348';
+      ctx.beginPath(); ctx.ellipse(-4, 2, 6.5, 6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(4, 3, 5.5, 5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#585d64';
+      ctx.beginPath(); ctx.ellipse(-5, 0, 3.5, 3, 0, 0, Math.PI * 2); ctx.fill();
+      p(-6, -6, 4, 4, '#3f4348'); p(2, -4, 3.5, 3.5, '#3f4348');   // 縛った口
+      break;
+    case 'box':                                             // 濡れた段ボール
+      p(-9, -2, 11, 9, '#a07a4e'); p(-9, -2, 11, 2, '#bb9264');
+      p(-9, 3, 11, 4, '#7d5c38');                           // 下側が水を吸って黒い
+      p(0, 0, 9, 7, '#98704a'); p(0, 0, 9, 2, '#b0885c');
+      ctx.strokeStyle = '#6d4f30'; ctx.lineWidth = .8;
+      ctx.beginPath(); ctx.moveTo(-3.5, -2); ctx.lineTo(-3.5, 7); ctx.stroke();
+      break;
+    case 'can':                                             // 一斗缶
+      p(-7, -6, 10, 13, '#8f9aa2'); p(-7, -6, 10, 2, '#adb7bf');
+      p(-7, 2, 10, 2, '#6f7982');
+      p(2, -4, 7, 11, '#7f8992'); p(2, -4, 7, 2, '#9aa4ac');
+      p(-4, -8, 3, 2.5, '#6a747c');                         // 注ぎ口
+      p(-6, 0, 3, 2, '#b06a3a');                            // 錆
+      break;
+    case 'chair':                                           // 壊れたパイプ椅子
+      ctx.strokeStyle = '#7f8a92'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-8, 6); ctx.lineTo(-3, -4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(6, 6); ctx.lineTo(2, -4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-9, 6); ctx.lineTo(4, 7); ctx.stroke();
+      p(-6, -6, 11, 4, '#5d6a58'); p(-6, -6, 11, 1.2, '#7b8a74');   // 座面
+      ctx.strokeStyle = '#7f8a92'; ctx.lineWidth = 1.6;              // 折れた脚
+      ctx.beginPath(); ctx.moveTo(6, 2); ctx.lineTo(10, 7); ctx.stroke();
+      break;
+    default:                                                // 錆びた配管
+      p(-10, 0, 20, 4, '#8a7a68'); p(-10, 0, 20, 1.2, '#a29280');
+      p(-11, -1, 3, 6, '#6e6154'); p(8, -1, 3, 6, '#6e6154');
+      p(-2, 0, 5, 4, '#a8672e');                            // 錆
+      ctx.save(); ctx.rotate(-.6);
+      p(-5, -8, 12, 3, '#7d6f5e'); p(-5, -8, 12, 1, '#98897a'); ctx.restore();
+      break;
+  }
+  ctx.restore();
+  // 運ぶ順番待ちの印（タップ済み）
+  if (j.want) {
+    const a = .55 + Math.sin(rt * 5) * .25;
+    ctx.strokeStyle = `rgba(255,214,120,${a.toFixed(2)})`; ctx.lineWidth = 2;
+    ctx.strokeRect(j.x * T + 2, j.y * T + 2, T - 4, T - 4);
+    ctx.fillStyle = `rgba(255,214,120,${a.toFixed(2)})`;
+    ctx.font = 'bold 10px "DotGothic16",sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('▼', cx, j.y * T + 10);
+  }
+}
 /* ゴキブリ1匹。浴室の床を歩き回る（作者指定）。
    卵形の黒い胴・脚6本・長い触角。進む向きに体を向け、脚は小刻みに動く */
-function drawRoach(rt) {
-  const r = G.roach; if (!r) return;
+function drawRoach(rt, roach) {
+  const r = roach || roachAt(G.actF); if (!r) return;
   const cx = r.px, cy = r.py;
   const dir = 1;                                             // 体は常に進行方向（+x）向きに描き、canvasごと回す
   const moving = Math.hypot(r.tx * T + T / 2 - r.px, r.ty * T + T / 2 - r.py) > 1.5;
@@ -5837,6 +8273,10 @@ function drawRoach(rt) {
 
 function drawEquip(c2, it, rt) {
   const def = EQ[it.id];
+  /* 知らない id は無いものとして飛ばす。
+     制作中に設備を廃止すると、それを置いたままの古いセーブが残る。
+     ここで落ちると描画ループごと止まって**画面が真っ黒になる**（equipAt と同じ手当て） */
+  if (!def) return;
   // 壊れる（＝耐久度が意味を持つ）かどうかは cap ではなく wearPerDay で見る。
   // 洗面所など cap:0 の“置くだけ”設備も日々傷むので、ここを cap>0 限定にすると
   // 壊れても「故障中」表示も耐久度バーも一切出ない穴になる
@@ -5907,7 +8347,36 @@ function drawEquip(c2, it, rt) {
   }
 }
 
+/* 第2章の設備の色（ドット絵を1つずつ描くまでの、当座の見た目）。
+   カテゴリごとに色を決めて、名前の短縮形を載せた札として描く。
+   ※第1章の設備はこれまでどおり1つずつ描いてある（下の switch）ので、ここは通らない */
+const CH2_TILE_COL = {
+  park: '#5a5a5a', shoku: '#8a6a3a', lobby: '#8a6a44',
+  sauna: '#8a5a3a', mizu: '#4a86a8', furo: '#6a9a9a', wash: '#7a9a9a',
+  rest: '#7a5a8a', datsui: '#8a8a7a', locker: '#7a6a54', etc: '#6a7a6a', sys: '#8a6a44',
+};
+/* 名前を札に収まる長さに詰める（全角5文字くらいまで） */
+function shortName(s) { return s.length <= 5 ? s : s.slice(0, 5); }
+function drawGenericEquip(c2, it, def, x, y, w, h, broken) {
+  const col = CH2_TILE_COL[def.cat] || '#7a6a5a';
+  c2.fillStyle = 'rgba(0,0,0,.25)'; c2.fillRect(x + 2, y + 3, w, h);
+  c2.fillStyle = broken ? '#6a5a55' : col; c2.fillRect(x, y, w, h);
+  c2.strokeStyle = 'rgba(255,255,255,.22)'; c2.lineWidth = 2; c2.strokeRect(x + 1, y + 1, w - 2, h - 2);
+  c2.strokeStyle = 'rgba(0,0,0,.35)'; c2.lineWidth = 1; c2.strokeRect(x + .5, y + .5, w - 1, h - 1);
+  c2.fillStyle = '#fff8ea'; c2.textAlign = 'center';
+  c2.font = 'bold 9px "DotGothic16",sans-serif';
+  c2.fillText(shortName(def.name), x + w / 2, y + h / 2 + 3);
+}
+
 function drawEquipArt(c2, it, def, x, y, w, h, rt, broken) {
+  /* 第2章は id ごとの絵を自前で持っている（js/ch2/art_eq2.js ／ js/ch2b/art_y.js）。
+     **自前の絵が無い品は、下の第1章の絵にそのまま落とす。**
+     サウナ・水風呂・浴槽・カラン・イス・ロッカーは、章が変わっても同じ物なので、
+     わざわざ描き直す必要がない（名前だけの札が並ぶ見た目も、これで無くなる）。
+     cat に当てはまる絵が1つも無い品だけ、最後に共通の札へ落ちる            */
+  if (G.chapter !== 1 && chHook('equipArt', c2, it, def, x, y, w, h, rt, broken)) return;
+  const HAS_ART = ['sys', 'furo', 'mizu', 'sauna', 'wash', 'locker', 'rest', 'datsui', 'etc', 'amenity'];
+  if (G.chapter !== 1 && !HAS_ART.includes(def.cat)) { drawGenericEquip(c2, it, def, x, y, w, h, broken); return; }
   switch (def.cat) {
     case 'sys': { // 番台
       c2.fillStyle = '#6b432a'; c2.fillRect(x + 2, y + 6, w - 4, h - 8);
@@ -6317,7 +8786,7 @@ function drawEquipArt(c2, it, def, x, y, w, h, rt, broken) {
         for (let i = 0; i < 5; i++) { c2.fillStyle = bk[i]; c2.fillRect(x + 6 + i * 3.4, y + 9, 2.6, 7); }
         for (let i = 0; i < 5; i++) { c2.fillStyle = bk[(i + 2) % 6]; c2.fillRect(x + 6 + i * 3.4, y + 18, 2.6, 7); }
         c2.fillStyle = '#8a5a2f'; c2.fillRect(x + 4, y + 25, w - 8, 3);
-      } else if (it.id === 'massage') {                  // マッサージチェア
+      } else if (isMassage(it.id)) {                     // マッサージチェア
         c2.fillStyle = '#3a3a44'; c2.fillRect(x + 4, y + 5, w - 8, 20);
         c2.fillStyle = '#5a5a6a'; c2.fillRect(x + 6, y + 8, w - 12, 9);
         c2.fillStyle = '#2c2c34'; c2.fillRect(x + 6, y + 19, w - 12, 5);
@@ -6461,7 +8930,9 @@ function hasFace(e) { return e.kind === 'cust' || e.kind === 'npc'; }
    このあいだは台の向こう側に立っている扱いにして、上から頭だけ出す（作者指定） */
 function atBandaiPost(e) {
   if (e.kind !== 'player' || e.moving) return false;
-  const b = bandai(); if (!b) return false;
+  /* 番台はロビーにしかない。別の部屋（とくに家）に居るのに番台扱いになると、
+     台の高さで胴を切って描くので「顔だけの主人公」になってしまう */
+  const b = bandai(); if (!b || (b.f | 0) !== (e.f | 0)) return false;
   const s = playerSpot(), t = tileOf(e);
   return t.x === s.x && t.y === s.y && Math.abs(s.x - b.x) + Math.abs(s.y - b.y) === 1;
 }
@@ -6488,6 +8959,202 @@ function drawChar(e, rt) {
   drawCharBody(e, rt);
   ctx.restore();
 }
+/* ============ 設備ごとの姿勢 ============
+   イスには座るし、リクライナーでは横になるし、本棚では本をめくる（作者指定）。
+   どの格好になるかは **設備の側（EQ の pose）** に書いてある＝
+   設備を1つ足したら、その設備の定義に pose を1語書くだけで芝居が付く。
+
+   第1章の設備は pose を持たないので、第1章の客はこれまでどおり立ったまま。   */
+/* ============ 装い ============
+   **裸なのは浴室だけ**（作者指定）。ロッカーで着替えたあとの客も、
+   休憩スペース・食堂・ロビーでは館内着を着ている。
+   どこで何を着ているかは区画の wear に書いてあるので、そこから引く。
+   第1章は区画を持たない（areaDef が null）ので、これまでどおり腰タオルのまま。 */
+function inHouseWear(e) {
+  if (e.kind !== 'cust' || e.mode !== 'towel') return false;
+  const a = areaDef(e.f | 0);
+  return !!(a && a.wear && a.wear.indexOf('裸') < 0);
+}
+function poseOf(e) {
+  if (e.kind !== 'cust' || e.state !== 'using' || !e.use || !e.use.item) return null;
+  const d = EQ[e.use.item.id];
+  return (d && d.pose) || null;
+}
+/* 姿勢の土台。芝居（eat・work…）は、どれかの座り方／寝方の上に乗る */
+const POSE_BASE = {
+  sit: 'sit', sink: 'sink', lie: 'lie', read: 'read',
+  eat: 'sit', work: 'sit', tv: 'sit', yomogi: 'sit', massage: 'sit',
+  shave: 'sit', dress: 'sit', stage: 'sit',
+  ganban: 'lie',
+  phone: 'stand', buy: 'stand', smoke: 'stand', shower: 'stand',
+  eatStand: 'stand',              // 立ち飲みカウンター＝立ったまま食う
+};
+/* 体そのものの変形。息づかいのぶんだけ、ゆっくり伸び縮みさせる。
+   客は設備の「左上のマス」に立たされるので、**縦に長い設備では体が上半分に寄る。**
+   横になるときだけは、その設備の丈に合わせて中央へ送り、丈なりに伸ばす
+   （仮眠リクライナーは1×2＝縦長。ごろ寝マットやハンモックは2×1なので送らない） */
+function poseTransform(pose, e, rt) {
+  const br = Math.sin(rt * 1.15 + e.wob);            // ゆっくりした呼吸
+  const tall = Math.max(0, eh(e.use.item) - 1);      // 何マスぶん縦に長いか
+  switch (POSE_BASE[pose]) {
+    // 座る：腰を落として脚をたたむ
+    case 'sit':  return { dy: 3.5, sx: 1.00, sy: 0.85 + br * 0.010 };
+    // 沈む（ビーズクッション）：さらに低く、横に広がる
+    case 'sink': return { dy: 6.0, sx: 1.10, sy: 0.72 + br * 0.012 };
+    // 横になる：背もたれに預けて、体が縦に伸びる
+    case 'lie':  return { dy: 7.0 + tall * T * 0.30, sx: 0.94,
+                          sy: 1.16 + tall * 0.22 + br * 0.020 };
+    // 本を読む：浅く腰かけて、少し前かがみ
+    case 'read': return { dy: 3.0, sx: 1.00, sy: 0.90 };
+  }
+  return null;                                        // stand ＝ 立ったまま（芝居だけ付く）
+}
+/* 立ちのぼる湯気・煙。何本か、順ぐりに上がって消える */
+function poseSteam(x, y, rt, seed, col, n) {
+  const N = n || 3;
+  ctx.fillStyle = col || 'rgba(255,255,255,.75)';
+  for (let i = 0; i < N; i++) {
+    const ph = (rt * 0.9 + i / N + seed) % 1;
+    ctx.globalAlpha = 0.7 * (1 - ph);
+    ctx.fillRect(x - 3 + Math.sin(rt * 3 + i * 2) * 2 + i * 3, y - ph * 9, 1.6, 3);
+  }
+  ctx.globalAlpha = 1;
+}
+/* 目を閉じる（脱力・居眠り） */
+function poseShutEyes(x, y) {
+  ctx.fillStyle = '#2a2320';
+  ctx.fillRect(x - 4, y - 7.6, 3, 1); ctx.fillRect(x + 1, y - 7.6, 3, 1);
+}
+/* 姿勢ごとの小芝居。体と同じ変形の中で描くので、座れば道具も一緒に下がる */
+function drawPoseExtra(pose, e, x, y, rt, skin) {
+  const wob = e.wob;
+  switch (pose) {
+    case 'lie': case 'ganban': {                                       // 寝ている
+      poseShutEyes(x, y);
+      if (pose === 'ganban') poseSteam(x - 1, y - 14, rt, wob, 'rgba(255,236,210,.7)');
+      const ph = (rt * 0.45 + wob) % 1;                                 // 寝息がひとつ、ふわりと上がる
+      ctx.globalAlpha = 0.85 * (1 - ph);
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('z', x + 7 + ph * 3, y - 13 - ph * 8);
+      ctx.globalAlpha = 1;
+      break;
+    }
+    case 'read': {
+      /* 開いた本を胸の前に持つ。ページの割れ目が左右に動く＝パラパラめくっている */
+      const flip = Math.sin(rt * 3.2 + wob);
+      ctx.fillStyle = '#efe9da'; ctx.fillRect(x - 6.5, y - 3.5, 13, 7.5);
+      ctx.fillStyle = '#d8d0bc'; ctx.fillRect(x - 6.5, y - 3.5, 13, 1.2);   // 小口
+      ctx.strokeStyle = '#a2977f'; ctx.lineWidth = 1;                       // めくれているページ
+      ctx.beginPath();
+      ctx.moveTo(x + flip * 3.2, y - 3.5); ctx.lineTo(x + flip * 3.2, y + 4); ctx.stroke();
+      ctx.fillStyle = skin;                                                 // 本を持つ両手
+      ctx.fillRect(x - 8.5, y - 0.5, 2.6, 3.2); ctx.fillRect(x + 5.9, y - 0.5, 2.6, 3.2);
+      break;
+    }
+    case 'eat': case 'eatStand': {
+      /* **料理が届くまでは、まだ食べない。** 頼んだものを待っている（作者指定）＝
+         注文 → 厨房が作る → ホールが運ぶ、が済んではじめて丼を持つ */
+      if (e.order && !e.food) {
+        const t3 = (rt * 0.8 + wob) % 1;                                    // 「…」がひとつずつ増える
+        ctx.fillStyle = 'rgba(255,255,255,.85)';
+        for (let i = 0; i < 3; i++) {
+          ctx.globalAlpha = i / 3 <= t3 ? 0.85 : 0.18;
+          ctx.beginPath(); ctx.arc(x + 8 + i * 3.2, y - 12, 1.1, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        break;
+      }
+      /* 丼を持って、箸を口へ運ぶ。湯気が立ちのぼる */
+      const beat = Math.sin(rt * 2.6 + wob);                                // 箸の上下
+      poseSteam(x + 1, y - 8, rt, wob, 'rgba(255,255,255,.6)', 2);
+      ctx.fillStyle = '#d8cdb8'; ctx.beginPath();                           // 丼
+      ctx.moveTo(x - 5, y - 1); ctx.lineTo(x + 5, y - 1);
+      ctx.lineTo(x + 3.4, y + 4); ctx.lineTo(x - 3.4, y + 4); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#b9ab92'; ctx.fillRect(x - 5, y - 1.6, 10, 1.2);     // 縁
+      ctx.strokeStyle = '#8a6a44'; ctx.lineWidth = 1;                       // 箸
+      ctx.beginPath();
+      ctx.moveTo(x + 5.5, y + 1); ctx.lineTo(x + 1.5, y - 4.5 - beat * 1.6); ctx.stroke();
+      ctx.fillStyle = skin;                                                 // 丼を支える手
+      ctx.fillRect(x - 7.5, y - 0.5, 2.6, 3); ctx.fillRect(x + 5, y + 0.5, 2.4, 2.8);
+      break;
+    }
+    case 'work': {
+      /* ノートPC。画面の光が顔に当たり、指が動く */
+      /* 画面は**胸の高さ**に置く。顔にかぶせると、目もとが液晶で隠れて別人になる */
+      const tap = Math.sin(rt * 9 + wob) > 0 ? 0 : 1;
+      ctx.fillStyle = 'rgba(160,220,255,.26)';                              // 画面の照り返し
+      ctx.fillRect(x - 6, y - 5.5, 12, 3.5);
+      ctx.fillStyle = '#3a3f46'; ctx.fillRect(x - 6, y - 2, 12, 6);         // 天板（画面）
+      ctx.fillStyle = '#6ab0d8'; ctx.fillRect(x - 5, y - 1.2, 10, 4.4);
+      ctx.fillStyle = '#5a6167'; ctx.fillRect(x - 6.5, y + 4, 13, 2.4);     // キーボード
+      ctx.fillStyle = skin;                                                 // 打つ手
+      ctx.fillRect(x - 4.5, y + 3.4 + tap, 2.4, 2.4);
+      ctx.fillRect(x + 2.2, y + 3.4 + (1 - tap), 2.4, 2.4);
+      break;
+    }
+    case 'tv': case 'stage': {
+      /* 画面（舞台）の明かりが、点いたり消えたりして顔を照らす */
+      ctx.globalAlpha = 0.16 + 0.12 * Math.abs(Math.sin(rt * 1.7 + wob));
+      ctx.fillStyle = pose === 'tv' ? '#bfe4ff' : '#ffd9a0';
+      ctx.fillRect(x - 7, y - 14, 14, 9);
+      ctx.globalAlpha = 1;
+      break;
+    }
+    case 'yomogi': {                                                        // よもぎ蒸し＝足もとから湯気
+      poseSteam(x - 1, y - 2, rt, wob, 'rgba(200,235,190,.75)', 4);
+      poseShutEyes(x, y);
+      break;
+    }
+    case 'massage': {
+      /* 体が細かく揺れ、目を閉じ、頭の上に癒しの湯気が立つ（第1章の massage と同じ芝居） */
+      poseShutEyes(x, y);
+      poseSteam(x - 1, y - 15, rt, wob);
+      break;
+    }
+    case 'shave': {                                                         // ひげ剃り
+      const stroke = Math.sin(rt * 6 + wob) * 2;
+      ctx.fillStyle = '#c8ccd2'; ctx.fillRect(x + 2 + stroke, y - 7, 4.5, 1.6);
+      ctx.fillStyle = skin; ctx.fillRect(x + 5.5 + stroke, y - 7.6, 2.6, 3);
+      break;
+    }
+    case 'dress': {                                                         // ドレッサーで髪を整える
+      const comb = Math.sin(rt * 4.5 + wob) * 2.2;
+      ctx.fillStyle = '#d8a0b0'; ctx.fillRect(x - 7.5, y - 12 + comb, 3.4, 5.5);
+      ctx.fillStyle = skin; ctx.fillRect(x - 7.8, y - 8 + comb, 2.6, 3);
+      break;
+    }
+    case 'phone': {                                                         // スマホを見ている
+      const lit = 0.5 + 0.5 * Math.abs(Math.sin(rt * 1.1 + wob));
+      ctx.fillStyle = '#2a2e34'; ctx.fillRect(x - 2.2, y - 4, 4.4, 6.4);
+      ctx.globalAlpha = lit; ctx.fillStyle = '#9fd8ff';
+      ctx.fillRect(x - 1.6, y - 3.4, 3.2, 5.2); ctx.globalAlpha = 1;
+      ctx.fillStyle = skin; ctx.fillRect(x - 4.4, y - 1, 2.4, 3);
+      break;
+    }
+    case 'buy': {                                                           // 小銭を出す／受け取る
+      const reach = Math.sin(rt * 2.4 + wob) * 2;
+      ctx.fillStyle = skin; ctx.fillRect(x + 4.5 + reach, y - 5, 2.8, 3.2);
+      ctx.fillStyle = '#e8c45a';
+      ctx.beginPath(); ctx.arc(x + 6 + reach, y - 6.4, 1.5, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
+    case 'smoke': {                                                         // 一服
+      ctx.fillStyle = '#e8e2d2'; ctx.fillRect(x + 3.5, y - 6.4, 3.6, 1.2);  // 煙草
+      ctx.fillStyle = '#e07a4a'; ctx.fillRect(x + 7.1, y - 6.4, 1, 1.2);    // 火
+      poseSteam(x + 6, y - 10, rt, wob, 'rgba(210,210,205,.5)', 3);
+      break;
+    }
+    case 'shower': {                                                        // アロマミストを浴びる
+      ctx.strokeStyle = 'rgba(205,235,215,.7)'; ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        const sx2 = x - 4.5 + i * 3, t = (rt * 26 + i * 6 + wob * 3) % 16;
+        ctx.beginPath(); ctx.moveTo(sx2, y - 20 + t); ctx.lineTo(sx2, y - 16 + t); ctx.stroke();
+      }
+      break;
+    }
+  }
+}
+
 function drawCharBody(e, rt) {
   const inWater = e.kind === 'cust' && e.state === 'using' && (e.use.cat === 'furo' || e.use.cat === 'mizu');
   const bob = e.moving ? Math.sin(rt * 14 + e.wob) * 1.6 : 0;
@@ -6518,8 +9185,19 @@ function drawCharBody(e, rt) {
     ctx.fillStyle = 'rgba(0,0,0,.18)';
     ctx.beginPath(); ctx.ellipse(x, (onScale ? y : e.py) + 8, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
   }
+  /* 姿勢の変形は**影のあと**からかける＝影は床に残したまま、体だけが沈んだり伸びたりする。
+     x,y はそのまま使い続けたいので、いったん (x,y) を原点に寄せてから拡大縮小する */
+  const pose = poseOf(e);
+  const poseT = pose ? poseTransform(pose, e, rt) : null;
+  if (poseT) {
+    ctx.save();
+    ctx.translate(x, y + poseT.dy);
+    ctx.scale(poseT.sx, poseT.sy);
+    ctx.translate(-x, -y);
+  }
   const skin = '#f2c9a0';
-  const hair = e.kind === 'player' ? '#2a2a2a' : e.kind === 'staff' ? '#3a2a1a' : e.type.hair;
+  // 妻（第2章）はバイトと同じ kind='staff' で立つので、髪と制服の色だけ分ける
+  const hair = e.kind === 'player' ? '#2a2a2a' : e.isWife ? '#3b2d24' : e.kind === 'staff' ? '#3a2a1a' : e.type.hair;
   if (inWater) {                                     // 湯に浸かる: 頭だけ
     // 湯船の中でも“その人”に見えるよう、スキンヘッド・サングラス・髭は頭だけ描画でも再現する。
     // ここを省くと強面の客が湯に浸かった瞬間、髪が生えた別人の顔になる
@@ -6565,10 +9243,13 @@ function drawCharBody(e, rt) {
     ctx.beginPath(); ctx.roundRect(x - 6.2, y - 11, 12.4, 15, 4); ctx.fill();
   }
   // 体
-  let cloth = e.kind === 'player' ? '#3a6ea5' : e.kind === 'staff' ? '#3a8a5a' : e.type.cloth;
+  let cloth = e.kind === 'player' ? '#3a6ea5' : e.isWife ? '#5a6b8a' : e.kind === 'staff' ? '#3a8a5a' : e.type.cloth;
   // 着替えたあと：男は腰にタオルを巻いて前を隠す、女は体にタオルを巻く
-  const bare = e.kind === 'cust' && e.mode === 'towel' && e.type.sex === 'm';
-  if (e.kind === 'cust' && e.mode === 'towel') cloth = bare ? skin : '#f5f0e8';
+  /* 浴室を出れば館内着（第2章）。裸で大広間や食堂を歩かせない */
+  const house = inHouseWear(e);
+  const bare = e.kind === 'cust' && e.mode === 'towel' && !house && e.type.sex === 'm';
+  if (house) cloth = '#6d8398';                                          // 館内着（藍の作務衣）
+  else if (e.kind === 'cust' && e.mode === 'towel') cloth = bare ? skin : '#f5f0e8';
   ctx.fillStyle = cloth;
   ctx.beginPath(); ctx.roundRect(x - 5.5, y - 4, 11, 12, 3); ctx.fill();
   // ドレス（玲奈）＝腰から下が広がるシルエット。上半身の四角い体に台形の裾を足すだけ
@@ -6582,6 +9263,14 @@ function drawCharBody(e, rt) {
     ctx.fillStyle = '#f5f0e8'; ctx.fillRect(x - 5.5, y + 1.5, 11, 6.5);   // 腰に巻いたタオル
     ctx.fillStyle = '#e2dccc'; ctx.fillRect(x - 5.5, y + 1.5, 11, 1);
     ctx.fillStyle = '#e8ded0'; ctx.fillRect(x + 0.5, y + 1.5, 1.2, 6.5);  // 合わせ目
+  } else if (house) {
+    /* 館内着の襟。合わせを描くだけで「巻いたタオル」と見分けが付く */
+    ctx.fillStyle = '#8ea4b6';
+    ctx.beginPath();
+    ctx.moveTo(x - 4.5, y - 4); ctx.lineTo(x, y + 0.5); ctx.lineTo(x + 4.5, y - 4);
+    ctx.lineTo(x + 2.6, y - 4); ctx.lineTo(x, y - 1.4); ctx.lineTo(x - 2.6, y - 4);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#56697b'; ctx.fillRect(x - 5.5, y + 2.6, 11, 1.6);   // 帯
   } else if (e.kind === 'cust' && e.mode === 'towel') {
     ctx.fillStyle = '#e2dccc'; ctx.fillRect(x - 5.5, y - 2.5, 11, 1);     // 巻きタオルの上端
     ctx.fillStyle = '#e8ded0'; ctx.fillRect(x + 1.5, y - 2, 1.2, 9.5);
@@ -6616,6 +9305,20 @@ function drawCharBody(e, rt) {
     ctx.beginPath(); ctx.roundRect(x + 3.7, y - 10, 2.7, 9, 1.3); ctx.fill();
   }
   if (e.kind === 'player') { ctx.fillStyle = '#fff'; ctx.fillRect(x - 6, y - 13, 12, 3.5); } // 頭のタオル
+  /* 審査員（第2章・最終戦）：部門色の帽子＋白い腕章＋クリップボード。
+     e.judgeCap を持つ客だけ＝第1章は誰にも付かないので描画は変わらない。
+     浴室では脱ぐ（mode が towel の間は素の客と同じ）＝審査員も同じ湯に浸かる建付け */
+  if (e.judgeCap && e.mode === 'clothed') {
+    ctx.fillStyle = e.judgeCap;
+    ctx.beginPath(); ctx.arc(x, y - 9.8, 6.2, Math.PI, 0); ctx.fill();     // 帽子の山
+    ctx.fillRect(x - 6.2, y - 10.2, 12.4, 2.2);                            // 帽子の縁
+    ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(x - 6.2, y - 8.4, 12.4, 0.8);
+    ctx.fillStyle = '#f5f2ea'; ctx.fillRect(x - 7.4, y - 2.5, 3.2, 4.5);   // 白い腕章
+    ctx.fillStyle = '#c34a3a'; ctx.fillRect(x - 6.8, y - 1.4, 2, 2.2);
+    ctx.fillStyle = '#e8e2d2'; ctx.fillRect(x + 5.4, y - 1, 4.5, 6.5);     // クリップボード
+    ctx.fillStyle = '#8a8272'; ctx.fillRect(x + 6.2, y - 1.6, 3, 1.4);
+    ctx.fillStyle = '#a89e8a'; ctx.fillRect(x + 6.2, y + 1, 3, 0.7); ctx.fillRect(x + 6.2, y + 2.8, 3, 0.7);
+  }
   if (e.kind === 'staff') { ctx.fillStyle = '#2f7a4a'; ctx.fillRect(x - 6, y - 13, 12, 3.5); } // 三角巾
   // ととのった客は休憩中に目がキラリと光る
   const totonoiEyes = e.kind === 'cust' && e.gotTotonoi && e.state === 'using' && e.use && e.use.cat === 'rest';
@@ -6651,7 +9354,7 @@ function drawCharBody(e, rt) {
     }
   }
   // マッサージチェアに座っている客＝体が揺れ、目を閉じて、頭の上に癒しの湯気マークが立つ
-  if (e.kind === 'cust' && e.state === 'using' && e.use && e.use.item && e.use.item.id === 'massage') {
+  if (e.kind === 'cust' && e.state === 'using' && e.use && e.use.item && isMassage(e.use.item.id)) {
     ctx.fillStyle = '#2a2320';                                       // 閉じた目（への字ではなく水平線＝脱力）
     ctx.fillRect(x - 4, y - 7.4, 3, 1); ctx.fillRect(x + 1, y - 7.4, 3, 1);
     ctx.fillStyle = 'rgba(255,255,255,.75)';                         // 頭上に立ちのぼる癒しの湯気
@@ -6742,6 +9445,41 @@ function drawCharBody(e, rt) {
     ctx.fillStyle = '#9fd8ff';
     ctx.beginPath(); ctx.arc(x + 6, y - 10 + (rt * 8 % 6), 1.5, 0, Math.PI * 2); ctx.fill();
   }
+  /* 厨房で火を入れているバイト＝鍋をかき混ぜる手と、立ちのぼる湯気（第2章の食堂）。
+     第1章のバイトは cook という仕事を持たないので、ここは通らない */
+  if (e.kind === 'staff' && e.task === 'cook' && !e.moving) {
+    const stir = Math.sin(rt * 6 + e.wob);
+    ctx.fillStyle = '#8d9599';                                             // 鍋
+    ctx.beginPath(); ctx.ellipse(x + 1, y + 1, 6, 3.2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#c8b48a';                                             // 中身
+    ctx.beginPath(); ctx.ellipse(x + 1, y + 0.6, 4.4, 2.2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#a9855a'; ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+    ctx.beginPath();                                                       // お玉
+    ctx.moveTo(x + 1 + stir * 2.5, y + 0.5); ctx.lineTo(x + 6 + stir, y - 6); ctx.stroke();
+    ctx.fillStyle = skin; ctx.fillRect(x + 5 + stir, y - 7.5, 2.4, 2.6);   // 握る手
+    ctx.fillStyle = 'rgba(255,255,255,.72)';                               // 湯気
+    for (let i = 0; i < 3; i++) {
+      const ph = (rt * 1.1 + i / 3 + e.wob) % 1;
+      ctx.globalAlpha = 0.7 * (1 - ph);
+      ctx.fillRect(x - 2 + Math.sin(rt * 3 + i * 2) * 2 + i * 3, y - 3 - ph * 10, 1.6, 3);
+    }
+    ctx.globalAlpha = 1;
+  }
+  /* 皿を運んでいるバイト＝盆の上に丼をひとつ載せて、席まで歩く */
+  if (e.kind === 'staff' && e.tray) {
+    ctx.fillStyle = '#6b4a2a'; ctx.fillRect(x + 4, y - 4, 9, 5.5);         // 盆
+    ctx.fillStyle = '#8a6640'; ctx.fillRect(x + 4, y - 4, 9, 1.2);
+    ctx.fillStyle = '#d8cdb8';                                             // 丼
+    ctx.beginPath();
+    ctx.moveTo(x + 6, y - 5.4); ctx.lineTo(x + 11, y - 5.4);
+    ctx.lineTo(x + 10.2, y - 2.6); ctx.lineTo(x + 6.8, y - 2.6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.6)';                                // 湯気
+    const ph2 = (rt * 1.4 + e.wob) % 1;
+    ctx.globalAlpha = 0.6 * (1 - ph2);
+    ctx.fillRect(x + 8, y - 7 - ph2 * 6, 1.4, 2.6);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = skin; ctx.fillRect(x + 3.2, y - 2.4, 2.4, 3);          // 支える手
+  }
   // 掃除中：モップを左右に動かす（何をしているか一目でわかるように）
   if ((e.kind === 'player' || e.kind === 'staff') && e.task === 'clean' && !e.moving) {
     const sw = Math.sin(rt * 5);                 // 前後にこする動き
@@ -6761,6 +9499,10 @@ function drawCharBody(e, rt) {
       ctx.beginPath(); ctx.arc(x + 9 + Math.sin(a) * 4, y + 8 - (a % 1) * 5, 1.4, 0, Math.PI * 2); ctx.fill();
     }
   }
+  /* 芝居は、姿勢の変形の中で描く＝座れば道具も一緒に下がる。
+     立ったまま使う設備（喫煙所・充電ステーション）は変形が無いので、そのまま描く */
+  if (pose) drawPoseExtra(pose, e, x, y, rt, skin);
+  if (poseT) ctx.restore();
   if (post) ctx.restore();
 }
 
@@ -6942,37 +9684,60 @@ function drawBubble(e) {
   const text = e.bub.text;
   const hint = !!e.bub.hint;                       // 運営メニューで直せる不満＝赤枠で目立たせる
   const stuck = !!e.bub.stuck;                     // 通路が塞がって歩いて行けない＝配置を直すしかない問題
-  ctx.font = (hint ? 'bold ' : '') + '9px "DotGothic16",sans-serif';
-  const w = ctx.measureText(text).width + (hint ? 16 : 10);
+  /* 吹き出しの大きさ。**章が盤面を広げると、画面の中の字はその分だけ小さくなる。**
+     キャンバスは横幅いっぱいに縮めて表示するので、
+     第2章を 16×10 から 20×14 にした日から縮尺が 0.78 → 0.625 に下がり、
+     9px の字が実寸 7.0px → 5.6px になって読めなくなっていた（作者報告 8/8）。
+     `bubScale` を持つ章だけ、縮んだぶんを掛け戻す。
+     持たない章（第1章）は 1 ＝これまでと1pxも変わらない                    */
+  const s = CONF.bubScale || 1;
+  ctx.font = (hint ? 'bold ' : '') + (9 * s) + 'px "DotGothic16",sans-serif';
+  const w = ctx.measureText(text).width + (hint ? 16 : 10) * s;
   let bx = clamp(e.px - w / 2, 2, CONF.W * T - w - 2);
-  const by = e.py - 34;
+  /* **吹き出しは頭の上に伸びるので、最上段の客ぶんが画面の外へ出る。**
+     s を上げるほど伸びる（第2章は 34×1.6＝54px ＝ 上端 y=1 の客で −6px）。
+     `bubScale` を持つ章だけ上端で止める。持たない章（第1章）は素通り＝これまでどおり */
+  let by = e.py - 34 * s;
+  if (CONF.bubScale) by = Math.max(2, by);
+  const bh = 15 * s;
   ctx.fillStyle = stuck ? 'rgba(255,228,224,.98)' : hint ? 'rgba(255,240,238,.97)' : 'rgba(255,255,255,.94)';
   ctx.strokeStyle = hint ? '#e03a3a' : '#5a4436'; ctx.lineWidth = hint ? (stuck ? 2.2 : 1.6) : 1;
-  ctx.beginPath(); ctx.roundRect(bx, by, w, 15, 4); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(e.px - 3, by + 15); ctx.lineTo(e.px + 3, by + 15); ctx.lineTo(e.px, by + 20); ctx.closePath();
+  ctx.beginPath(); ctx.roundRect(bx, by, w, bh, 4 * s); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(e.px - 3 * s, by + bh); ctx.lineTo(e.px + 3 * s, by + bh); ctx.lineTo(e.px, by + 20 * s); ctx.closePath();
   ctx.fill(); ctx.stroke();
   ctx.textAlign = 'left';
   if (hint) {
-    ctx.fillStyle = '#e03a3a'; ctx.fillText(stuck ? '⚠' : '！', bx + 4, by + 11);
-    ctx.fillStyle = stuck ? '#c00000' : '#8a1a1a'; ctx.fillText(text, bx + 12, by + 11);
+    ctx.fillStyle = '#e03a3a'; ctx.fillText(stuck ? '⚠' : '！', bx + 4 * s, by + 11 * s);
+    ctx.fillStyle = stuck ? '#c00000' : '#8a1a1a'; ctx.fillText(text, bx + 12 * s, by + 11 * s);
   } else {
-    ctx.fillStyle = '#222'; ctx.fillText(text, bx + 5, by + 11);
+    ctx.fillStyle = '#222'; ctx.fillText(text, bx + 5 * s, by + 11 * s);
   }
 }
 
 function drawEffects() {
   ctx.textAlign = 'center';
+  chHook('drawPass', ctx);        // 第2章：厨房のカウンターに並んだ皿
+  /* **いま見ている区画で起きたものだけ描く。** 区画が1つの章は f が常に 0 ＝素通り */
+  const vf = G.viewF | 0;
   for (const f of floaters) {
+    if ((f.f | 0) !== vf) continue;
     ctx.globalAlpha = clamp(f.t, 0, 1);
-    ctx.fillStyle = '#ffd98a'; ctx.font = 'bold 10px "DotGothic16",sans-serif';
+    // 金額の飛び出しも、吹き出しと同じ理由で縮んでいた（bubScale を参照）
+    ctx.fillStyle = '#ffd98a'; ctx.font = 'bold ' + (10 * (CONF.bubScale || 1)) + 'px "DotGothic16",sans-serif';
     ctx.fillText(f.text, f.x, f.y - (1.6 - f.t) * 18);
   }
   for (const s of sparkles) {
+    if ((s.f | 0) !== vf) continue;
     ctx.globalAlpha = clamp(s.t, 0, 1);
     ctx.fillStyle = '#ffe86a'; ctx.font = '10px sans-serif';
     ctx.fillText('✦', s.x, s.y - (1 - s.t) * 10);
   }
   ctx.globalAlpha = 1;
+  /* **いちばん上に載せるもの**（第2章＝タップした客の札）。
+     吹き出しも floaters も、この下をくぐる＝
+     プレイヤーが自分で開いたものが、勝手に出るものに隠されない */
+  chHook('drawTop', ctx);
+  ctx.textAlign = 'center';
 }
 
 /* 置ける／置けないマスの一覧（原点マス基準）。回転や設備の増減があった時だけ計算し直す */
@@ -6980,10 +9745,13 @@ function placeMask(p) {
   const sig = `${p.rot}_${G.equip.length}_${G.customers.length}`;
   if (p.mask && p.maskSig === sig) return p.mask;
   const m = new Set();
-  const x0 = isWallMount(p.id) ? 0 : 1, x1 = CONF.W - (isWallMount(p.id) ? 0 : 1);
-  for (let y = 1; y < CONF.H - 1; y++)
+  const wm = isWallMount(p.id);
+  for (let y = 1; y < CONF.H - 1; y++) {
+    const edge = wm || inOpenLot(y);                 // 駐車場（壁の無い屋外）は端の列まで見る
+    const x0 = edge ? 0 : 1, x1 = CONF.W - (edge ? 0 : 1);
     for (let x = x0; x < x1; x++)
       if (snapAnchor(p.id, p.rot, x, y, p.moving).ok) m.add(y * CONF.W + x);   // タップ後に寄る位置で判定する
+  }
   p.mask = m; p.maskSig = sig;
   return m;
 }
@@ -6991,16 +9759,23 @@ function placeMask(p) {
 function drawPlaceZones(p) {
   const mask = placeMask(p);
   const wm = isWallMount(p.id);
-  for (let y = 1; y < CONF.H - 1; y++)
-    for (let x = wm ? 0 : 1; x < CONF.W - (wm ? 0 : 1); x++) {
+  for (let y = 1; y < CONF.H - 1; y++) {
+    const edge = wm || inOpenLot(y);                 // 駐車場は端の列まで塗る
+    for (let x = edge ? 0 : 1; x < CONF.W - (edge ? 0 : 1); x++) {
       const ok = mask.has(y * CONF.W + x);
-      ctx.fillStyle = ok ? 'rgba(110,225,120,.20)' : 'rgba(230,70,70,.22)';
+      /* 床の色が透けると、同じ「置ける」でも部屋ごとに違う色に見えてしまう
+         （ロビーの板張りは黄色く、駐車場の砂利は緑に見える＝置けないと勘違いする）。
+         いちど暗く沈めてから緑／赤を乗せて、どの部屋でも同じ色に揃える（作者指定） */
+      ctx.fillStyle = 'rgba(24,26,22,.42)';
+      ctx.fillRect(x * T, y * T, T, T);
+      ctx.fillStyle = ok ? 'rgba(96,222,110,.34)' : 'rgba(236,70,70,.34)';
       ctx.fillRect(x * T, y * T, T, T);
       if (!ok) {                                   // 禁止エリアは斜線を入れて“ダメ”を強調
         ctx.strokeStyle = 'rgba(255,120,120,.35)'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(x * T, y * T + T); ctx.lineTo(x * T + T, y * T); ctx.stroke();
       }
     }
+  }
   // 浴室と脱衣所で置けるものが違う設備は、部屋そのものを目立たせる
   const rm = EQ[p.id].room;
   if (rm) {
@@ -7057,9 +9832,23 @@ function drawGhost(rt) {
 
 /* ============ メインループ ============ */
 let lastTs = 0;
+/* メインループの外枠。
+   中でひとつでも例外が飛ぶと requestAnimationFrame が二度と積まれず、
+   画面が止まる（区画を切り替えた直後だとキャンバスが消えた直後なので、真っ黒になる）。
+   1フレームの失敗でゲームごと死なないよう、ここで受け止めて次のフレームを必ず積む */
+let frameErrLogged = false;
 function frame(ts) {
+  try { frameBody(ts); }
+  catch (e) {
+    console.error('frame:', e);
+    if (!frameErrLogged) { frameErrLogged = true; log('⚠ 画面の更新でつまずいた（続行します）'); }
+  }
+  requestAnimationFrame(frame);
+}
+function frameBody(ts) {
   const rDt = Math.min((ts - lastTs) / 1000, .1);
   updateRoach(rDt);                                  // ゴキブリは実時間で歩き回る
+  stepTip(rDt);                                      // 上の一行の「片付けた」を数秒で戻す
   lastTs = ts;
   const rt = ts / 1000;
   // 今フレームで進んだゲーム内の分数（吹き出しの寿命にも使う）
@@ -7067,10 +9856,17 @@ function frame(ts) {
   if (G.phase === 'biz' && !G.paused) {
     const dt = Math.min(rDt * CONF.minPerSec * CONF.speeds[G.speedIdx], 45);
     gDt = dt;
-    updateBiz(dt);
+    stepBiz(dt);
   } else if (G.phase === 'prep' && G.player) {
-    // 準備中は時計が進まない（速度倍率なし）ので、等速1倍ぶんだけ動かして掃除させる
-    updatePlayer(G.player, Math.min(rDt * CONF.minPerSec, 45));
+    // 準備中は時計が進まない（速度倍率なし）ので、等速1倍ぶんだけ動かして掃除させる。
+    // 第2章は主人公が部屋をまたいで掃除して回るので、その人が居る区画の間取りで動かす
+    const dtp = Math.min(rDt * CONF.minPerSec, 45);
+    if (areaCount() > 1) {
+      const back = G.actF;
+      applyArea(G.player.f | 0, true);
+      updatePlayer(G.player, dtp);
+      applyArea(back, true);
+    } else updatePlayer(G.player, dtp);
   }
   // 時計や売上は、イベントで一時停止している間も正しい表示のままにしておく
   if (G.phase === 'biz' && G.today) {
@@ -7080,7 +9876,13 @@ function frame(ts) {
   // ベンツの演出は一時停止（みかじめのカットシーン中も）に関係なく実時間で動かす
   if (G.benz && G.phase === 'biz') updateBenz(rDt); else Sfx.engine(false);
   // 来訪者・修理業者・若い衆も実時間で動く（イベント中で止まっていても歩いてくる／叩きに来る）
-  if (G.npcs.length && G.phase !== 'title') updateNpcs(rDt * 8);
+  /* 第2章は部屋ごとに間取りが違うので、**その人が居る部屋の地図で動かす**（主人公と同じ手当て）。
+     ここを揃えていなかったせいで、浴室の設備を頼んだ修理業者が
+     ロビーの地図の上を歩き続け、修理代だけ取られて何も直らなかった */
+  if (G.npcs.length && G.phase !== 'title') {
+    if (areaCount() > 1) for (const n of [...G.npcs]) inAreaOf(n, () => updateNpcs(rDt * 8, n));
+    else updateNpcs(rDt * 8);
+  }
   // バブル・エフェクトは実時間で減衰（一時停止中は止める＝吹き出しを読める）
   if (!G.paused) {
     for (const e of [...G.customers, ...G.staff, ...(G.player ? [G.player] : [])]) {
@@ -7097,16 +9899,17 @@ function frame(ts) {
     for (let i = floaters.length - 1; i >= 0; i--) if ((floaters[i].t -= rDt) <= 0) floaters.splice(i, 1);
     for (let i = sparkles.length - 1; i >= 0; i--) if ((sparkles[i].t -= rDt) <= 0) sparkles.splice(i, 1);
   }
-  if (G.phase !== 'title') render(rt);
-  requestAnimationFrame(frame);
+  // 館内案内図を開いている間は、区画の中を描かない（案内図そのものを描く）
+  if (G.phase !== 'title') { if (onGuide()) drawGuide(); else render(rt); }
 }
 
 function updateTopbar() {
   syncSpecialName();   // 決戦仕様の名前は屋号から作る（ログやトーストにも屋号で出す）
   // クリア後はゲームクリアの証（⭐）を日数の隣に出す（フェーズ4・自由営業中）
-  $('uiDay').textContent = `${G.day}日目（${dayLabel()}）` + (G.flags && G.flags.freePlay ? ' ⭐' : '');
+  $('uiDay').textContent = (chHook('dayText') || `${G.day}日目（${dayLabel()}）`)
+    + (G.flags && G.flags.freePlay ? ' ⭐' : '');
   if (G.phase === 'biz') {
-    const h = CONF.openHour + Math.floor(G.minutes / 60);
+    const h = (openHourNow() + Math.floor(G.minutes / 60)) % 24;
     const m = Math.floor(G.minutes % 60);
     $('uiClock').textContent = `${h}:${String(m).padStart(2, '0')}`;
   } else $('uiClock').textContent = '準備中 🌙';
@@ -7116,12 +9919,69 @@ function updateTopbar() {
   $('uiCash').textContent = (G.cash < 0 ? '−' + yen(-G.cash) : yen(G.cash))
     + (sDebt ? ` (借金${(sDebt / 10000) | 0}万)` : '');
   $('uiCash').classList.toggle('minus', G.cash < 0);
+  syncTip();   // 上の一行（開店したら消える／営業中は出さない）
   syncRep();   // 減点は即時反映＝運営メニューで直したその場で数字が戻る
-  $('uiRep').textContent = repCounting() ? '評判 集計中' : `評判 ${G.rep}`;
+  /* 上のバーの評判。章が `topRep` を持てば、その文字をそのまま出す（作者指定 8/8）＝
+     第2章は8部門の総合スコア（800点満点）。0-100の評判と0-800の番付スコアが
+     2つ並んでいて、しかも設備の解放は800点側なので、何を見ればいいのか分からなかった。
+     フックの無い章＝これまでどおり「評判 N」／「評判 集計中」 */
+  $('uiRep').textContent = chHook('topRep') || (repCounting() ? '評判 集計中' : `評判 ${G.rep}`);
+  /* ゲージの帯（第2章だけ）。**体力と妻の機嫌は常時出す**（作者指定）＝
+     倒れるのも、彼女が下りるのも、事故ではなく自分の判断だと分かるように */
+  const st = $('uiStam'), md = $('uiMood'), sa = $('uiStress'), bar = $('gaugeBar');
+  const moodPct = hasHook('moodPct') ? chHook('moodPct') : null;
+  const stressPct = hasHook('stressPct') ? chHook('stressPct') : null;
+  if (!staminaOn() && moodPct == null && stressPct == null) { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  // 体力＝主人公が今日あと何をできるか。減るほど緑→黄→赤
+  st.classList.toggle('hidden', !staminaOn());
+  if (staminaOn()) {
+    /* 上限は章で変わりうる（第2章は筋トレで150まで伸びる）ので、帯の長さは割合、
+       **文字は実数**で出す（作者指定 8/8）＝「体力 62 / 100」。
+       「62%」だと、上限が伸びたときに同じ%でも中身が違うことが読み取れない。
+       `stamText` を持たない章＝これまでどおり「体力 62%」 */
+    const max = chHook('stamMax') || CONF.stamMax;
+    const now = Math.round(stamLeft());
+    const pct = clamp(Math.round(now / max * 100), 0, 100);
+    st.style.setProperty('--stam', pct + '%');
+    st.style.setProperty('--stam-col', pct > 50 ? '#8fd4a0' : pct > 20 ? '#e8c84a' : '#e85a5a');
+    st.classList.toggle('low', pct <= 20);
+    st.querySelector('b').textContent = chHook('stamText') || `体力 ${pct}%`;
+  }
+  // 妻の機嫌。下がりきると、彼女はフロントに立たなくなる
+  md.classList.toggle('hidden', moodPct == null);
+  if (moodPct != null) {
+    const p = clamp(Math.round(moodPct), 0, 100);
+    md.style.setProperty('--mood', p + '%');
+    md.style.setProperty('--mood-col', p > 55 ? '#f0a0bc' : p > 25 ? '#e8c84a' : '#e85a5a');
+    md.classList.toggle('low', p <= 25);
+    md.querySelector('b').textContent = `${chHook('moodName') || '機嫌'} ${p}%`;
+  }
+  /* ストレス。**これだけは溜まるほど悪い**＝満タンに近いほど赤くなる。
+     体力とは別物で、「体はきついが気は晴れている」も起きる */
+  sa.classList.toggle('hidden', stressPct == null);
+  if (stressPct != null) {
+    const p = clamp(Math.round(stressPct), 0, 100);
+    sa.style.setProperty('--stress', p + '%');
+    sa.style.setProperty('--stress-col', p < 50 ? '#7ec8e8' : p < 80 ? '#e8c84a' : '#e85a5a');
+    sa.classList.toggle('low', p >= 80);
+    sa.querySelector('b').textContent = `${chHook('stressName') || 'ストレス'} ${p}%`;
+  }
 }
 
 /* ============ ショップ・準備UI ============ */
 let shopTab = 'sauna';
+/* ============ カタログのタブは、章ごとに覚える（2026-08-08）============
+   `shopTab` は変数なので**章を移っても残る。**第2章で【ととのい】を開いたまま
+   第1章へ戻ると、その値は第1章の一覧に無い＝`renderShop` が「無ければ先頭」に落ちて
+   **【風呂】で開いていた**（差分テストが見つけた／第1章は【サウナ】で開くのが仕様）。
+
+   ⚠ **セーブには入れない。**遊びの状態ではなく画面の都合なので、
+     アプリを開き直したら第1章は【サウナ】から、が正しい（第1章セッションの指定）。
+   ⚠ **その章に無いタブは覚えない。**`renderShop` の「無ければ先頭」はそのまま残したうえで、
+     記憶する側でも弾く＝章のタブ構成を変えた日に、また同じ形で漏れないように二重にする */
+const SHOP_TAB_MEM = {};
+let SHOP_TAB_LAST_CH = null;   // 最後に描いた章。**章が変わった一度だけ**思い出す
 const iconCache = {};
 function iconFor(id) {
   if (iconCache[id]) return iconCache[id];
@@ -7141,18 +10001,41 @@ function iconFor(id) {
 // 収容人数を出すカテゴリ（占有面積×1人）
 const CAP_CATS = ['furo', 'sauna', 'mizu', 'wash'];
 /* カタログのタブ。tab を持つ設備はそちらに並べる（ロッカー＝【脱衣所】タブ） */
-function shopTabOf(id) { return EQ[id].tab || EQ[id].cat; }
+/* **1つの設備を2つのタブに出せるようにする**（作者指定 8/8）。
+   第2章のドリンク自販機は「1階の待合」にも「浴室階の脱衣所」にも置ける約束なのに、
+   タブを1つしか持てず、**脱衣所から消えていた。**
+   `tabs` を持たない設備＝js/data.js の全部は、これまでどおり1つのタブに出る */
+function shopTabsOf(id) { const d = EQ[id]; return d.tabs || [d.tab || d.cat]; }
 /* 決戦仕様の一台は、熱波師が提案するまで一覧に出さない（作者指定）。
    鍵付きで並べておくと、始めたばかりの店にも「◯◯スペシャル」が見えてしまい、物語の先が割れる */
 function shopIds(cat) {
   /* 並び順は「解放される評判」→「値段」の昇順（作者指定）。
-     上から順に鍵が外れ、下へ行くほど高くなる＝いま買えるものが必ず上に集まる */
-  return Object.keys(EQ).filter(id => shopTabOf(id) === cat && !EQ[id].old && id !== 'bandai'
-    && !(id === DUEL_ONLY_EQ && !duelEqReady()))
-    .sort((a, b) => (EQ[a].rep || 0) - (EQ[b].rep || 0) || EQ[a].price - EQ[b].price);
+     上から順に鍵が外れ、下へ行くほど高くなる＝いま買えるものが必ず上に集まる。
+     ただし first:true のものだけは値段に関係なく先頭に出す＝
+     **それが無いと他が置けない土台**（第2章の厨房の工事）を、いちばん上に見せる */
+  const ids = Object.keys(EQ).filter(id => shopTabsOf(id).includes(cat) && !EQ[id].old && !EQ[id].noShop && id !== 'bandai'
+    && !EQ[id].retired                           // 廃止した品はカタログに出さない（置いてある店ではそのまま使える）
+    && (chHook('shopItemOK', id) !== false)      // 第2章：男湯／女湯限定のものは、その部屋でだけ並べる
+    && !(id === DUEL_ONLY_EQ && !duelEqReady()));
+  /* **サイズ違いは縦に並べる**（作者指定 8/5）。
+     並び順の基本は今までどおり評判（上から順に鍵が外れる）だが、
+     `fam` が同じ品（小カラン・中カラン・大カラン／小中大のロッカー）は
+     **いちばん早く解禁される1つの位置に、まとめて置く**＝大きさで選べるようになる */
+  const famAt = {};
+  for (const id of ids) {
+    const f = EQ[id].fam; if (!f) continue;
+    const r = EQ[id].rep || 0;
+    if (famAt[f] === undefined || r < famAt[f]) famAt[f] = r;
+  }
+  const slot = id => (EQ[id].fam !== undefined ? famAt[EQ[id].fam] : (EQ[id].rep || 0));
+  return ids.sort((a, b) => (EQ[b].first ? 1 : 0) - (EQ[a].first ? 1 : 0)
+               || slot(a) - slot(b)                                     // 一族はひとかたまりで動く
+               || String(EQ[a].fam || '').localeCompare(String(EQ[b].fam || ''))
+               || (EQ[a].rep || 0) - (EQ[b].rep || 0)                    // 一族の中では 小 → 中 → 大
+               || EQ[a].price - EQ[b].price);
 }
 // 「評判で解放されたのに、まだ見ていない」設備があるか
-function isNewItem(id) { const d = EQ[id]; return !!d.rep && G.rep >= d.rep && !G.seenEq[id]; }
+function isNewItem(id) { const u = unlockOf(id); return !!u && u.ok && !G.seenEq[id]; }
 function newInCat(cat) { return shopIds(cat).some(isNewItem); }
 
 // 設備の仕入れ値。玲奈が仲間なら15%引き（業界の伝手で安く回してもらえる）
@@ -7172,16 +10055,54 @@ function kurodaDiscountId() {
 function eqPrice(id) {
   let p = EQ[id].price * (reinaAllyOn() ? REINA_EQ_OFF : 1);
   if (kurodaDiscountId() === id) p *= (1 - KURODA_DISCOUNT);
+  // 章ごとの値引き（第2章＝休みの日に買い出しへ行った週）
+  const d = hasHook('eqDiscount') ? (chHook('eqDiscount', id) || 0) : 0;
+  if (d > 0) p *= (1 - d);
   return Math.round(p);
 }
 /* 決戦仕様の名前は屋号から作る（作者指定）＝「夕凪湯スペシャル」。
    店の名前はプレイヤーが決めるので、カタログに並べる直前にここで名乗らせる */
-function syncSpecialName() { EQ.sauna_sp.name = `${G.name || '夕凪湯'}スペシャル`; }
+function syncSpecialName() {
+  // 決戦仕様は第1章だけの設備。第2章のカタログには無いので、何もしない
+  if (!EQ.sauna_sp) return;
+  EQ.sauna_sp.name = `${G.name || '夕凪湯'}スペシャル`;
+}
 function renderShop(markSeen) {
   syncSpecialName();
+  /* いま入っている部屋に置けるものだけを並べる（作者指定）。
+     食堂を開いているのに駐車場の設備が並んでいると、どこに何を置く話なのか分からなくなる。
+     第1章は区画がひとつなので、いつもどおり全部のタブが出る */
+  const cats = chHook('shopCats') || CATS;
+  /* その章で最後に開いていたタブに戻す。
+     ⚠ **思い出すのは「章が変わった最初の1回」だけ。**毎回戻すと、
+       タブを押す側（`shopTab = key; renderShop()`）を即座に上書きして
+       **タブが1つも切り替わらなくなる**（実測 8/8）*/
+  const chNow = G.chapter || 1;
+  if (SHOP_TAB_LAST_CH !== chNow) {
+    if (SHOP_TAB_MEM[chNow] != null) shopTab = SHOP_TAB_MEM[chNow];
+    SHOP_TAB_LAST_CH = chNow;
+  }
+  /* 何も置けない部屋（第2章の廊下＝通り道）は、カタログごと隠す。
+     ここを出しておくと、廊下で「サウナ」タブが並んで、どこに置く話なのか分からなくなる */
+  $('shopPanel').classList.toggle('no-shop', !cats.length);
+  if (!cats.length) { $('shopTabs').innerHTML = ''; $('shopList').innerHTML =
+    '<p class="shop-empty">🚪 廊下には物を置けない。通り抜けるだけの場所だ</p>'; return; }
+  /* 覚えるのは**その章の一覧にある値だけ**。
+     ⚠ **「無ければ先頭」に落ちる前に覚える。**第2章はタブが階ごとに変わるので、
+       落ちた先を覚えると、【ととのい】を開いたまま1階へ降りただけで
+       記憶が【受付】に書き換わる＝章へ戻ったときに思い出せない（実測 8/8）*/
+  if (cats.some(c => c[0] === shopTab)) SHOP_TAB_MEM[chNow] = shopTab;
+  /* 「無ければ先頭」に落ちる前に、**覚えているタブが使えるならそちらを優先**。
+     第2章はタブが階ごとに変わるので、【ととのい】を開いたまま1階へ降りて戻ってきたとき、
+     先頭ではなく【ととのい】に戻る＝「最後に開いたタブを覚える」が階をまたいでも効く */
+  if (!cats.some(c => c[0] === shopTab)) {
+    const mem = SHOP_TAB_MEM[chNow];
+    shopTab = (mem != null && cats.some(c => c[0] === mem)) ? mem
+            : (cats[0] ? cats[0][0] : shopTab);
+  }
   const tabs = $('shopTabs');
   tabs.innerHTML = '';
-  for (const [key, label] of CATS) {
+  for (const [key, label] of cats) {
     const b = document.createElement('button');
     b.className = 'tab' + (key === shopTab ? ' on' : '');
     b.innerHTML = label + (newInCat(key) ? '<i class="new-dot"></i>' : '');   // 🔴 新着マーク
@@ -7189,23 +10110,31 @@ function renderShop(markSeen) {
     tabs.appendChild(b);
   }
   const list = $('shopList');
+  list.classList.toggle('compact', hasHook('placeInfo'));   // 一行説明を置く画面に譲った章だけ、行を詰める
   list.innerHTML = '';
+  /* 設備カタログではないタブ（第2章の【メニュー】）は、章のほうが自前で描く */
+  if (chHook('shopTabRender', shopTab, list)) return;
   for (const id of shopIds(shopTab)) {
     const def = EQ[id];
     const price = eqPrice(id);
     const discounted = reinaAllyOn() && price < def.price;
+    const unl = unlockOf(id);
     const locked = id === DUEL_ONLY_EQ
       ? !duelEqReady()                                   // 決戦仕様は投票対決を受けて立つまで並ばない
-      : (def.rep && G.rep < def.rep && !isDemandedEquip(id));
+      : (!!unl && !unl.ok && !isDemandedEquip(id));
     const isNew = isNewItem(id);
     const capTxt = CAP_CATS.includes(def.cat) && def.cap > 0 ? ` <span class="cap-chip">収容${def.cap}人</span>` : '';
     // ⭐（店の格への貢献）は廃止した（作者指定）。名前・収容・値段・鍵だけを1行に置く
     const div = document.createElement('div');
     div.className = 'shop-item' + (locked ? ' locked' : '') + (isNew ? ' is-new' : '');
     // 名前の下に一行だけ短い説明（EQ_NOTE）。長い説明は設備をタップした時の詳細に置いてある
-    const note = EQ_NOTE[id] ? `<div class="shop-note">${EQ_NOTE[id].replace('{店名}', G.name)}</div>` : '';
+    /* 置く画面に詳細を出す章（第2章）は、この一行をそちらへ譲る＝
+       カタログの行が縮んで、小さい画面に並ぶ数が増える。
+       フックの無い第1章は、いままでどおり一行説明つきのまま */
+    const noteTxt = hasHook('placeInfo') ? '' : (EQ_NOTE[id] || '');
+    const note = noteTxt ? `<div class="shop-note">${noteTxt.replace('{店名}', G.name)}</div>` : '';
     div.innerHTML = `<img class="shop-icon" src="${iconFor(id)}">
-      <div class="shop-body"><div class="shop-name">${isNew ? '<b class="new-tag">NEW</b> ' : ''}${def.name}${capTxt}${locked ? (id === DUEL_ONLY_EQ ? ' <span class="lock-chip">🔒決戦仕様</span>' : ` <span class="lock-chip">🔒評判${def.rep}</span>`) : ''}</div>${note}</div>
+      <div class="shop-body"><div class="shop-name">${isNew ? '<b class="new-tag">NEW</b> ' : ''}${def.name}${capTxt}${locked ? (id === DUEL_ONLY_EQ ? ' <span class="lock-chip">🔒決戦仕様</span>' : ` <span class="lock-chip">🔒${unl.label}</span>`) : ''}</div>${note}</div>
       <div class="shop-price">${
         // 黒田割引中は「定価を消して、赤で割引後の額」。定価のほうを赤で出すと、どちらを払うのか分からなくなる
         kurodaDiscountId() === id
@@ -7213,7 +10142,7 @@ function renderShop(markSeen) {
           : yenShort(price) + (discounted ? '<br><span style="font-size:10px;color:#37a">玲奈割15%引き</span>' : '')}</div>`;
     div.onclick = () => {
       if (locked) {
-        toast(id === DUEL_ONLY_EQ ? 'これは、まだ手が届く代物じゃない…' : `評判${def.rep}になったら仕入れられる`);
+        toast(id === DUEL_ONLY_EQ ? 'これは、まだ手が届く代物じゃない…' : `${unl.label}になったら仕入れられる`);
         return;
       }
       if (G.cash < price) { toast('資金が足りない…（融資も検討しよう）'); return; }
@@ -7241,18 +10170,33 @@ function startPlacing(id, moving, opts) {
   };
   $('prepPanel').classList.add('hidden');
   $('shopPanel').classList.add('hidden');
+  // 設備の詳細（章が持っていれば）。まだ金は払っていない＝ここが「買う前に読む」場所になる
+  const pinf = chHook('placeInfo', id);
+  $('placeInfo').innerHTML = pinf || '';
+  $('placeInfo').classList.toggle('hidden', !pinf);
+  /* 【向き・ここに置く・やめる】が、スクロールしないと見えないことがある（作者報告 8/8）。
+     `stickyPlaceBar` を持つ章だけ、パネルの下に貼り付けて必ず画面に入れる。
+     持たない章（第1章）は class が付かない＝これまでどおりの並びのまま */
+  $('confirmBar').classList.toggle('stick', !!CONF.stickyPlaceBar);
   $('confirmBar').classList.remove('hidden');
   $('btnRotate').style.display = canRotate(id) ? '' : 'none';
   const rl = roomLabel(id);
   // 設置開始時の説明は「名前＋置ける部屋」だけのシンプル表記（作者指定）
-  $('confirmText').textContent = EQ[id].name + (rl ? `（${rl}のみ）` : '');
+  /* 詳細の箱をすぐ上に出している章（第2章）は、名前がそこに大きく出ている＝
+     ここで繰り返すと長い名前が3行に折り返して、ボタンを潰してしまう */
+  $('confirmText').textContent = pinf
+    ? (rl ? `${rl}のみ` : '場所をタップ')
+    : EQ[id].name + (rl ? `（${rl}のみ）` : '');
 }
 function endPlacing() {
   if (G.placing && G.placing.onCancel && !G.placing.placedN) G.placing.onCancel();
   G.placing = null;
   $('confirmBar').classList.add('hidden');
+  $('placeInfo').classList.add('hidden');
   if (G.phase === 'prep') $('prepPanel').classList.remove('hidden');
-  $('shopPanel').classList.remove('hidden');
+  if (!onGuide() && !onHome()) $('shopPanel').classList.remove('hidden');
+  // 置き終わった直後に案内を引き直す＝第2章の「あと何が足りないか」がその場で減る
+  if (G.phase === 'prep' && hasHook('prepHint')) { const h = chHook('prepHint'); if (h) setHint(h); }
 }
 /* 配置確認バーの文言（移動なら費用を出す） */
 function updateConfirmText() {
@@ -7271,7 +10215,10 @@ function updateConfirmText() {
   }
   if (p.moving) {
     const c = moveCost(p.moving, p.gx, p.gy, p.rot);
-    $('confirmText').textContent = c ? `移動費 ${yen(c)}` : 'ここでいい？（元の位置）';
+    // 担いで動かせるものは費用の行を出さない（金の話が無いことが伝わればいい）
+    $('confirmText').textContent = c ? `移動費 ${yen(c)}`
+      : isPortable(EQ[p.id]) ? 'ここでいい？（自分で運べる＝無料）'
+      : 'ここでいい？（元の位置）';
   } else {
     // 連続設置中は何個置いたかを出す。終わりたくなったら「やめる」
     $('confirmText').textContent = p.placedN ? `ここでいい？（${p.placedN + 1}個目）` : 'ここでいい？';
@@ -7284,6 +10231,10 @@ function selectEquip(it) {
   $('prepPanel').classList.add('hidden');
   $('shopPanel').classList.add('hidden');
   $('selPanel').classList.remove('hidden');
+  // 第2章の残置物は、修理も移動も売却もできない。売る／撤去／残す の3択だけ（作者指定）
+  if (chHook('isPendingZanchi', it)) { selectZanchi(it); return; }
+  $('zanchiActions').style.display = 'none';
+  $('selPanel').querySelector('.sel-actions').style.display = 'flex';
   const condPct = (CONF.wearPerDay[def.cat] ?? 0) > 0 ? Math.round(it.cond) : null;
   // 温度を弄れるのはドライサウナだけ。浴槽・水風呂・ミスト・塩は設備ごとに固定（表示はする）
   const canTemp = canSetTemp(def);
@@ -7337,6 +10288,24 @@ function selectEquip(it) {
   }
   $('btnSell').textContent = '💸 売却';
 }
+/* 第2章：まだ決めていない残置物を選んだとき。
+   売る（金が入る）／撤去（金が出る）／残す（床を食い続ける）の3択を出す */
+function selectZanchi(it) {
+  const def = EQ[it.id], z = def.zanchi;
+  $('selPanel').querySelector('.sel-actions').style.display = 'none';
+  $('zanchiActions').style.display = 'flex';
+  $('selInfo').innerHTML = `<b>${def.name}</b> <span class="cap-chip">残置物</span><br>` +
+    `<span class="shop-desc">${def.desc}</span><br>` +
+    `<b class="broken-note">前の持ち主が置いていったもの。始末を決めるまで、この床は使えない。</b><br>` +
+    `<span class="shop-desc">✋ 残すと：${z.keep}</span>`;
+  const bs = $('btnZanSell');
+  bs.style.display = z.sell ? '' : 'none';
+  // ボタンは4つ並ぶので、金額は万で詰める（¥250,000 だと「+¥…」に切れる）
+  if (z.sell) bs.textContent = `💸 売る +${yenShort(z.sell)}`;
+  const bg = $('btnZanGone');
+  bg.textContent = `🗑 撤去 −${yenShort(z.cost)}`;
+  bg.disabled = G.cash < z.cost;
+}
 /* 移動・売却の前に、その設備を使っている客・並んでいる客をどかす（営業中の改装） */
 function evictUsers(it) {
   let n = 0;
@@ -7355,7 +10324,7 @@ function deselect() {
   G.selected = null;
   $('selPanel').classList.add('hidden');
   if (G.phase === 'prep') $('prepPanel').classList.remove('hidden');
-  $('shopPanel').classList.remove('hidden');
+  if (!onGuide() && !onHome()) $('shopPanel').classList.remove('hidden');
 }
 /* 修理費＝購入額の12%（古い設備は一律¥25,000）。壊れると自動で業者が来て取っていくので、
    維持費として毎日じわじわ効いてくる。※数値は叩き台 */
@@ -7400,9 +10369,12 @@ function faultLabel(it) { return it.fault === 'major' ? '大規模修理' : '不
 function sellValue(it) { return EQ[it.id].old ? 3000 : Math.floor(EQ[it.id].price * CONF.sellRate); }
 
 /* 設備の移動費。大きいものほど、遠くへ運ぶほど高くなる（配管・電気の引き直し代）。
-   向きを変えるだけでも1マスぶんの手間として計上する */
+   向きを変えるだけでも1マスぶんの手間として計上する。
+   ただし床に固定されていないもの（イス・置き場・小物）は**無料**＝
+   自分で担いで動かせるのに金を取られるのは理不尽だった（作者指定 8/5） */
 function moveCost(it, gx, gy, rot) {
   const def = EQ[it.id], area = def.w * def.h;
+  if (isPortable(def)) return 0;
   const dist = Math.abs(gx - it.x) + Math.abs(gy - it.y)
              + (((rot || 0) !== (it.rot || 0)) ? 1 : 0);
   if (dist === 0) return 0;
@@ -7416,7 +10388,31 @@ function canvasTile(ev) {
   const y = (ev.clientY - r.top) / r.height * CONF.H * T;
   return { x: clamp((x / T) | 0, 0, CONF.W - 1), y: clamp((y / T) | 0, 0, CONF.H - 1) };
 }
+/* 館内案内図：区画をタップするとその部屋へ入る（第2章だけ） */
+let guideTapAt = 0;
+$('guide').addEventListener('pointerup', ev => {
+  /* タッチ端末では、指を離したあとにブラウザが「マウスのふり」をした操作をもう一度送ってくる。
+     区画へ入った直後は下のゲーム画面が同じタップを拾って、音が二重に鳴っていた。
+     ここで既定の動作を止めたうえ、直後のゲーム画面のタップを短時間だけ無視する */
+  ev.preventDefault();
+  guideTapAt = performance.now();
+  const g = $('guide'), r = g.getBoundingClientRect();
+  const px = (ev.clientX - r.left) / r.width * g.width;
+  const py = (ev.clientY - r.top) / r.height * g.height;
+  /* 章が案内図の上に自前の当たり判定を持っていれば、そちらを先に見る
+     （第2章＝「⚠ スタッフがいません」の帯を押すと、バイトの管理画面へ飛ぶ）。
+     フックを持たない章（第1章）は、これまでどおり区画の矩形だけを見る */
+  if (chHook('guideTap', px, py)) return;
+  const hit = guideRects.find(q => px >= q.x && px <= q.x + q.w && py >= q.y && py <= q.y + q.h);
+  if (!hit) return;
+  Sfx.play('ui');
+  enterAreaScreen(hit.f);
+});
+$('btnToGuide').onclick = () => { Sfx.play('ui'); openGuide(); };
+
 cv.addEventListener('pointerup', ev => {
+  // 館内案内図から区画へ入った直後の、鳴り残りのタップは無視する（音が二重に鳴るのを防ぐ）
+  if (performance.now() - guideTapAt < 400) return;
   setHint(null);
   Sfx.play('ui');                        // マップも「押した手ごたえ」を返す（設置場所を選ぶ・設備を選ぶ）
   const t = canvasTile(ev);
@@ -7427,54 +10423,159 @@ cv.addEventListener('pointerup', ev => {
     updateConfirmText();
     return;
   }
+  if (isHomeArea(G.actF)) {              // 家の中：ベッド・台所・食卓・千夏をタップ
+    const s = homeSpotAt(t.x, t.y);
+    if (s) chHook('homeAction', s.key); else deselect();
+    return;
+  }
   if (G.phase === 'prep') {
+    // 第2章の開店前：ゴミをタップ＝主人公に「これを運べ」と言う（設備より先に見る）
+    const j = junkAt(t.x, t.y);
+    if (j) { markJunk(j); return; }
     const it = equipAt(t.x, t.y);
+    /* 章が「この設備は押すと何かが起きる」を持っていれば、そちらが先（第2章＝エレベーター）。
+       true を返したら、その設備は選ばない＝説明パネルを出さない */
+    if (it && chHook('equipTap', it)) return;
     if (it) selectEquip(it); else deselect();
   } else if (G.phase === 'biz') {
+    /* 人をタップ＝**その人の札**（第2章。custcard_y.js）。
+       客なら「何を求めているか」、バイト・妻・主人公なら「いまどうしているか」。
+       設備より先に見る＝設備の上に立っている人を拾えるようにするため。
+       章がフックを持たなければ、この分岐ごと素通りする＝第1章は何も変わらない */
+    if (hasHook('custTap')) {
+      const view = (G.viewF >= 0 ? G.viewF : G.actF) | 0;
+      const tx = t.x * T + T / 2, ty = t.y * T + T / 2;
+      /* **1マスぴったりでは当たらない。**人は歩いていて、マスの間にいることのほうが多い。
+         タップした点にいちばん近い人を、1マス強の範囲から拾う */
+      let hit = null, best = T * 1.1;
+      const people = G.customers.concat(
+        G.staff.filter(workerHere),
+        (G.player && onDuty()) ? [G.player] : []);
+      for (const c of people) {
+        if ((c.f | 0) !== view) continue;
+        const d = Math.hypot(c.px - tx, c.py - ty);
+        if (d < best) { best = d; hit = c; }
+      }
+      /* false が返る＝**同じバイトを2度叩いた**＝札から先へ進む合図。
+         そのときは章の側が給料パネルを開いているので、ここは何もしない */
+      if (chHook('custTap', hit)) return;
+    }
     // フェーズ3：働いているスタッフをタップ→給料変更・クビのパネル
-    const st = G.staff.find(s => { if (s.lateT > 0) return false; const tt = tileOf(s); return tt.x === t.x && tt.y === t.y; });
+    const st = G.staff.find(s => { if (!workerHere(s)) return false; const tt = tileOf(s); return tt.x === t.x && tt.y === t.y; });
     if (st && st.emp) { openStaffPanel(st.emp); return; }
     const it = equipAt(t.x, t.y);
+    if (it && chHook('equipTap', it)) return;
     if (it) selectEquip(it); else deselect();
   }
 });
 
 /* ============ バイト（フェーズ3：求人・面接・給料・クビ） ============ */
+/* スキルの並び。第2章は【料理】が4つ目に付く（CONF.staffSkills で章ごとに差し替え） */
+const SKILL_LABEL = { maji: '真面目', spd: 'スピード', aiso: '愛想', ryori: '料理' };
+function skillLine(p) {
+  return (CONF.staffSkills || ['maji', 'spd', 'aiso'])
+    .map(k => `${SKILL_LABEL[k] || k}${'★'.repeat(p[k] || 0)}`).join('　');
+}
+/* 性別（第2章だけ意味を持つ＝女湯に立てるのは女性だけ）。第1章は何も出さない */
+function sexTag(p) {
+  if (!CONF.staffRooms || !p.sex) return '';
+  return p.sex === 'f' ? '<span class="sex-f">♀</span>' : '<span class="sex-m">♂</span>';
+}
+function staffFace(p) { return (CONF.staffRooms && p.sex === 'f') ? '👩‍🔧' : '🧑‍🔧'; }
+/* いまの持ち場の名前 */
+function staffAreaName(emp) {
+  if (!CONF.staffRooms || emp.f == null) return '';
+  const a = (CONF.areas || [])[emp.f | 0];
+  return a ? a.name : '';
+}
 /* 求人広告の翌朝：プールから未採用の3人を引いて面接モーダルを開く */
 let jobHiredThisRound = 0;   // この面接で何人採用したか（閉じるボタンの文言と、0人で閉じる時の確認に使う）
+let jobCloseAsked = false;   // 「誰も採らずに閉じる？」を一度聞いたか（面接のたびに false へ戻す）
 /* 閉じるボタンの文言は採用人数で変わる（作者指定）＝0人なら「今回は見送る」、1人以上なら「○人採用する」 */
 function updateJobCloseBtn() {
   $('btnJobClose').textContent = jobHiredThisRound ? `${jobHiredThisRound}人採用する` : '今回は見送る';
 }
+/* 面接の中の「どこに立たせるか」。空いている部屋を先に、詰まっている部屋は灰色で出す。
+   女湯は女性の応募者にしか出さない（立てないので） */
+let jobPost = {};                      // pid → 選んだ持ち場
+function renderJobPost(box, p) {
+  if (!box) return;
+  const areas = CONF.areas || [];
+  const cands = [];
+  areas.forEach((a, f) => {
+    if (a.home) return;
+    if (a.sex === 'f' && p.sex !== 'f') return;                     // 女湯は女性だけ
+    if (chHook('canStaffArea', p, f) === false) return;             // 章のほうにも門番があれば
+    const desk = f === playerArea();
+    /* ⚠ ここは**1部屋1人**の前提のままだった（`G.roster.find` で1人でも見つかれば選べない）。
+       階ごとに枠が2つになった日から、**1人立っているだけでその部屋が選べなく**なっていた。
+       枠の数（`a.staffMax`）で数える＝バイト管理画面と同じ勘定にする */
+    const max = a.staffMax || 1;
+    const used = G.roster.filter(e => e.f != null && (e.f | 0) === f).length
+               + (chHook('areaExtraWorker', f) | 0);               // 章の立ち手（第2章＝主人公と妻）も枠を使う
+    cands.push({ f, name: a.name, used, max, full: used >= max, desk });
+  });
+  if (jobPost[p.pid] === undefined) {
+    const free = cands.find(c => !c.full && !c.desk) || cands.find(c => !c.full);
+    jobPost[p.pid] = free ? free.f : null;
+  }
+  box.innerHTML = '<span class="job-post-h">立たせる部屋</span>' + cands.map(c =>
+    `<button class="opt-btn ${jobPost[p.pid] === c.f ? 'on' : ''}"${c.full ? ' disabled' : ''} data-f="${c.f}">${
+      c.name}（${c.used}／${c.max}人${c.desk && !c.used ? '・番台の2人目' : ''}）</button>`).join('');
+  box.querySelectorAll('button').forEach(b => {
+    b.onclick = (ev) => { ev.stopPropagation(); jobPost[p.pid] = +b.dataset.f; renderJobPost(box, p); };
+  });
+}
+
 function openJobModal() {
+  jobPost = {};
+  // 面接に来る人数は章が決める（第2章＝野毛で飲んだぶんだけ、来る顔ぶれが増える）
+  const poolN = chHook('jobPoolN') || 3;
   const pool = STAFF_POOL.filter(p => !G.roster.some(e => e.pid === p.pid))
-    .sort(() => Math.random() - 0.5).slice(0, 3);
+    .sort(() => Math.random() - 0.5).slice(0, poolN);
   if (!pool.length) { toast('応募が来なかった…（もう街に人材がいない）'); return; }
   jobHiredThisRound = 0;
+  jobCloseAsked = false;      // 面接ごとに聞き直す
   updateJobCloseBtn();
   G.paused = true;
-  $('jobNote').innerHTML = `求人広告を見て、3人が面接に来た。雇うのは<b>${CONF.maxStaff}人まで</b>（現在${G.roster.length}人）。<br>日給はスペックで決まる。見送った人はもう来ない。`;
+  $('jobNote').innerHTML = `求人広告を見て、${pool.length}人が面接に来た。雇うのは<b>${CONF.maxStaff}人まで</b>（現在${G.roster.length}人）。<br>日給はスペックで決まる。見送った人はもう来ない。`;
   const list = $('jobList');
   list.innerHTML = '';
   for (const p of pool) {
     const div = document.createElement('div');
     div.className = 'senden-item';
-    div.innerHTML = `<span>🧑‍🔧</span><div><b>${p.name}</b>　<span class="shop-price">日給${yen(staffWageOf(p))}</span><br>
-      <span class="shop-desc">真面目${'★'.repeat(p.maji)}　スピード${'★'.repeat(p.spd)}　愛想${'★'.repeat(p.aiso)}<br>${p.desc}</span></div>
-      <button class="opt-btn">採用</button>`;
-    div.querySelector('button').onclick = (ev) => {
+    /* 第2章は「どこに立たせるか」を採用と同時に決める（作者指定の流れ）。
+       部屋に人がいないと客が使えないので、雇う理由はいつも「あの部屋を開けたい」だから */
+    const nightTag = p.night ? '<span class="sm-night">🌙深夜可</span>' : '';
+    div.innerHTML = `<span>${staffFace(p)}</span><div><b>${p.name}</b>${sexTag(p)}${nightTag}　<span class="shop-price">日給${yen(staffWageOf(p))}</span><br>
+      <span class="shop-desc">${skillLine(p)}<br>${p.desc}</span>
+      ${CONF.staffRooms ? `<div class="job-post" data-pid="${p.pid}"></div>` : ''}</div>
+      <button class="opt-btn job-hire">採用</button>`;
+    if (CONF.staffRooms) renderJobPost(div.querySelector('.job-post'), p);
+    const hireBtn = div.querySelector('.job-hire');
+    hireBtn.onclick = (ev) => {
       ev.stopPropagation();
       if (G.roster.length >= CONF.maxStaff) { toast(`スタッフは${CONF.maxStaff}人まで`); return; }
-      G.roster.push({ pid: p.pid, name: p.name, maji: p.maji, spd: p.spd, aiso: p.aiso, desc: p.desc,
-        wage: staffWageOf(p), days: 0, skill: 30 + (p.maji + p.spd + p.aiso) * 2, sulk: false, raiseAsk: false, raiseAmt: 0, raiseNo: 0 });
+      const emp = { pid: p.pid, name: p.name, sex: p.sex, age: p.age, night: p.night, maji: p.maji, spd: p.spd, aiso: p.aiso, ryori: p.ryori, desc: p.desc,
+        wage: staffWageOf(p), days: 0, skill: 30 + (p.maji + p.spd + p.aiso) * 2, sulk: false, raiseAsk: false, raiseAmt: 0, raiseNo: 0 };
+      // 第2章：面接の場で選んだ部屋にそのまま立たせる（あとで【👥 バイト】から動かせる）
+      if (CONF.staffRooms) emp.f = jobPost[p.pid] != null ? jobPost[p.pid] : chHook('staffAreaOf', emp);
+      G.roster.push(emp);
       // 採用したその日から働く（営業中なら今すぐ出勤）
       if (G.phase === 'biz') G.staff.push(makeStaff(G.roster.length - 1));
       jobHiredThisRound++;
       updateJobCloseBtn();
-      log(`🧑‍🔧 ${p.name}を採用した（日給${yen(staffWageOf(p))}）`);
-      toast(`🧑‍🔧 ${p.name}を採用した！`);
+      const post = CONF.staffRooms ? staffAreaName(emp) : '';
+      log(`🧑‍🔧 ${p.name}を採用した（日給${yen(staffWageOf(p))}${post ? `／${post}` : ''}）`);
+      toast(post ? `🧑‍🔧 ${p.name}を${post}へ` : `🧑‍🔧 ${p.name}を採用した！`);
+      // 誰かが埋まったので、まだ選んでいない応募者の選択肢を引き直す
+      list.querySelectorAll('.job-post').forEach(el => {
+        const q = pool.find(x => x.pid === el.dataset.pid);
+        if (q && !G.roster.some(e => e.pid === q.pid)) renderJobPost(el, q);
+      });
       div.classList.add('done');
-      div.querySelector('button').disabled = true;
+      hireBtn.disabled = true;
+      div.querySelectorAll('.job-post button').forEach(b => b.disabled = true);
       saveGame();
     };
     list.appendChild(div);
@@ -7483,16 +10584,254 @@ function openJobModal() {
   $('jobModal').classList.remove('hidden');
 }
 
+/* ============ バイト管理ページ（第2章）============
+   部屋が5つあって、誰がどこに立っているかで**店の開いている範囲が変わる**。
+   マップ上の人をひとりずつタップして確かめるのでは追えないので、一覧で持つ。
+
+     ・部屋ごとに、誰が立っているか（空いている部屋は「利用不可」と出る）
+     ・その人の4スキル・日給・勤続・機嫌
+     ・押せば持ち場を移せる。名前を押せば給料とクビ
+     ・下から求人広告を出せる                                            */
+function openStaffMgr() {
+  if (!CONF.staffRooms) return;
+  G.paused = true;
+  smPickF = null;                       // 前に開いた【＋】は畳んでおく
+  /* **先に出してから描く。** 隠れたままの器に描くと、renderStaffMgr が
+     「表示されているほう」＝【運営】タブの器を選んでしまう */
+  $('staffMgrModal').classList.remove('hidden');
+  renderStaffMgr();
+}
+/* 章ごとのタブに置いた器は、**表示されているときだけ**使う（隠れた器に描かない） */
+function paneIfShown(id) {
+  const el = document.getElementById(id);
+  return (el && el.isConnected && !el.closest('.hidden')) ? el : null;
+}
+/* いま【＋】を開いている階（開いていなければ null）。
+   人を選ぶ画面を別に作らず、その階の枠の下にそのまま開く＝**どこに立たせる話なのか**が
+   画面から消えない（別モーダルにすると、選んでいる最中に階が見えなくなる） */
+let smPickF = null;
+/* 部屋ぜんぶの枠の数（＝立てる場所の数）。雇える人数（CONF.maxStaff）とは別物 */
+function staffSlotsTotal() {
+  return (CONF.areas || []).reduce((n, a) => n + (a && !a.home ? (a.staffMax || 1) : 0), 0);
+}
+function staffSlotsUsed() {
+  let n = G.roster.filter(e => e.f != null).length;
+  // 章の立ち手（第2章＝妻）も枠を1つ使う
+  (CONF.areas || []).forEach((a, f) => { if (a && !a.home) n += (chHook('areaExtraWorker', f) | 0); });
+  return n;
+}
+function renderStaffMgr() {
+  /* **【運営】タブの中と、独立したモーダルの両方から呼ばれる。**
+     ⚠ 以前はいつも【運営】のタブを先に見ていたので、**運営メニューを
+     バイトのタブで開いたまま案内図の警告を叩く**と、中身がそちらへ描かれて
+     独立したモーダルは空のまま開いた＝**題名と「📰 求人広告を出す」しか出ない**。
+     「バイトを押すと求人広告が出る」の正体はこれ。
+     自分のモーダルが出ているときは、必ず自分の中に描く                     */
+  /* ⚠ **「見えているか」で選んではいけない**（作者報告 8/8）。
+     【運営】は `renderManage()` →**そのあと**モーダルを開く順なので、
+     描く時点ではタブの枠はまだ見えていない＝`paneIfShown` が null を返し、
+     中身がまるごと第1章側のモーダル（staffMgrBody）へ流れていた。
+     結果、第2章の【バイト】タブには「📰 求人広告を出す」しか出ない
+     （＝作者の言う「バイトを押すと1章の画面になる」）。
+
+     `staffMgrPane` は **`renderManage` がバイトのタブを描いたときにだけ在る**
+     ＝在れば必ずそちらが宛先。第1章はこの枠を作らないので、いつもどおり
+     `staffMgrBody` に描かれる（実測で確認）                                  */
+  const pane = document.getElementById('staffMgrPane');
+  const box = (pane && pane.isConnected) ? pane : $('staffMgrBody');
+  if (!box) return;
+  const rows = [];
+  const areas = CONF.areas || [];
+  const wages = G.roster.reduce((a, e) => a + (e.wage || 0), 0);
+  const free = G.roster.filter(e => e.f == null);
+
+  /* 上の一行は**2つの数を別々に**出す（作者指定 8/7）。
+     ・雇っている人数 … CONF.maxStaff まで
+     ・立てる枠　　　 … 建っている階ぶん（増築すると増える）
+     ここを1つにまとめていたので、「8人まで雇えるのに枠が3つしかない」ことが
+     どこにも出ていなかった */
+  rows.push(`<p class="modal-note">部屋に人がいないと、客はそこを使えない。<br>
+    雇っている <b>${G.roster.length}／${CONF.maxStaff}人</b>　・
+    立てる枠 <b>${staffSlotsUsed()}／${staffSlotsTotal()}</b>　・
+    人件費 <b>${yen(wages)}</b>／日</p>`);
+  // 章が「バイト以外の立ち手」を持っていれば、その持ち場をここで選ばせる（第2章＝妻）
+  rows.push(chHook('staffMgrTop') || '');
+
+  areas.forEach((a, f) => {
+    if (a.home) return;
+    const isDesk = f === playerArea();
+    const here = G.roster.filter(e => e.f != null && (e.f | 0) === f);
+    const max = a.staffMax || 1;
+    /* 章の立ち手（第2章＝妻）も**バイトと同じ扱い**（作者指定 8/7）＝
+       その階の1枚として並び、枠も1つ使う。上に独立した欄は作らない */
+    const extra = chHook('areaStaffCard', f) || '';
+    const used = here.length + (chHook('areaExtraWorker', f) | 0);
+    const open = Math.max(0, max - used);
+    const closed = !isDesk && !used;
+    /* 空いている枠は**空いたまま描く**（作者指定 8/7）。
+       押せば、そこに立たせる人を選べる＝「枠が余っている」ことが絵で分かる */
+    const slots = [];
+    for (let i = 0; i < open; i++) {
+      const on = smPickF === f && i === 0;   // 開いているのは先頭の枠（一覧はその下に出る）
+      slots.push(`<button class="sm-slot${on ? ' on' : ''}" data-f="${f}">${on ? '×' : '＋'}<span>${
+        on ? '閉じる' : 'スタッフを配置'}</span></button>`);
+    }
+    rows.push(`<div class="sm-area${closed ? ' closed' : ''}">
+      <div class="sm-area-h"><b>${a.name}</b>
+        <span class="${closed ? '' : open ? 'sm-free' : 'sm-full'}">${
+          closed ? '🚫 利用不可' : `${used}／${max}人`}</span></div>
+      ${isDesk && !here.length ? '<p class="sm-note">主人公が番台で会計をしている。バイトを足せば、掃除と客あしらいが回る</p>' : ''}
+      ${chHook('staffAreaNote', f, here) || ''}
+      ${extra}
+      ${here.map(e => staffCard(e)).join('')}
+      ${slots.join('')}
+      ${smPickF === f ? staffPickList(f) : ''}
+    </div>`);
+  });
+
+  if (free.length) rows.push(`<div class="sm-area"><div class="sm-area-h"><b>持ち場なし</b>
+    <span>${free.length}人</span></div>
+    <p class="sm-note">給料は出ているが、どの部屋も開けていない</p>
+    ${free.map(e => staffCard(e)).join('')}</div>`);
+
+  box.innerHTML = rows.join('');
+  // data-i を持たない札（章の立ち手＝妻）は、章のほうが繋ぐ
+  box.querySelectorAll('.sm-card[data-i]').forEach(el => {
+    el.onclick = () => { $('staffMgrModal').classList.add('hidden'); openStaffPanel(G.roster[+el.dataset.i]); };
+  });
+  box.querySelectorAll('.sm-slot').forEach(el => {
+    el.onclick = () => { const f = +el.dataset.f; smPickF = (smPickF === f) ? null : f; renderStaffMgr(); };
+  });
+  box.querySelectorAll('.sm-pick').forEach(el => {
+    el.onclick = () => {
+      const e = G.roster[+el.dataset.i], f = +el.dataset.f;
+      e.f = f; chHook('onStaffPost', e, f);
+      smPickF = null; saveGame(); renderStaffMgr();
+    };
+  });
+  /* 【＋】を開いたのに立たせられる人がいない、という行き止まりを作らない＝
+     その場から求人を出せるようにしておく（下の【運営】タブのボタンと同じ処理） */
+  const jb = box.querySelector('.sm-hire');
+  if (jb) jb.onclick = () => {
+    if (G.jobAdDay) return;
+    if (G.cash < 50000) { toast('広告費が足りない'); return; }
+    G.cash -= 50000; G.jobAdDay = G.day + 2;
+    log('📰 求人広告を出した（' + yen(50000) + '）。2日後の朝、応募が来る');
+    toast('📰 求人広告を出した');
+    smPickF = null; updateTopbar(); saveGame(); renderStaffMgr();
+  };
+  chHook('staffMgrBind', box);          // 章が足したボタンを繋ぎ直す（innerHTML で消えるため）
+}
+/* 【＋】を押したときに開く、その階に立たせられる人の一覧。
+   **持ち場なしの人が先、他の階から動かす人が後**（動かせば、その階が1人減る） */
+function staffPickList(f) {
+  const a = (CONF.areas || [])[f] || {};
+  const ok = e => chHook('canStaffArea', e, f) !== false;
+  const free = G.roster.filter(e => e.f == null && ok(e));
+  const move = G.roster.filter(e => e.f != null && (e.f | 0) !== f && ok(e));
+  const row = (e, sub) => `<button class="sm-pick" data-i="${G.roster.indexOf(e)}" data-f="${f}">
+    <span class="sm-face">${staffFace(e)}</span>
+    <div><b>${e.name}</b>${sexTag(e)}${e.night ? '<span class="sm-night">🌙深夜可</span>' : ''}
+      <span class="shop-price">${yen(e.wage)}</span><br>
+      <span class="shop-desc">${skillLine(e)}${sub ? `<br>${sub}` : ''}</span></div></button>`;
+  const out = [];
+  // 章の立ち手（第2章＝妻）も、ここに同じ形で並ぶ。彼女もどこかの階から動いてくる
+  const ex = chHook('extraPickRows', f) || '';
+  if (free.length) out.push(free.map(e => row(e, null)).join(''));
+  if (ex || move.length) out.push(`<p class="sm-note">ほかの階から動かす</p>` + ex
+    + move.map(e => row(e, `いまは ${staffAreaName(e)}`)).join(''));
+  if (!ex && !free.length && !move.length) {
+    /* 立たせられる人が1人もいない。**なぜ居ないのか**で言い分ける＝
+       「雇えないのか」「女湯だから駄目なのか」が分からないまま止まらせない */
+    const why = a.femaleOnly
+      ? `${a.name}に立てるのは女性だけ。いま動かせる女性がいない`
+      : G.roster.length >= CONF.maxStaff
+      ? `バイトは上限の${CONF.maxStaff}人。誰かを他の階から動かすしかない`
+      : '立たせられる人がいない';
+    out.push(`<p class="sm-note">${why}</p>`);
+  }
+  if (G.roster.length < CONF.maxStaff) {
+    out.push(G.jobAdDay
+      ? `<p class="sm-note">📰 求人を出している（2日後の朝、応募が来る）</p>`
+      : `<button class="opt-btn sm-hire">📰 求人広告を出す（${yen(50000)}）</button>`);
+  }
+  return `<div class="sm-picker">${out.join('')}</div>`;
+}
+/* 一覧に並ぶ1枚。押すと個別パネル（給料・持ち場・クビ）へ */
+function staffCard(e) {
+  const i = G.roster.indexOf(e);
+  const mood = e.sulk ? '<span class="sm-sulk">😾</span>' : '';
+  const night = e.night ? '<span class="sm-night">🌙深夜可</span>' : '';
+  return `<div class="sm-card" data-i="${i}">
+    <span class="sm-face">${staffFace(e)}</span>
+    <div><b>${e.name}</b>${sexTag(e)}${mood}${night}
+      <span class="shop-price">${yen(e.wage)}</span><br>
+      <span class="shop-desc">${skillLine(e)}<br>勤続${e.days || 0}日／働きぶり${e.skill || 40}</span></div>
+    <span class="sm-go">›</span></div>`;
+}
+
 /* スタッフ個別パネル：給料変更（500円単位）とクビ */
 function openStaffPanel(emp) {
   if (!G.roster.includes(emp)) return;
   G.paused = true;
-  $('staffTitle').textContent = `🧑‍🔧 ${emp.name}`;
+  $('staffTitle').textContent = `${staffFace(emp)} ${emp.name}`;
   const mood = emp.sulk ? '／😾ふてくされ中（給料を上げれば機嫌が直る）' : '';
-  $('staffInfo').innerHTML = `${emp.desc}<br>真面目${'★'.repeat(emp.maji)}　スピード${'★'.repeat(emp.spd)}　愛想${'★'.repeat(emp.aiso)}<br>` +
-    `日給 <b>${yen(emp.wage)}</b>／働きぶり ${emp.skill}／勤続${emp.days || 0}日${mood}`;
+  const post = CONF.staffRooms ? `<br>持ち場 <b>${staffAreaName(emp) || '（未定）'}</b>` : '';
+  $('staffInfo').innerHTML = `${emp.desc}${sexTag(emp)}<br>${skillLine(emp)}<br>` +
+    `日給 <b>${yen(emp.wage)}</b>／働きぶり ${emp.skill}／勤続${emp.days || 0}日${mood}${post}`;
   const box = $('staffActions');
   box.innerHTML = '';
+
+  /* 第2章：持ち場を選ぶ。**その部屋に人がいないと、客は入れない。**
+     女湯には女性しか立てない。すでに誰かが立っている部屋は選べない（1部屋1人） */
+  if (CONF.staffRooms) {
+    const posts = document.createElement('div');
+    posts.className = 'post-pick';
+    posts.innerHTML = '<p class="modal-note">持ち場（この部屋を開けられる）</p>';
+    (CONF.areas || []).forEach((a, f) => {
+      if (a.home) return;                                      // 家だけは持ち場にならない
+      const b = document.createElement('button');
+      b.className = 'opt-btn' + (emp.f === f ? ' on' : '');
+      /* ロビーだけは主人公と2人で立てる（番台の2人目・掃除・券売機の案内）。
+         ほかの部屋は1部屋1人＝すでに誰か立っていれば選べない */
+      /* 部屋ごとに立てる人数（区画データの staffMax）。
+         食堂だけ4人＝調理2＋ホール2（作者指定）。書いていない部屋は1人 */
+      const desk = f === playerArea();
+      const max = a.staffMax || 1;
+      const here = G.roster.filter(e => e !== emp && e.f != null && (e.f | 0) === f);
+      const full = here.length >= max;
+      const ok = chHook('canStaffArea', emp, f) !== false;
+      b.textContent = a.name + (max > 1 ? `（${here.length + (emp.f === f ? 1 : 0)}／${max}人）`
+                                        : here.length ? `（${here[0].name}）` : '');
+      b.disabled = (full && emp.f !== f) || !ok;
+      if (!ok) b.title = '女湯に立てるのは女性だけ';
+      b.onclick = () => { emp.f = f; chHook('onStaffPost', emp, f); saveGame(); openStaffPanel(emp); };
+      posts.appendChild(b);
+    });
+    box.appendChild(posts);
+
+    /* その部屋に役割があるなら選ばせる（食堂＝調理／ホール）。
+       **「調理担当をどこで決めるのか分からない」** という詰まり方をしていたので、
+       持ち場のすぐ下に、同じ形のボタンで並べる                              */
+    const a = (CONF.areas || [])[emp.f | 0];
+    if (emp.f != null && a && a.jobs) {
+      const jw = document.createElement('div');
+      jw.className = 'post-pick';
+      jw.innerHTML = `<p class="modal-note">役割（${a.name}）</p>`;
+      for (const [key, label, cap] of a.jobs) {
+        const n = G.roster.filter(e => e !== emp && (e.f | 0) === (emp.f | 0)
+                                    && (e.job || a.jobs[0][0]) === key).length;
+        const b2 = document.createElement('button');
+        b2.className = 'opt-btn' + ((emp.job || a.jobs[0][0]) === key ? ' on' : '');
+        b2.textContent = `${label}（${n + ((emp.job || a.jobs[0][0]) === key ? 1 : 0)}／${cap}人）`;
+        b2.disabled = n >= cap && (emp.job || a.jobs[0][0]) !== key;
+        b2.onclick = () => { emp.job = key; saveGame(); openStaffPanel(emp); };
+        jw.appendChild(b2);
+      }
+      box.appendChild(jw);
+    }
+  }
+
   const wrap = document.createElement('div');
   wrap.className = 'loan-actions';
   const bDown = document.createElement('button'); bDown.className = 'big-btn'; bDown.textContent = '💴 −¥500';
@@ -7584,13 +10923,16 @@ function maybeStaffRaise() {
 }
 
 /* ============ セーブ ============ */
+/* セーブ先は章ごとに別（js/chapter.js の saveKey()）。
+   第1章のセーブは第2章から見えないし、上書きもされない。
+   SAVE_KEY は昔のコードが参照していた名残（＝第1章のキーそのもの）として残してある */
 const SAVE_KEY = 'orenoSauna_v1';
 function saveGame() {
   const data = {
     day: G.day, cash: G.cash, debt: G.debt, rep: G.rep, name: G.name,
     loanPending: G.loanPending, loanArrive: G.loanArrive, loanInToday: G.loanInToday || 0, profitStreak: G.profitStreak,
     ceilHist: G.ceilHist || [], satHist: G.satHist || [], repHist: G.repHist || [], repBonus: G.repBonus || 0,
-    flags: G.flags, seenEq: G.seenEq, dirts: G.dirts, opts: G.opts, staffCount: G.staffCount, kito: G.kito,
+    flags: G.flags, seenEq: G.seenEq, dirts: G.dirts, junk: G.junk, stam: G.stam, opts: G.opts, staffCount: G.staffCount, kito: G.kito,
     tadokoro: G.tadokoro, kuroda: G.kuroda, reina: G.reina, yami: G.yami, najimi: G.najimi, oyajiRel: G.oyajiRel,
     lastWorthFee: G.lastWorthFee, lastWorthSauna: G.lastWorthSauna,
     recentProfits: G.recentProfits, recentUtil: G.recentUtil, recentGripes: G.recentGripes, recentSegSat: G.recentSegSat, roughDays: G.roughDays,
@@ -7599,15 +10941,17 @@ function saveGame() {
     cashAtDayStart: G.cashAtDayStart, regulars: G.regulars, careNext: G.careNext, careCount: G.careCount, careAmt: G.careAmt,
     tadokoroPenaltyUntil: G.tadokoroPenaltyUntil,
     roster: G.roster, jobAdDay: G.jobAdDay, nappa: G.nappa, premium: G.premium,
-    equip: G.equip.map(e => ({ id: e.id, x: e.x, y: e.y, rot: e.rot || 0, cond: e.cond, temp: e.temp, fault: e.fault })),
+    ch2: G.ch2,                    // 第2章の開業状況（第1章のセーブには入らない）
+    // f＝その設備がある区画（第1章は全部0）
+    equip: G.equip.map(e => ({ id: e.id, x: e.x, y: e.y, rot: e.rot || 0, cond: e.cond, f: e.f | 0, temp: e.temp, fault: e.fault })),
   };
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) {}
+  try { localStorage.setItem(saveKey(), JSON.stringify(data)); } catch (e) {}
 }
 function loadGame() {
   try {
-    const d = JSON.parse(localStorage.getItem(SAVE_KEY));
+    const d = JSON.parse(localStorage.getItem(saveKey()));
     if (!d) return false;
-    Object.assign(G, { day: d.day, cash: d.cash, debt: d.debt, rep: d.rep, name: d.name, flags: d.flags || {}, seenEq: d.seenEq || {}, dirts: d.dirts || [] });
+    Object.assign(G, { day: d.day, cash: d.cash, debt: d.debt, rep: d.rep, name: d.name, flags: d.flags || {}, seenEq: d.seenEq || {}, dirts: d.dirts || [], junk: d.junk || [], stam: d.stam ?? null });
     // 融資の新システム（旧セーブには無い＝振込待ちなし。旧debtはそのまま「残り返済額」として引き継ぐ）
     G.loanPending = d.loanPending || 0; G.loanArrive = d.loanArrive || 0; G.loanInToday = d.loanInToday || 0; G.profitStreak = d.profitStreak || 0;
     G.ceilHist = Array.isArray(d.ceilHist) ? d.ceilHist : [];   // 評判の行き先の直近履歴（旧セーブは空でOK＝初日から積み直す）
@@ -7624,7 +10968,13 @@ function loadGame() {
           desc: p.desc, wage: staffWageOf(p), days: 5, skill: 50, sulk: false, raiseAsk: false, raiseAmt: 0, raiseNo: 0 }));
     G.jobAdDay = d.jobAdDay || 0;
     G.nappa = d.nappa || null;
-    G.premium = d.premium || { autoRepair: false };   // 課金コンテンツの所持状況（オート修理）
+    /* 第2章の開業状況。第1章のセーブには無いので null のまま＝何も変わらない。
+       第2章のセーブなのに入っていない（開業フローより前に作った）ときは、開業済みとして読む */
+    G.ch2 = d.ch2 || chHook('legacyCh2') || null;
+    /* 課金コンテンツ（オート修理）は章をまたいで共有する＝正はセーブの中ではなく localStorage の共有キー。
+       共有キーがまだ無い旧セーブだけ、中の記録を共有キーへ引き上げる（すでに買った人が失わないように） */
+    migratePremiumFromSave(d.premium);
+    G.premium = loadPremium();
     G.kito = { ...newKito(), ...(d.kito || {}) };
     G.tadokoro = { ...newTadokoro(), ...(d.tadokoro || {}) };
     /* 名乗ったのに次の来訪が先すぎるセーブを引き上げる。旧版は名乗りの2〜4日後を予約していて、
@@ -7662,15 +11012,18 @@ function loadGame() {
     if (G.tadokoro.resolved) G.solved.tadokoro = true;
     if (G.kuroda.resolved) G.solved.kuroda = true;
     if (G.reina.resolved && G.reina.ally) G.solved.reina = true;   // 仲間化で解決（売却エンドは ally=false のまま）
+    applyArea(0, true);        // 間取り（CONF.W/H）を1つ目の区画に合わせてから設備を読む
     G.equip = d.equip
       .map(e => ID_ALIAS[e.id] ? { ...e, id: ID_ALIAS[e.id] } : e)   // 旧IDを今のIDに読み替える（化粧水→洗面所）
       .filter(e => EQ[e.id])                  // 廃止/未知IDの設備は読み飛ばす（第2章送りのマット系など）
       // 温度を設定できるのはドライサウナだけになったので、
       // 昔のセーブで浴槽・水風呂・ミスト・塩に入っていた設定値は捨てて設備の既定に戻す
-      .map(e => ({ uid: ++G.uidN, ...e, rot: e.rot || 0, occ: Array(EQ[e.id].cap).fill(null),
+      .map(e => ({ uid: ++G.uidN, ...e, rot: e.rot || 0, f: e.f | 0, occ: Array(EQ[e.id].cap).fill(null),
         temp: canSetTemp(EQ[e.id]) ? (e.temp ?? EQ[e.id].temp) : EQ[e.id].temp }));
     /* 化粧水・乳液は1マスだったが、洗面所は2マス。右隣が壁や他の設備で埋まっていると置けないので、
-       その場合だけ撤去して代金を返す（黙って消して損をさせない） */
+       その場合だけ撤去して代金を返す（黙って消して損をさせない）。
+       ※これは第1章の旧セーブを直すための処理。第2章には 'sink' という設備が無いので通さない */
+    if (G.chapter === 1) {
     const covers = (o, x, y) => x >= o.x && x < o.x + ew(o.id, o.rot) && y >= o.y && y < o.y + eh(o.id, o.rot);
     // 旧セーブにドライヤーと化粧水の両方があると洗面所が2つできるので、洗面所どうしの重なりも見る
     const others = G.equip.filter(e => e.id !== 'sink'), kept = [];
@@ -7689,19 +11042,62 @@ function loadGame() {
       let sp = !taken(CONF.W - 2, CONF.H - 2) ? { x: CONF.W - 2, y: CONF.H - 2 } : null;
       for (let y = CONF.H - 2; y >= CONF.divideY && !sp; y--)
         for (let x = CONF.W - 2; x >= 1 && !sp; x--) if (!taken(x, y)) sp = { x, y };
-      if (sp) G.equip.push({ uid: ++G.uidN, id: 'toilet_old', x: sp.x, y: sp.y, rot: 0, cond: 35,
+      if (sp) G.equip.push({ uid: ++G.uidN, id: 'toilet_old', x: sp.x, y: sp.y, rot: 0, cond: 35, f: 0,
                              occ: [], temp: undefined, fault: undefined });
     }
+    }   // ← 第1章の旧セーブ移行はここまで
+    /* 章が「間取りを変えた」ときの引っ越し。**セーブの座標は前の間取りのまま**なので、
+       盤面の広さや仕切りの位置を動かした章は、ここで自分のセーブを移し替える。
+       フックを持たない章（第1章）は素通り＝1マスも動かない */
+    chHook('migrateEquip');
+    fixEquipOverlap();
     return true;
   } catch (e) { return false; }
 }
 
+/* 設備の大きさを作り替えたときの後始末（作者指定 8/5 の小/中/大ロッカーで実際に起きた）。
+   1マスだった品を2マスにすると、**古いセーブでは隣の設備と重なる**。
+   重なったまま読むと、通路の判定も客の経路も壊れる（画面では気づけない）。
+   ・同じ階で空いている場所へ**そっと動かす**（近いところから探す）
+   ・どこにも入らないものだけ**撤去して代金を返す**（黙って消して損をさせない）      */
+function fixEquipOverlap() {
+  const spanX = e => ew(e.id, e.rot), spanY = e => eh(e.id, e.rot);
+  const hit = (a, b) => a.f === b.f && a.x < b.x + spanX(b) && a.x + spanX(a) > b.x
+                                    && a.y < b.y + spanY(b) && a.y + spanY(a) > b.y;
+  const all = G.equip, placed = [], moved = [], sold = [];
+  for (const e of all) {
+    if (!placed.some(o => hit(e, o))) { placed.push(e); continue; }
+    /* 置き直し先は**本番と同じ判定**（placeCheck）で探す＝浴室のものは浴室、
+       脱衣所のものは脱衣所、エレベーターの前は空ける…がそのまま効く。
+       判定のあいだだけ G.equip を「すでに確定した分」に差し替える（自分自身とぶつからないように） */
+    const back = G.actF;
+    G.equip = placed; applyArea(e.f | 0, true);
+    let spot = null;
+    for (let r = 1; r <= 14 && !spot; r++) {
+      for (let dy = -r; dy <= r && !spot; dy++) for (let dx = -r; dx <= r && !spot; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const nx = e.x + dx, ny = e.y + dy;
+        const c = placeCheck(e.id, nx, ny, null, e.rot || 0);
+        if (c && c.ok) spot = { x: nx, y: ny };
+      }
+    }
+    applyArea(back, true); G.equip = all;
+    if (spot) { e.x = spot.x; e.y = spot.y; placed.push(e); moved.push(EQ[e.id].name); }
+    else { G.cash += eqPrice(e.id); sold.push(EQ[e.id].name); }
+  }
+  if (moved.length || sold.length) G.equip = placed;
+  if (moved.length) log(`🔧 ${[...new Set(moved)].join('・')}の置き場所を直した（大きさが変わったため）`);
+  if (sold.length)  log(`📦 ${[...new Set(sold)].join('・')}は置けなくなったので撤去し、代金を返した`);
+}
+
 /* ============ ゲーム開始 ============ */
 function resetState() {
+  applyArea(0, true);          // 章を切り替えた直後は、いつも1つ目の区画から
   Object.assign(G, {
-    day: 1, cash: CONF.startCash, debt: CONF.startDebt, rep: 10, name: '夕凪湯',
+    actF: 0, viewF: 0, day: 1, cash: CONF.startCash, debt: CONF.startDebt, rep: 10,
+    name: defaultShopName(),          // 屋号の既定は章ごとに違う
     loanPending: 0, loanArrive: 0, profitStreak: 0, ceilHist: [], satHist: [], repHist: [], repBonus: 0,
-    equip: [], dirts: [], flags: {}, seenEq: {}, adBoost: 0, adBought: {},
+    equip: [], dirts: [], junk: [], stam: null, flags: {}, seenEq: {}, adBoost: 0, adBought: {},
     opts: { ...DEFAULT_OPTS }, staffCount: 0, staff: [], roster: [], jobAdDay: 0, nappa: null, paused: false,
     customers: [], payQueue: [], placing: null, selected: null,
     kito: newKito(), tadokoro: newTadokoro(), kuroda: newKuroda(), reina: newReina(), yami: newYami(),
@@ -7711,46 +11107,122 @@ function resetState() {
     lastShortfallDay: 0, solved: newSolved(),
     invBuy: 0, invMove: 0, invSell: 0, invFix: 0, cashAtDayStart: CONF.startCash,
     regulars: 0, plannedGuests: 0, stuckLogged: false, lastTurnedAway: 0,
+    /* 「勤務時間の外＝主人公は家にいる」と言ったかどうかの覚え書き（勤務時間のある章だけ使う）。
+       ここで消しておかないと、第2章で立ったまま第1章を始めたときに持ち込まれて、
+       勤務時間を持たない第1章が CONF.workHours を読みに行って落ちる */
+    offDutySaid: false,
     careNext: CONF.careFirstDay, careCount: 0, careAmt: 0, tadokoroPenaltyUntil: 0,
-    premium: G.premium || { autoRepair: false },   // 課金コンテンツはニューゲームでも引き継ぐ（買い直しをさせない）
+    // 課金コンテンツはニューゲームでも章をまたいでも引き継ぐ（買い直しをさせない）。正は共有キー
+    premium: loadPremium(),
   });
   for (const e of INIT_EQUIP)
-    G.equip.push({ uid: ++G.uidN, id: e.id, x: e.x, y: e.y, rot: 0, cond: e.cond, temp: EQ[e.id].temp, occ: Array(EQ[e.id].cap).fill(null) });
+    G.equip.push({ uid: ++G.uidN, id: e.id, x: e.x, y: e.y, rot: e.rot || 0, cond: e.cond, f: e.f | 0,
+                   temp: EQ[e.id].temp, occ: Array(EQ[e.id].cap).fill(null) });
   refreshDead();
-  // 初期の汚れ
-  G.dirts = [{ x: 3, y: 3 }, { x: 5, y: 5 }, { x: 8, y: 6 }, { x: 3, y: 8 }, { x: 9, y: 4 }, { x: 6, y: 2 }];
+  // 初期の汚れ（章ごとに違う。第1章は従来どおり）
+  // f＝その汚れがある区画（第1章は全部0）
+  G.dirts = chHook('initDirts') || [{ x: 3, y: 3, f: 0 }, { x: 5, y: 5, f: 0 }, { x: 8, y: 6, f: 0 },
+             { x: 3, y: 8, f: 0 }, { x: 9, y: 4, f: 0 }, { x: 6, y: 2, f: 0 }];
+  // 開店前のゴミ・瓦礫（第2章だけ。マップ上をタップして主人公に運ばせる）
+  G.junk = chHook('initJunk') || [];
+  restStamina();                     // 体力のある章は満タンから始める
+  // 章ごとの開始処理（第2章＝物件の代金を払う）
+  G.ch2 = null;
+  chHook('onNewGame');
 }
 
 function initUI() {
   Story.init();
-  // タイトル：章の選択 → 第1章を選ぶと「はじめから／つづきから」を出す
-  if (localStorage.getItem(SAVE_KEY)) $('btnContinue').classList.remove('hidden');
-  $('btnChapter1').onclick = () => {
+  /* 課金コンテンツ（オート修理）は章をまたいで共有する。
+     セーブを読む前に一度だけ読み込んでおく＝タイトル画面の時点でもう「買ってある」状態になる */
+  G.premium = loadPremium();
+  // どの章も選ばれていない起動直後は、第1章のデータを入れておく（applyChapter(1) は元の値を入れるだけ）
+  applyChapter(1);
+  /* タイトル：章の選択 → 章を選ぶと「はじめから／つづきから」を出す。
+     セーブがある章では、その下に「はじめからだと消える」という注意書きも出す（作者指定 8/7） */
+  const showTitleStart = () => {
+    const has = !!localStorage.getItem(saveKey());
+    $('btnContinue').classList.toggle('hidden', !has);
+    $('newGameWarn').classList.toggle('hidden', !has);
     $('titleChapters').classList.add('hidden');
     $('titleStart').classList.remove('hidden');
   };
-  $('btnChapter2').onclick = () => toast('「独立開業編」は近日公開！　いまは第1章をどうぞ');
+  if (localStorage.getItem(saveKey())) $('btnContinue').classList.remove('hidden');
+  $('btnChapter1').onclick = () => {
+    applyChapter(1);
+    showTitleStart();   // その章のセーブがあるときだけ「つづきから」と注意書きを出す（章ごとに別のセーブ）
+  };
+  /* 第2章のボタン。名前は「いま読み込まれている第2章」から取る（index.html の束を入れ替えれば追従する）。
+     第2章の束を1つも読み込んでいないときは CHAPTERS[2] が無い＝ロックしたまま、押しても案内を出すだけ */
+  const ch2Name = CHAPTERS[2] ? CHAPTERS[2].name : '第2章';
+  $('btnChapter2').onclick = () => toast('「' + ch2Name + '」は近日公開！　いまは第1章をどうぞ');
+  /* 【制作中の第2章を見るための入口】
+     開発機（このMacの開発サーバー）で開いたときだけ、第2章が押せるようになる。
+     配信するアプリ（iOS/Android のビルド）では、今までどおりロックのまま＝
+     第1章で遊んでいる人には何も見えない。
+
+     見分け方は「http で・localhost に・ポート番号を付けて」開いているか。
+     Capacitor で包んだアプリも中身は localhost を名乗るが、
+     ポート番号は付かない（iOS は capacitor:// スキーム）ので、ここには入らない。
+     URL に ?ch2 を付ける昔のやり方も、そのまま残してある                        */
+  const onDevServer = location.protocol === 'http:'
+    && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    && location.port !== '';
+  if ((onDevServer || location.search.indexOf('ch2') >= 0) && CHAPTERS[2]) {
+    const b = $('btnChapter2');
+    b.classList.remove('locked');
+    b.innerHTML = ch2Name + '<span class="soon">（制作中）</span>';
+    b.onclick = () => { applyChapter(2); showTitleStart(); };
+  }
+  // 実際にサウナ施設をやっている人向けの案内（施設のゲーム化）。外部サイトを別タブで開く
+  $('btnForOwners').onclick = () => window.open(OWNER_LINK, '_blank', 'noopener');
   $('btnChapterBack').onclick = () => {
     $('titleStart').classList.add('hidden');
     $('titleChapters').classList.remove('hidden');
   };
   $('btnNewGame').onclick = () => {
+    /* セーブがある章で「はじめから」＝その店は消える（新しい1日目を保存した時点で上書きされる）。
+       押す前に、何日目のどの店が消えるのかを見せて確認する（作者指定 8/7）。
+       「つづきから」の押し間違いで60日の店を失う、という取り返しのつかない事故を防ぐ。
+       **ブラウザの confirm は使わない**（環境によっては何も出さずに false を返す＝
+       「はじめから」を押しても始まらない、という別の事故になった。作者報告 8/7） */
+    const raw = localStorage.getItem(saveKey());
+    if (raw) {
+      let d = null; try { d = JSON.parse(raw); } catch (e) { /* 壊れたセーブは中身を出さない */ }
+      // 中身が読めた時だけ「何日目のどの店か」を出す（読めない時は言い切らない）
+      const what = d && d.name ? `${d.day ? d.day + '日目の' : ''}「${d.name}」のセーブデータ`
+                              : 'いまのセーブデータ';
+      $('newGameInfo').innerHTML = `${what}は消えます。<br>はじめからやり直しますか？<br><br>`
+        + `<span class="opt-sub">続きを遊ぶなら「つづきから」を選んでください。</span>`;
+      $('newGameModal').classList.remove('hidden');
+      return;
+    }
+    startNewGame();
+  };
+  $('btnNewGameNo').onclick = () => $('newGameModal').classList.add('hidden');
+  $('btnNewGameYes').onclick = () => { $('newGameModal').classList.add('hidden'); startNewGame(); };
+  // 「はじめから」の本体（確認を通ったあと、または消えるセーブが無いとき）
+  function startNewGame() {
     $('title').classList.add('hidden');
     resetState();
-    Story.play(STORY_INTRO, () => $('nameModal').classList.remove('hidden'));
-  };
+    const intro = chHook('introStory') || STORY_INTRO;
+    // 台本が空のときは物語を飛ばして、いきなり屋号決めへ（制作中の章を何度も通すため）
+    if (!intro.length) { openNameModal(); return; }
+    Story.play(intro, openNameModal);
+  }
   $('btnContinue').onclick = () => {
     if (!loadGame()) { toast('セーブデータが読めなかった'); return; }
+    /* 章側が画面遷移まで面倒を見る場合は truthy（第2章：廃業後の再開抑止と
+       ED未再生セーブの再生＝ending_y.js）。フックが無い章は従来どおり */
+    if (chHook('continueLoaded')) return;
     $('title').classList.add('hidden');
     $('game-ui').classList.remove('hidden');
     enterPrep();
   };
-  // 屋号
-  document.querySelectorAll('.name-suggests .chip').forEach(b =>
-    b.onclick = () => $('nameInput').value = b.dataset.name);
+  // 屋号（見出し・説明・候補は章ごとに違う＝openNameModal が組み立てる）
   $('btnNameOk').onclick = () => {
     const v = $('nameInput').value.trim();
-    G.name = v || '夕凪湯';
+    G.name = v || defaultShopName();
     $('nameModal').classList.add('hidden');
     $('game-ui').classList.remove('hidden');
     G.flags.intro = true;
@@ -7759,6 +11231,11 @@ function initUI() {
   };
   // 準備アクション
   $('btnOpen').onclick = () => {
+    /* 第2章にも【開業準備】のボードは無い（作者指定）＝初日から営業開始。
+       ゴミだらけのまま開けてもいい。どうなるかは、その日の客が教えてくれる */
+    /* 定休日は店を開けない＝その一日をどう使うかを決める画面へ（第2章）。
+       ボタンの文字も【🚪 今日は定休日】に変えてあるので、押し間違いにはならない */
+    if (chHook('offDay')) return;
     if (!G.equip.some(e => EQ[e.id].cat === 'locker' && e.cond > 0)) { toast('使えるロッカーがないと開店できない！'); return; }
     if (!(hasCat('furo') || hasCat('sauna'))) { toast('風呂もサウナもない…これでは銭湯じゃない！'); return; }
     deselect(); endPlacing(); G.placing = null;
@@ -7783,9 +11260,25 @@ function initUI() {
     $('sendenModal').classList.remove('hidden');
   };
   $('btnSendenClose').onclick = () => $('sendenModal').classList.add('hidden');
+  // 妻のひと言（第2章）。中身と結果は章のほうが決める
+  if ($('btnWifeGo')) $('btnWifeGo').onclick = () => chHook('wifeAnswer', true);
+  if ($('btnWifeNo')) $('btnWifeNo').onclick = () => chHook('wifeAnswer', false);
+  /* 誰も採らずに閉じようとした時のひと押し。**ブラウザの confirm は使わない**（作者指定 8/7）＝
+     環境によっては何も出さずに false を返し、「閉じられない」と受け取られる。
+     ここは一度だけ聞いて、もう一度押されたらそのまま閉じる（画面を増やさない） */
   $('btnJobClose').onclick = () => {
-    if (!jobHiredThisRound && !confirm('誰も採用しなくていいですか？\n求人広告費が無駄になります')) return;
+    if (!jobHiredThisRound && !jobCloseAsked) {
+      jobCloseAsked = true;
+      $('btnJobClose').textContent = '本当に採用しない（広告費は戻らない）';
+      toast('誰も採用しないなら、もう一度押す');
+      return;
+    }
+    jobCloseAsked = false;
     $('jobModal').classList.add('hidden');
+    /* 採った人がいるなら、そのままバイト管理画面へ（作者指定 8/8）＝
+       「誰をどこに立たせたか」を、面接のすぐあとに一覧で確かめられる。
+       持ち場のない章（第1章）はこの画面を持たないので、これまでどおり閉じて終わり */
+    if (jobHiredThisRound && CONF.staffRooms) { openStaffMgr(); return; }
     if (G.phase === 'biz') { G.paused = false; $('btnPause').textContent = '⏸ 一時停止'; }
   };
   $('btnStaffClose').onclick = () => {
@@ -7793,9 +11286,12 @@ function initUI() {
     if (G.phase === 'biz') { G.paused = false; $('btnPause').textContent = '⏸ 一時停止'; }
   };
   const openLoan = () => {
+    loanHost(null);   // 運営メニューへ貸し出したままなら、必ずモーダルへ返してから開く
     /* 初回だけ、まず信用金庫に断られる場面を挟む（作者指定）。
        「銀行は選択肢にない」ことを説明文ではなく場面で分からせてから、サラ金の欄を見せる */
-    if (!G.flags.bankIntro) {
+    /* ただし**銀行が本当に貸してくれる章**（CONF.kouko がある＝第2章）では、この場面は流さない。
+       断られる話ではないので、いきなり融資課の欄を開く */
+    if (!G.flags.bankIntro && !CONF.kouko) {
       G.flags.bankIntro = true; saveGame();
       Story.play(STORY_BANK_INTRO, () => { renderLoan(); openPausedModal('loanModal'); });
       return;
@@ -7804,6 +11300,33 @@ function initUI() {
   };
   $('btnLoan').onclick = openLoan;
   $('btnLoanBiz').onclick = openLoan;   // 営業中も借りられる（運営とデータの間・作者指定）
+  // 臨時休業（第2章）。今日を休みにする＝逃げ道はあるが、常連が減って評判も落ちる
+  /* 第2章＝【今日は何をする？】をもう一度開く（臨時休業は廃止して、朝の選択に吸収した）。
+     第1章はこのフックを持たないので、これまでどおり何も起きない */
+  $('btnKyugyo').onclick = () => chHook('offDayAgain') || chHook('kyugyo');
+  $('btnOffdayClose').onclick = () => chHook('offdayClose');
+  // 第2章の開業準備（第1章では一度も開かない）
+  $('btnKaigyoClose').onclick = () => $('kaigyoModal').classList.add('hidden');
+  // 第2章の注文（ミッション）
+  $('btnMission').onclick = () => {
+    const html = chHook('kuwataBoard') || '';
+    $('missionBody').innerHTML = html || '<p class="modal-note">いまのところ、誰も何も言ってこない。</p>';
+    openPausedModal('missionModal');
+  };
+  $('btnMissionClose').onclick = () => closePausedModal('missionModal');
+  // 第2章のバイト管理
+  $('btnStaffMgr').onclick = openStaffMgr;
+  $('btnStaffMgrClose').onclick = () => closePausedModal('staffMgrModal');
+  $('btnStaffMgrJob').onclick = () => {
+    if (G.jobAdDay) { toast('もう求人を出している（2日後の朝に来る）'); return; }
+    const cost = 50000;
+    if (G.cash < cost) { toast('広告費が足りない'); return; }
+    G.cash -= cost; G.jobAdDay = G.day + 2;
+    log(`📰 求人広告を出した（${yen(cost)}）。2日後の朝、応募が来る`);
+    toast('📰 求人広告を出した');
+    closePausedModal('staffMgrModal');
+    saveGame();
+  };
   $('btnLoanClose').onclick = () => closePausedModal('loanModal');   // 営業中に開いた時は、閉じたら再開する
   /* サラ金は審査なし・即日。10万円刻みで好きな額を、限度100万まで一度に借りられる（作者指定）。
      銀行は廃止したので、ここが唯一の資金調達口。
@@ -7812,8 +11335,11 @@ function initUI() {
     const room = CONF.sarakinMax - (G.yami.debt || 0);
     const amt = Math.min(amount, room);
     if (amt < CONF.sarakinUnit) { toast('灰田も、これ以上は貸さないと言った'); return; }
-    // 初回は店の前で灰田と会う（全画面シーン）→ その場で受け取る
-    if (!G.yami.met) {
+    // 章によっては、ここでも一度止まる（第2章＝サラ金に手を出すことに、妻はいちばん強く反対する）
+    if (chHook('askWife', 'sarakin', amt)) return;
+    /* 初回は店の前で灰田と会う（全画面シーン）→ その場で受け取る。
+       ただし**夕凪湯の場面**なので、第1章の物語を流さない章では出さない（台本ができるまで） */
+    if (!G.yami.met && !CONF.noLegacyStory) {
       $('loanModal').classList.add('hidden');
       Story.play(STORY_YAMI_INTRO, () => {
         borrowYami(amt);
@@ -7842,12 +11368,18 @@ function initUI() {
       G.invMove += mc;
       p.moving.x = p.gx; p.moving.y = p.gy; p.moving.rot = p.rot;
       if (mc) toast(`${EQ[p.id].name}を動かした（${yen(mc)}）`);
+      else if (isPortable(EQ[p.id])) toast(`${EQ[p.id].name}を動かした`);   // 担いで運んだ＝金は動かない
       endPlacing();
     } else {
       if (G.cash < eqPrice(p.id)) { toast('資金が足りない…'); return; }
+      /* 章が「買う前にひと言はさむ」仕組みを持っていれば、そこへ渡す（第2章＝妻）。
+         true が返ったら、章のほうが確認を出している＝ここでは何もしない。
+         「通す」を選んだら、章が同じ操作をもう一度呼び直す（G.ch2.wifeOK が立った状態で） */
+      if (chHook('askWife', 'equip', eqPrice(p.id), p.id)) return;
       G.cash -= eqPrice(p.id);
       G.invBuy += eqPrice(p.id);
-      G.equip.push({ uid: ++G.uidN, id: p.id, x: p.gx, y: p.gy, rot: p.rot, cond: 100, temp: EQ[p.id].temp, occ: Array(EQ[p.id].cap).fill(null) });
+      G.equip.push({ uid: ++G.uidN, id: p.id, x: p.gx, y: p.gy, rot: p.rot, cond: 100, f: G.actF,
+                     temp: EQ[p.id].temp, occ: Array(EQ[p.id].cap).fill(null) });
       p.placedN++;
       toast(`🔨 ${EQ[p.id].name}を設置した！`);
       log(`🔨 ${EQ[p.id].name}を設置した`);
@@ -7881,7 +11413,14 @@ function initUI() {
   };
   $('btnPlaceNo').onclick = endPlacing;
   // 設備選択
+  // 帯の【🏠 家へ】／【♨ 店へ】＝店と家の行き来（30分かかる）
+  $('btnHome').onclick = () => { Sfx.play('ui'); chHook('toggleHome'); };
   $('btnSelClose').onclick = deselect;
+  // 第2章：残置物の始末（売る／撤去／残す）
+  $('btnZanClose').onclick = deselect;
+  $('btnZanSell').onclick = () => chHook('decideZanchi', G.selected, 'sold');
+  $('btnZanGone').onclick = () => chHook('decideZanchi', G.selected, 'gone');
+  $('btnZanKeep').onclick = () => chHook('decideZanchi', G.selected, 'keep');
   $('btnMove').onclick = () => {
     const it = G.selected; if (!it) return;
     if (G.phase === 'biz') evictUsers(it);   // 営業中でも動かせる。使っている客はどいてもらう
@@ -7963,7 +11502,7 @@ function devStartReina() {
   G.equip = [];
   for (const [id, x, y] of DEV_REINA_LAYOUT) {
     const d = EQ[id]; if (!d) continue;
-    G.equip.push({ uid: ++G.uidN, id, x, y, rot: 0, cond: 100, temp: d.temp, occ: Array(d.cap || 0).fill(null) });
+    G.equip.push({ uid: ++G.uidN, id, x, y, rot: 0, cond: 100, f: G.actF, temp: d.temp, occ: Array(d.cap || 0).fill(null) });
   }
   refreshDead();
   G.dirts = [];
@@ -8017,6 +11556,44 @@ function toggleRack(id) {
 }
 
 let manageTab = 'fee';   // 運営メニューのタブ（料金／アメニティ／ルール）
+/* ============ 営業時間（第2章）============
+   **主人公は21時で帰る。** 24時までは、ロビーに立つバイトが受付を回している。
+   そこから先を開けるには、**深夜に立てる人間**（`night:true`）が要る。
+   雇っていなければ、この項目は鍵がかかったまま＝大手がやらない選択の入口。   */
+function nightStaffN() { return (G.roster || []).filter(e => e.night).length; }
+/* 深夜営業を開けられるか。**章が条件を持っていればそちらが正**
+   （第2章＝休憩ラウンジが建っていて、1階に深夜バイトが立っていること） */
+function nightLockWhy() {
+  if (!CONF.nightOpen) return '—';
+  const why = chHook('nightLockWhy');
+  if (why !== undefined && why !== null) return why || '';
+  return nightStaffN() > 0 ? '' : '深夜に立てるバイトがいない';
+}
+function canNightOpen() { return !!CONF.nightOpen && !nightLockWhy(); }
+function nightOpenOn() { return !!(CONF.nightOpen && G.opts.nightOpen && canNightOpen()); }
+/* 深夜が始まる時刻（既定は24時。第2章は22時＝主人公が帰る時刻から） */
+function nightStartHour() { return (CONF.nightOpen && CONF.nightOpen.openHour) || 24; }
+/* いまの閉店時刻（深夜営業なら CONF.nightOpen.closeHour ＝第2章は34時＝翌10時） */
+function closeHourNow() {
+  if (nightOpenOn()) return CONF.nightOpen.closeHour;
+  const h = chHook('closeHour');            // 第2章＝プレイヤーが決めた閉店時刻
+  return h == null ? CONF.closeHour : h;
+}
+function nightOpenRow() {
+  if (!CONF.nightOpen) return '';
+  const n = CONF.nightOpen;
+  const lock = nightLockWhy();
+  if (lock)
+    return `<div class="opt-row locked"><span>深夜営業（${n.openHour || 24}時〜翌${n.closeHour - 24}時）<br>
+      <span class="opt-sub">🔒 ${lock}</span></span>
+      <button class="opt-btn" disabled>—</button></div>`;
+  return `<div class="opt-row"><span>深夜営業（${n.openHour || 24}時〜翌${n.closeHour - 24}時）<br>
+    <span class="opt-sub">深夜料金 +¥${n.fee}／深夜割増賃金 +${Math.round((n.wageRate - 1) * 100)}%（${nightStaffN()}人）<br>
+    ${chHook('nightNote') || '運転手・仕事帰り・遠征サウナーが来る'}</span></span>
+    <span>${[['', 'なし'], ['on', '開ける']].map(([k, l]) =>
+      `<button class="opt-btn ${(G.opts.nightOpen ? 'on' : '') === k ? 'on' : ''}" data-act="nightOpen" data-v="${k}">${l}</button>`).join('')}</span></div>`;
+}
+
 function renderManage() {
   const o = G.opts;
   const box = $('manageBody');
@@ -8028,14 +11605,21 @@ function renderManage() {
     const R = act === 'fee' ? FEE_RANGE : SAUNA_FEE_RANGE;
     // 目安＝いまの設備なら客が納得して払う額。これを超えると満足度が落ちる
     const guide = act === 'fee' ? worthFee() : Math.min(SAUNA_FEE_RANGE[0] + Math.round(facilityScore() * 6), SAUNA_FEE_RANGE[1]);
+    /* スライダーは指では狙った額に止められない（作者指定 8/7）＝【−】【＋】で刻む形にした。
+       長押しで連続して動くので、端から端まででも指1本で届く */
     return `<div class="opt-row slider-row"><span>${act === 'fee' ? '入浴料' : 'サウナ料'}を決める<br>
       <span class="opt-sub">目安 ¥${guide.toLocaleString()}</span></span>
-      <span class="fee-slider"><input type="range" id="${act}Slider" min="${R[0]}" max="${R[1]}" step="${FEE_STEP}" value="${cur}">
-      <b id="${act}SliderVal">¥${cur.toLocaleString()}</b></span></div>`;
+      <span class="fee-step">
+        <button class="opt-btn step" id="${act}Minus" ${cur <= R[0] ? 'disabled' : ''}>−</button>
+        <b id="${act}SliderVal">¥${cur.toLocaleString()}</b>
+        <button class="opt-btn step" id="${act}Plus" ${cur >= R[1] ? 'disabled' : ''}>＋</button>
+      </span></div>`;
   };
   const feeBtns = feeBtnRow(FEE_OPTIONS, o.fee, o.feeCustom, 'fee');
-  // サウナ料は入浴料への上乗せ。サウナを設置して初めて設定できる
-  const saunaFeeRow = hasCat('sauna')
+  /* サウナ料は入浴料への上乗せ。サウナを設置して初めて設定できる。
+     **サウナ料を取らない章（第2章＝入館料込みのサウナ専門店）では、行ごと出さない。**
+     幅ゼロのスライダーと、取れない料金の「目安」が並んで壊れて見えていた（作者指摘 8/5） */
+  const saunaFeeRow = CONF.noSaunaFee ? '' : hasCat('sauna')
     ? `<div class="opt-row"><span>サウナ料<br><span class="opt-sub">目安 ¥${worthSaunaFee()}。高すぎるとサウナ客が減る</span></span><span>${
         feeBtnRow(SAUNA_FEE_OPTIONS, o.saunaFee, o.saunaFeeCustom, 'saunaFee')
       }</span></div>` + (o.saunaFeeCustom ? feeSlider('saunaFee', o.saunaFee) : '')
@@ -8073,12 +11657,15 @@ function renderManage() {
     }</span></div>` : '');
   /* 子供料金（作者指定）。「刺青・ヤクザお断り」を掲げると子連れの家族が来るようになる＝
      そこで初めて効いてくる料金なので、掲げていない間はその旨を添えておく */
-  // 上限＝ガチャガチャ・絵本の棚を置いた数（0個なら¥100まで）。超えると家族連れが来ない（作者指定）
-  const kidGuide = kidFeeCap(), kidN = kidsGoods().length;
+  // 上限＝子ども向けの備品の数（第2章は評判も要る）。超えると家族連れが来ない（作者指定）
+  const kidGuide = kidFeeCap(), kidN = kidsGoods().length, kidNext = kidFeeNext();
   const kidFeeRow =
     `<div class="opt-row"><span>子供料金<br><span class="opt-sub">${
-      kidN >= KID_FEES.length - 1 ? `上限¥${kidGuide}　子ども向けの備品${kidN}個`
-      : `上限¥${kidGuide}（子ども向けの備品${kidN}個）　あと1個で¥${KID_FEES[kidN + 1]}`
+      !kidNext ? `上限¥${kidGuide}　子ども向けの備品${kidN}個`
+      : `上限¥${kidGuide}（備品${kidN}個）　¥${kidNext.price}には` + [
+          kidNext.rep ? `評判${kidNext.rep}` : '',
+          kidNext.need ? `備品${kidNext.need}個` : '',
+        ].filter(Boolean).join('と')
     }</span></span><span>${KID_FEES.map(pp =>
       `<button class="opt-btn ${o.kidFee === pp ? 'on' : ''}" data-act="kidFee" data-v="${pp}">¥${pp}</button>`).join('')}</span></div>`;
   const priceRow = (act, label, cur) =>
@@ -8089,19 +11676,31 @@ function renderManage() {
   /* 3つのタブに分ける（作者指定）。1本のリストに全部並べると1.2画面ぶんになり、
      料金を触りに来ただけでも垢すりタオルのトグルまで通り過ぎることになる。
      見る目的が違う（料金＝客足と売上／アメニティ＝経費と満足度／ルール＝1個）ので、混ぜない */
-  const tabs = [['fee', '💴 料金'], ['amen', '🧴 アメニティ'], ['rule', '🚪 ルール']];
-  const tabBar = `<div class="opt-tabs">` + tabs.map(([k, l]) =>
+  /* **バイトは【運営】の中に入れる**（作者指定 8/2）。
+     準備画面のボタンが多すぎたので、料金・アメニティ・ルールと同じ棚へ移した */
+  /* **アメニティは料金タブの中へ**（作者指定 8/2）。
+     タオルもシャンプーも「いくら取るか」の話なので、料金と同じ棚でいい */
+  /* **融資も【運営】の中に入れる**（作者指定 8/8）。
+     準備画面の下のボタンが5つに増えて折り返していたので、バイトと同じ棚へ移した。
+     `loanInManage` を持たない章（第1章）はタブが増えず、ボタンも下に残る＝これまでどおり */
+  const tabs = [['fee', '💴 料金'], ['rule', '🚪 ルール']]
+    .concat(CONF.staffRooms ? [['staff', '👥 バイト']] : [])
+    .concat(CONF.loanInManage ? [['loan', '🏦 融資']] : []);
+  const tabBar = `<div class="opt-tabs${tabs.length > 2 ? ' many' : ''}">` + tabs.map(([k, l]) =>
     `<button class="tab ${manageTab === k ? 'on' : ''}" data-mtab="${k}">${l}</button>`).join('') + `</div>`;
   const feePane = `
     <div class="opt-row"><span>入浴料<br><span class="opt-sub">目安 ¥${worthFee()}。高すぎると客が減る</span></span><span>${feeBtns}</span></div>
     ${o.feeCustom ? feeSlider('fee', o.fee) : ''}
     ${kidFeeRow}
     ${saunaFeeRow}
-    <div class="opt-row"><span>タオル<br><span class="opt-sub">維持¥1,000/日。無料=集客↑／有料=売上↑</span></span><span>${towelBtns}</span></div>
+    <div class="opt-row"><span>タオル<br><span class="opt-sub">${CONF.towelCostPer
+      ? `洗濯代 <b>¥${CONF.towelCostPer}/枚</b>（貸した枚数ぶん）。無料=集客↑／有料=売上↑`
+      : `維持¥${CONF.towelCostPerDay.toLocaleString()}/日。無料=集客↑／有料=売上↑`
+      }</span></span><span>${towelBtns}</span></div>
     ${towelPriceRow}
     ${teburaRow}`;
   const amenPane = `
-    <div class="opt-row"><span>シャンプー・ボディソープ<br><span class="opt-sub">無料でも販売でも一律¥${CONF.soapCostPerDay.toLocaleString()}/日</span></span><span>${soapBtns}</span></div>
+    <div class="opt-row"><span>シャンプー・ボディソープ<br><span class="opt-sub">${CONF.soapCostPer ? `仕入れ <b>¥${CONF.soapCostPer}/人</b>（来た客ぶん）` : `無料でも販売でも一律¥${CONF.soapCostPerDay.toLocaleString()}/日`}</span></span><span>${soapBtns}</span></div>
     ${soapPriceRows}
     ${hasSink()
       ? `<div class="opt-row"><span>ドライヤー<br><span class="opt-sub">無料=満足度↑／¥20=売上</span></span><span>${
@@ -8109,30 +11708,87 @@ function renderManage() {
         }</span></div>`
       : `<div class="opt-row locked"><span>ドライヤー<br><span class="opt-sub">🔒 洗面所の設置で解放</span></span><button class="opt-btn" disabled>—</button></div>`}
     ${hasSink()
-      ? tog('lotionOn', o.lotionOn !== false, '化粧水・乳液', `置けば満足度↑／¥${CONF.lotionCostPerDay.toLocaleString()}/日`)
+      ? tog('lotionOn', o.lotionOn !== false, '化粧水・乳液',
+          CONF.lotionCostPer ? `置けば満足度↑／仕入れ ¥${CONF.lotionCostPer}/人` : `置けば満足度↑／¥${CONF.lotionCostPerDay.toLocaleString()}/日`)
       : `<div class="opt-row locked"><span>化粧水・乳液<br><span class="opt-sub">🔒 洗面所の設置で解放</span></span><button class="opt-btn" disabled>—</button></div>`}
-    ${tog('akasuriTowel', hasAkasuri(), '垢すりタオル', '満足度↑／¥500/日')}
-    ${tog('saunaMat', hasMat(), 'サウナマット', 'サウナ満足度↑／¥500/日')}
-    <div class="opt-row locked"><span>垢すりサービス（プロが担当）<br><span class="opt-sub">🔒 新店で解放予定</span></span><button class="opt-btn" disabled>近日</button></div>`;
+    ${/* サウナマットと垢すりタオルは、章によっては**運営メニューに出さない**（第2章＝作者指定）。
+          置き場そのものを【洗い場】タブの設備として買うので、ここに同じものが並ぶと二重になる */
+      CONF.noAmenityToggle ? '' :
+      tog('akasuriTowel', hasAkasuri(), '垢すりタオル',
+          CONF.akasuriCostPer ? `満足度↑／洗濯代 ¥${CONF.akasuriCostPer}/枚` : '満足度↑／¥500/日')
+      + tog('saunaMat', hasMat(), 'サウナマット',
+            CONF.matCostPer ? `サウナ満足度↑／洗濯代 ¥${CONF.matCostPer}/人（サウナ客ぶん）` : 'サウナ満足度↑／¥500/日')
+      + `<div class="opt-row locked"><span>垢すりサービス（プロが担当）<br><span class="opt-sub">🔒 新店で解放予定</span></span><button class="opt-btn" disabled>近日</button></div>`}`;
   const rulePane = `
     ${kitoAccepted()
       /* 鬼頭を受け入れる形で決着した店は、もう札を掲げられない（受け入れると約束したのだから）。
          ここを開けておくと「下ろして決着 → すぐ掲げ直す」で罰だけ踏み倒せてしまう */
       ? `<div class="opt-row locked"><span>刺青・ヤクザお断り<br><span class="opt-sub">🔒 鬼頭と交わした約束がある（評判 -${KITO_ACCEPT_PEN}）</span></span><button class="opt-btn" disabled>—</button></div>`
-      : tog('banYakuza', o.banYakuza, '刺青・ヤクザお断り', '「怖い」不満が消える。ただし連中がみかじめ料を要求しに来る')}
-    <div class="opt-row"><span>滞在時間の制限<br><span class="opt-sub">${timeLimitSub()}</span></span><span>${
-      TIME_LIMITS.map(v => `<button class="opt-btn ${(o.timeLimit || 0) === v ? 'on' : ''}" data-act="timeLimit" data-v="${v}">${v ? v + '分' : 'なし'}</button>`).join('')
-    }</span></div>
-    <div class="opt-row locked"><span>女湯の開放<br><span class="opt-sub">🔒 新店で解放予定</span></span><button class="opt-btn" disabled>近日</button></div>`;
-  box.innerHTML = tabBar + (manageTab === 'fee' ? feePane : manageTab === 'amen' ? amenPane : rulePane);
+      /* 説明文は章ごと。**みかじめ料は第1章の物語**（鬼頭）で、
+         第2章にはその相手がいない＝そのままだと**起きないことを約束するボタン**になる */
+      : tog('banYakuza', o.banYakuza, '刺青・ヤクザお断り',
+            chHook('banYakuzaNote') || '「怖い」不満が消える。ただし連中がみかじめ料を要求しに来る')}
+    ${/* 滞在時間の制限。**持たない章もある**（第2章＝食堂もラウンジもある、長居させる施設なので
+          そもそも時間で切らない）。行ごと出さない＝動かせないボタンを並べない */
+      CONF.noTimeLimit ? '' :
+      `<div class="opt-row"><span>滞在時間の制限<br><span class="opt-sub">${timeLimitSub()}</span></span><span>${
+        TIME_LIMITS.map(v => `<button class="opt-btn ${(o.timeLimit || 0) === v ? 'on' : ''}" data-act="timeLimit" data-v="${v}">${v ? v + '分' : 'なし'}</button>`).join('')
+      }</span></div>`}
+    ${nightOpenRow()}
+    ${/* 章が自前で足す行（第2章＝【小学生以下お断り】） */ chHook('manageRuleExtra') || ''}
+    ${/* 【女湯の開放】は**押せない案内**でしかない（作者指定 8/8）。
+          第2章は3Fを増築すれば女湯が開くので、ここに「近日」と出ていると嘘になる。
+          `noOnnaRow` を持たない章＝これまでどおり出す */
+      CONF.noOnnaRow ? '' :
+      `<div class="opt-row locked"><span>女湯の開放<br><span class="opt-sub">🔒 新店で解放予定</span></span><button class="opt-btn" disabled>近日</button></div>`}`;
+  if (manageTab === 'staff' && !CONF.staffRooms) manageTab = 'fee';   // 章が戻ったとき用
+  if (manageTab === 'loan' && !CONF.loanInManage) manageTab = 'fee';  // 同上（融資タブを持たない章）
+  if (manageTab === 'amen') manageTab = 'fee';        // 前の版のタブが残っていても迷子にしない
+  /* ⚠ **中身を書き換える前に、借りているものを必ず返す。**
+     融資タブは資金繰りモーダルの中身を借りて表示する（loanHost）。
+     返す前に innerHTML で消すと、借りた3つのまるごと消滅する＝
+     以降どの章からも資金繰りが開けなくなる（実測 8/8）                     */
+  loanHost(null);
+  box.innerHTML = tabBar + (manageTab === 'staff' ? '<div id="staffMgrPane"></div>'
+    : manageTab === 'loan' ? '<div id="loanPane"></div>'
+    : manageTab === 'fee' ? (feePane + '<div class="opt-sec">🧴 アメニティ</div>' + amenPane) : rulePane);
+  if (manageTab === 'loan') { loanHost($('loanPane')); renderLoan(); }
   box.querySelectorAll('[data-mtab]').forEach(b => b.onclick = () => { manageTab = b.dataset.mtab; renderManage(); });
+  if (manageTab === 'staff') {
+    renderStaffMgr();                                // 中身は既存のバイト管理をそのまま使う
+    const pane = $('staffMgrPane');
+    if (pane) {                                      // 求人はモーダル側の下ボタンだったので、ここに置き直す
+      const jb = document.createElement('button');
+      jb.className = 'big-btn';
+      jb.textContent = G.jobAdDay ? '📰 求人を出している（2日後の朝）' : '📰 求人広告を出す（' + yen(50000) + '）';
+      jb.disabled = !!G.jobAdDay;
+      jb.onclick = () => {
+        if (G.jobAdDay) return;
+        if (G.cash < 50000) { toast('広告費が足りない'); return; }
+        G.cash -= 50000; G.jobAdDay = G.day + 2;
+        log('📰 求人広告を出した（' + yen(50000) + '）。2日後の朝、応募が来る');
+        toast('📰 求人広告を出した');
+        renderManage(); updateTopbar(); saveGame();
+      };
+      pane.appendChild(jb);
+    }
+  }
   box.querySelectorAll('.opt-btn').forEach(b => b.onclick = () => {
     const act = b.dataset.act, v = b.dataset.v;
-    if (act === 'fee') { o.fee = +v; o.feeCustom = false; }
-    else if (act === 'saunaFee') { o.saunaFee = +v; o.saunaFeeCustom = false; }
+    /* 値上げは、章によっては一度止まる（第2章＝妻）。
+       止まった時は**何も触らずに戻る**＝押した瞬間に値段が動いてしまわないようにする */
+    if (act === 'fee') {
+      if (chHook('askWife', 'fee', +v, { act: 'fee', from: o.fee, to: +v, custom: false })) return;
+      o.fee = +v; o.feeCustom = false;
+    }
+    else if (act === 'saunaFee') {
+      if (chHook('askWife', 'fee', +v, { act: 'saunaFee', from: o.saunaFee, to: +v, custom: false })) return;
+      o.saunaFee = +v; o.saunaFeeCustom = false;
+    }
     else if (act === 'feeCustom') o.feeCustom = !o.feeCustom;
     else if (act === 'saunaFeeCustom') o.saunaFeeCustom = !o.saunaFeeCustom;
     else if (act === 'timeLimit') o.timeLimit = +v;
+    else if (act === 'nightOpen') o.nightOpen = (v === 'on');
     else if (act === 'towel') o.towel = v;
     else if (act === 'kidFee') o.kidFee = +v;
     else if (act === 'towelPrice') o.towelPrice = +v;
@@ -8162,15 +11818,49 @@ function renderManage() {
     else if (act === 'shampooPrice' || act === 'bodysoapPrice') o[act] = +v;
     // 置き場のあるアメニティ。ONなら浴室内の場所選び、OFFなら撤去
     else if (act === 'akasuriTowel' || act === 'saunaMat') { toggleRack(act === 'saunaMat' ? 'matrack' : 'akarack'); return; }
+    else if (act.startsWith('ch:')) { if (chHook('manageAct', act.slice(3), v) === false) return; }
     renderManage(); saveGame();
   });
-  // スライダーは動かしている間は再描画しない（つまみが飛ぶ）。指を離した時だけ保存して描き直す
+  /* 【−】【＋】で刻む（作者指定 8/7・旧スライダー）。押している間は画面を作り直さない＝
+     押した指の下でボタンが消えないようにする。指を離した時だけ保存して描き直す。
+     長押しすると連続して動く（最初はゆっくり、そのあと速く＝行き過ぎない） */
   for (const act of ['fee', 'saunaFee']) {
-    const sl = $(act + 'Slider'); if (!sl) continue;
-    sl.oninput = () => { o[act] = +sl.value; $(act + 'SliderVal').textContent = '¥' + (+sl.value).toLocaleString(); };
-    sl.onchange = () => { saveGame(); renderManage(); };
+    const minus = $(act + 'Minus'), plus = $(act + 'Plus');
+    if (!minus || !plus) continue;
+    const R = act === 'fee' ? FEE_RANGE : SAUNA_FEE_RANGE;
+    const before = o[act];                       // 断られた時に戻す先
+    let timer = null, repeat = null;
+    const show = () => {
+      $(act + 'SliderVal').textContent = '¥' + o[act].toLocaleString();
+      minus.disabled = o[act] <= R[0]; plus.disabled = o[act] >= R[1];
+    };
+    const bump = (d) => { o[act] = clamp(o[act] + d * FEE_STEP, R[0], R[1]); show(); };
+    const stop = () => {
+      clearTimeout(timer); clearInterval(repeat); timer = repeat = null;
+      if (o[act] === before) return;             // 動いていなければ何もしない
+      if (chHook('askWife', 'fee', o[act], { act, from: before, to: o[act], custom: true })) return;
+      saveGame(); renderManage();
+    };
+    for (const [btn, d] of [[minus, -1], [plus, 1]]) {
+      btn.onpointerdown = (ev) => {
+        ev.preventDefault(); if (btn.disabled) return;
+        bump(d);
+        timer = setTimeout(() => { repeat = setInterval(() => { bump(d); if (btn.disabled) stop(); }, 70); }, 400);
+      };
+      btn.onpointerup = stop;
+      btn.onpointerleave = () => { if (repeat || timer) stop(); };
+      btn.onpointercancel = stop;
+    }
   }
 }
+/* 料金を決める（関門を通ったあと／断られた時に元へ戻す、の両方から呼ぶ） */
+function setFeeVal(act, v, custom) {
+  const o = G.opts;
+  o[act] = v;
+  if (custom != null) o[act + 'Custom'] = !!custom;
+  renderManage(); saveGame();
+}
+window.setFeeVal = setFeeVal;
 
 /* ============ データ（いまの店の数字を確かめる） ============ */
 /* 攻略チェックリストにはしない。あくまで「今どうなっているか」の計器盤。
@@ -8180,8 +11870,13 @@ function renderData() {
   const box = $('dataBody');
   const row = (l, v, cls) => `<div class="rep-row ${cls || ''}"><span>${l}</span><span class="v">${v}</span></div>`;
   const sec = t => `<div class="opt-sec">${t}</div>`;
-  const tabBar = `<div class="opt-tabs">` +
-    [['rep', '🏮 評判'], ['kei', '📊 経営']].map(([k, l]) =>
+  /* 章ごとに増えるタブ（第2章の【🏆 番付】など）。chHook が無い章では何も足さない */
+  const extraTabs = (hasHook('dataTabs') ? (chHook('dataTabs') || []) : []);
+  /* タブが3つ以上ある章（第2章＝評判・経営・ライバル・スキル）は**2段**にする
+     （運営メニューと同じ決まり・作者指定 8/8）。第1章は2つなので1段のまま */
+  const dTabs = [['rep', '🏮 評判'], ['kei', '📊 経営']].concat(extraTabs);
+  const tabBar = `<div class="opt-tabs${dTabs.length > 2 ? ' many' : ''}">` +
+    dTabs.map(([k, l]) =>
       `<button class="tab ${dataTab === k ? 'on' : ''}" data-dtab="${k}">${l}</button>`).join('') + `</div>`;
 
   /* ── 経営タブ（金まわり） */
@@ -8226,15 +11921,24 @@ function renderData() {
     const sp = repScoreParts();
     const lo = sp.items.reduce((x, y) => (y.v < x.v ? y : x));
     const badCospa = cospaParts().list.filter(x => x.v === 0);
-    const badDosen = dosenParts().list.filter(x => x.v < 3);
+    /* 浴室が複数ある章では、点を決めているのは**いちばん悪い浴室**。
+       どの浴室の話か言わないと、直しに行く先が分からない（第2章＝男湯／女湯） */
+    const dsn = dosenParts();
+    const dsnWho = dsn.worstName ? dsn.worstName + '：' : '';
+    /* ⚠ ここは `x.v < 3` だった＝**満点の区間（2.5点）まで「遠い」に数えていた**。
+       区間の配点は 3マス以内=2.5／4マス=1.2／5マス以上=0 なので、満点は 2.5。
+       閾値が配点より大きいままだったので、4本とも3マス以内の完璧な店でも
+       「遠い：入口 → 洗い場 0マス」と出ていた（点数には影響しない・表示だけの取り違え）。
+       ついでに**遠い順**に並べる＝先頭がいちばん直す価値のある区間になる           */
+    const badDosen = dsn.list.filter(x => x.v < 2.5).sort((x, y) => x.v - y.v);
     const am = amenityParts();
     const badAmen = am.list.filter(x => x.v < x.max).sort((x, y) => (x.v / x.max) - (y.v / y.max));
-    // その項目に出す「次の一手」。コスパ・動線・おもてなしは、取りこぼしを名指しできる
+    // その項目に出す「次の一手」。コスパ・導線・おもてなしは、取りこぼしを名指しできる
     const adviceOf = it => {
       if (it.key === 'cospa' && badCospa.length)
         return `高い：${badCospa[0].name} ${badCospa[0].note}` + (badCospa.length > 1 ? ` ほか${badCospa.length - 1}件` : '');
       if (it.key === 'dosen' && badDosen.length)
-        return `遠い：${badDosen[0].name} ${badDosen[0].note}` + (badDosen.length > 1 ? ` ほか${badDosen.length - 1}件` : '');
+        return `遠い：${dsnWho}${badDosen[0].name} ${badDosen[0].note}` + (badDosen.length > 1 ? ` ほか${badDosen.length - 1}件` : '');
       if (it.key === 'omote' && badAmen.length)
         return `伸ばせる：${badAmen[0].name} ${badAmen[0].note}`;
       return repAdvice(it.key) || it.hint;
@@ -8249,12 +11953,23 @@ function renderData() {
         + (p0.sub ? `<br><span class="opt-sub">${p0.sub}</span>` : ''));
     }
     if (lo.v < 8) todo.push(`<b>${lo.name}</b>が${lo.v.toFixed(1)}点<br><span class="opt-sub">▶ ${adviceOf(lo)}</span>`);
+    /* **客が欲しがっているもの**は、下に置くと見落とすので【今やるべきこと】へ入れる（作者指定 8/2） */
+    const wants = [];
+    if (!hasRole('cooler', 'cooler')) wants.push('冷水機');
+    if (!hasSink()) wants.push('洗面所');
+    if (wants.length) todo.push(`<b>客が欲しがっているもの</b><br><span class="opt-sub">▶ ${wants.join('・')}</span>`);
     // 減点のまとめ（😠）は上の1件目と同じ話なので、ここでは省く（準備画面のほうには出る）
     for (const d of demandHint()) if (!d.startsWith('😠')) todo.push(d);
     r += sec('📌 今やるべきこと');
     r += todo.length
       ? todo.slice(0, 3).map(t => `<div class="rep-voice">${t}</div>`).join('')
       : `<div class="rep-voice">✨ いまは大きな穴がない。設備を足して、さらに上を狙おう</div>`;
+    /* ── 「🏮 評判」以下は、章ごとに中身を入れ替えられる（作者指定 8/2）。
+       第2章では**大会の8部門**がここに来る＝この章のチェックポイントはそっちだから。
+       フックを持たない章は、下の第1章の10項目がそのまま出る                */
+    const repMain = hasHook('repMain') ? chHook('repMain', sp) : null;
+    if (repMain != null) { r += repMain; }
+    else {
     // ── 総合スコアと10項目のバー
     r += sec('🏮 評判');
     r += repCounting()
@@ -8273,6 +11988,7 @@ function renderData() {
     }
     if (sp.bonus) r += row(sp.bonus > 0 ? '街での出来事（加点）' : '街での出来事（減点）',
       `${sp.bonus > 0 ? '+' : ''}${sp.bonus}`, sp.bonus < 0 ? 'minus' : '');
+    }
     /* 黒田の合格表（作者指定）。11の基準を全部満たせば黒田が認め、そこから玲奈の話が始まる＝
        あと何が残っているのかを、いつでもここで確かめられるようにしておく */
     if (G.kuroda && G.kuroda.met && !G.kuroda.resolved) {
@@ -8287,11 +12003,8 @@ function renderData() {
         r += row(`${ok ? '✅' : '⬜'} ${demandLabel(d)}`, ok ? '達成' : demandNow(d), ok ? '' : 'minus');
       }
     }
-    /* 「品揃え」の行は削除した（作者指定）。種類の数は、お風呂・サウナ・水風呂のバーに入っている */
-    const lacks = [];
-    if (!hasWorking('cooler')) lacks.push('冷水機');
-    if (!hasSink()) lacks.push('洗面所');
-    if (lacks.length) r += row('客が欲しがっているもの', lacks.join('・'), 'minus');
+    /* 「品揃え」の行は削除した（作者指定）。種類の数は、お風呂・サウナ・水風呂のバーに入っている。
+       「客が欲しがっているもの」は【今やるべきこと】へ移した（作者指定 8/2） */
     if ((G.roughDays || 0) >= 1)
       r += row('客の我慢', `荒れた日 ${G.roughDays}日連続`
         + (G.roughDays >= CONF.riotDays ? '<br><span class="opt-sub">いつ暴れてもおかしくない</span>' : ''), 'minus');
@@ -8302,22 +12015,43 @@ function renderData() {
     return r;
   };
 
-  box.innerHTML = tabBar + (dataTab === 'kei' ? keiPane() : repPane());
+  const extra = extraTabs.some(([k]) => k === dataTab)
+    ? (chHook('dataPane', dataTab) || '') : null;
+  box.innerHTML = tabBar + (extra != null ? extra : dataTab === 'kei' ? keiPane() : repPane());
   box.querySelectorAll('[data-dtab]').forEach(b => b.onclick = () => { dataTab = b.dataset.dtab; renderData(); });
 }
 
 function renderAds() {
+  /* 広告（作者指定 8/2）。**guests＝明日の来店に上乗せする人数／rep＝評判**。
+     新聞・ラジオ・テレビは第2章だけ（第1章の町の銭湯には桁が合わない）。
+     求人は第2章では【運営 → バイト】に移したので、ここには出さない            */
+  const big = !!CONF.staffRooms;
   const ads = [
-    { key: 'flyer', name: 'チラシ配り', cost: 30000, desc: '明日 +6人ほど' },
-    { key: 'mag', name: '地元ミニコミ誌に掲載', cost: 100000, desc: '明日 +14人・評判+1' },
-    { key: 'job', name: '求人広告', cost: 50000, desc: '2日後の朝、応募が3人来る' },
+    { key: 'flyer', icon: '📄', name: 'チラシ配り', cost: 30000, guests: 6,
+      desc: '明日 +6人ほど' },
+    { key: 'mag', icon: '📖', name: '地元ミニコミ誌に掲載', cost: 100000, guests: 14, rep: 1,
+      desc: '明日 +14人・評判+1' },
+    ...(big ? [
+      { key: 'paper', icon: '📰', name: '新聞広告', cost: 300000, guests: 32, rep: 2,
+        desc: '明日 +32人・評判+2　朝刊の地域面に載る' },
+      { key: 'radio', icon: '📻', name: 'ラジオCM', cost: 800000, guests: 65, rep: 3,
+        desc: '明日 +65人・評判+3　通勤中の車に流れる' },
+      { key: 'tv', icon: '📺', name: 'テレビCM', cost: 3000000, guests: 160, rep: 6,
+        desc: '明日 +160人・評判+6　県域局の夕方枠' },
+    ] : [
+      { key: 'job', icon: '📰', name: '求人広告', cost: 50000,
+        desc: '2日後の朝、応募が3人来る' },
+    ]),
   ];
-  const list = $('sendenList');
+  /* **【館内案内図】の「集客」タブと、独立したモーダルの両方から呼ばれる。**
+     タブの器（sendenPane）が**画面に出ているときだけ**そちらへ描く。
+     隠れた器に描いてしまうと、章を切り替えたときに広告がどこにも出なくなる */
+  const list = paneIfShown('sendenPane') || $('sendenList');
   list.innerHTML = '';
   for (const ad of ads) {
     const div = document.createElement('div');
     div.className = 'senden-item' + (G.adBought[ad.key] ? ' done' : '');
-    div.innerHTML = `<span>📣</span><div><b>${ad.name}</b><br><span class="shop-desc">${ad.desc}</span></div>
+    div.innerHTML = `<span>${ad.icon || '📣'}</span><div><b>${ad.name}</b><br><span class="shop-desc">${ad.desc}</span></div>
       <span class="shop-price">${G.adBought[ad.key] ? '手配済' : yen(ad.cost)}</span>`;
     div.onclick = () => {
       if (G.adBought[ad.key]) return;
@@ -8325,8 +12059,8 @@ function renderAds() {
       if (G.cash < ad.cost) { toast('資金が足りない…'); return; }
       G.cash -= ad.cost;
       G.adBought[ad.key] = true;
-      G.adBoost += ad.key === 'flyer' ? 6 : ad.key === 'mag' ? 14 : 0;
-      if (ad.key === 'mag') addRep(1);
+      G.adBoost += ad.guests || 0;
+      if (ad.rep) addRep(ad.rep);
       if (ad.key === 'job') G.jobAdDay = G.day + 2;   // 求人の応募は2日後の朝（作者指定で翌日→2日後に変更）
       toast(`${ad.name}を手配した！`);
       renderAds(); updateTopbar(); saveGame();
@@ -8337,8 +12071,135 @@ function renderAds() {
 /* 資金繰りメニュー（作者指定）：銀行もヤミ金も廃止し、サラ金「灰田ファイナンス」一本。
    銀行の欄は「審査が通らない」という断り文句だけを置いてある＝借りられない理由を物語で見せる。
    借りられない時はボタンをグレーにして押せなくする。金額はボタンでなく説明側に出す */
+/* ============ 公庫の追加融資（第2章）============
+   宮下里佳は数字でしか喋らない。だから条件も数字で出す。
+   **安いが、明日の金にはならない**（申し込んでから2週間）。
+   そこが灰田ファイナンス（即日・年20%）との分かれ目で、
+   釜が壊れた翌朝に手が伸びるのは、いつも高いほうだ。                     */
+/* 直近10日のうち、黒字だった日の数（宮下が見る2つ目の数字） */
+function koukoProfitDays() {
+  return ((G.ch2 && G.ch2.profitDays) || []).slice(-10).filter(Boolean).length;
+}
+/* いまの枠。**返した分を借り直せるだけでは追加融資とは言わない**ので、
+   評判と黒字の日数で段が上がる＝数字を良くすると、次の500万が開く */
+function koukoTier() {
+  const rep = G.rep, prof = koukoProfitDays();
+  let best = CONF.kouko.tiers[0];
+  for (const t of CONF.kouko.tiers) if (rep >= t.rep && prof >= t.profit) best = t;
+  return best;
+}
+/* 次の段（あと何を伸ばせば枠が開くか）。もう最上段なら null */
+function koukoNextTier() {
+  const cur = koukoTier();
+  const i = CONF.kouko.tiers.indexOf(cur);
+  return CONF.kouko.tiers[i + 1] || null;
+}
+function koukoMax() { return koukoTier().max; }
+function koukoRoom() { return Math.max(0, koukoMax() - (G.debt || 0)); }
+
+function koukoChecks() {
+  const k = CONF.kouko, c = G.ch2;
+  if (!k || !c) return [];
+  const days = c.openedDay ? G.day - c.openedDay : 0;
+  return [
+    { ok: days >= k.needDays, t: `開業から${k.needDays}日以上（いま${days}日）` },
+    { ok: !c.billMissed, t: '返済の遅れが無いこと' },
+    { ok: !k.noSarakin || !(G.yami && G.yami.debt > 0), t: 'サラ金の残債が無いこと' },
+    { ok: koukoRoom() >= k.unit,
+      t: `枠が残っていること（枠${manYen(koukoMax())}・残債${manYen(G.debt || 0)}）` },
+  ];
+}
+function koukoOK() { return koukoChecks().every(x => x.ok); }
+function renderKouko() {
+  const k = CONF.kouko;
+  $('loanBankTitle').textContent = k.title || '🏦 日本政策金融公庫（宮下）';
+  const waiting = G.ch2 && G.ch2.koukoAt;
+  if (waiting) {
+    $('loanInfoBank').innerHTML = `「${manYen(G.ch2.koukoAmt)}のご融資、審査に入っております。」<br>
+      <b>あと${Math.max(0, G.ch2.koukoAt - G.day)}日</b>で振り込まれる。`;
+    $('koukoAmts').innerHTML = '';
+    return;
+  }
+  const checks = koukoChecks();
+  const list = checks.map(c => `<span class="${c.ok ? 'kou-ok' : 'kou-ng'}">${c.ok ? '✔' : '✕'} ${c.t}</span>`).join('<br>');
+  /* 枠がどうすれば開くかを、いつも下に出しておく。宮下は理由を説明しないが、
+     見せた数字がそのまま額になる、というのは分かるようにしておく */
+  const nx = koukoNextTier();
+  const grow = nx
+    ? `<div class="kou-next">次の枠 ${manYen(nx.max)}：評判${nx.rep}以上（いま${G.rep}）／
+       直近10日の黒字${nx.profit}日以上（いま${koukoProfitDays()}日）</div>`
+    : `<div class="kou-next">枠はこれ以上ない（${manYen(koukoMax())}）</div>`;
+  const head = `<span class="opt-sub">年${(k.apr * 100).toFixed(1)}%・いまの枠 <b>${manYen(koukoMax())}</b>
+    ／残債 ${manYen(G.debt || 0)}・<b>振り込みは申し込みから${k.waitDays}日後</b></span>`;
+
+  if (!koukoOK()) {
+    $('loanInfoBank').innerHTML = `「追加のご融資は、<b>数字を拝見してから</b>になります。」<br>
+      ${head}<div class="kou-checks">${list}</div>${grow}`;
+    $('koukoAmts').innerHTML = '';
+    return;
+  }
+  $('loanInfoBank').innerHTML = `「……数字は見せていただきました。<b>お貸しできます。</b>」<br>
+    ${head}<br><span class="opt-sub">借りられるのは <b>${manYen(koukoRoom())}</b> まで（今日の金にはならない）</span>${grow}`;
+  // 100万円きざみ。端数は切り捨てる＝「50万円」のような半端なボタンは出さない
+  const room = Math.floor(koukoRoom() / k.unit) * k.unit;
+  const amts = [k.unit, k.unit * 3, k.unit * 5].filter(a => a <= room);
+  if (room > 0 && !amts.includes(room)) amts.push(room);
+  $('koukoAmts').innerHTML = amts.map(a =>
+    `<button class="opt-btn" data-amt="${a}">${manYen(a)}</button>`).join('');
+  $('koukoAmts').querySelectorAll('button').forEach(b => {
+    b.onclick = () => {
+      const amt = +b.dataset.amt;
+      // 章によっては、申し込む前に一度止まる（第2章＝妻と二人で決める）
+      if (chHook('askWife', 'kouko', amt)) return;
+      applyKouko(amt);
+    };
+  });
+}
+/* 追加融資の申し込みそのもの。**関門（妻）を通ったあとから、もう一度ここへ来られるように**
+   ボタンの中から出してある */
+function applyKouko(amt) {
+  const k = CONF.kouko; if (!k || !G.ch2) return;
+  G.ch2.koukoAt = G.day + k.waitDays;
+  G.ch2.koukoAmt = amt;
+  log(`🏦 ${k.short || '公庫'}に${manYen(amt)}の追加融資を申し込んだ（${k.waitDays}日後に振り込み）`);
+  toast(`🏦 申し込んだ。${k.waitDays}日後に振り込まれる`);
+  renderLoan(); saveGame();
+}
+window.applyKouko = applyKouko;
+
+/* 【🏦 融資】を運営メニューの中で見せる章（第2章）のための引っ越し係。
+   資金繰りモーダルの中身3つを、運営メニューの `pane` へ**貸し出す**。
+   `pane` が null なら元のモーダルへ返す（並び順は【とじる】の前に入れ直せば保たれる）。
+   中身を作り直さず動かすだけなので、renderLoan() はどちらに居ても素通りで効く。
+   ⚠ 返す処理は renderManage と openLoan の両方から必ず通すこと。
+      `loanInManage` を持たない章（第1章）は、そもそもここへ来ない            */
+function loanHost(pane) {
+  const modal = $('loanModal');
+  const back = modal && modal.querySelector('.modal');
+  const dest = pane || back;
+  if (!dest) return;
+  const close = $('btnLoanClose');
+  for (const id of ['loanCash', 'loanSecBank', 'loanSecYami']) {
+    const el = $(id);
+    if (!el || el.parentElement === dest) continue;
+    if (dest === back && close && close.parentElement === back) back.insertBefore(el, close);
+    else dest.appendChild(el);
+  }
+}
+
 function renderLoan() {
-  $('loanCash').innerHTML = `手持ち資金: <b>${yen(G.cash)}</b>`;
+  $('loanCash').innerHTML = `手持ち資金: <b>${yen(G.cash)}</b>`
+    + (CONF.kouko && G.debt ? `　／　${CONF.kouko.short || '公庫'}の残債 <b>${manYen(G.debt)}</b>` : '');
+  if (CONF.kouko) renderKouko();
+  /* 銀行が貸してくれない章（第1章）へ戻したとき、第2章が書き換えた3つを index.html の原文へ戻す。
+     これが無いと、章を行き来したあと第1章の資金繰りに「🏦 横浜信用金庫（融資課）／枠5000万円」が
+     残る（第1章セッションの指摘で実測 8/8）。正は index.html:280-282。
+     第1章だけを起動している限り書き換わらないので、そこでは何も変わらない */
+  else {
+    $('loanBankTitle').textContent = '🏦 銀行から借りる';
+    $('loanInfoBank').innerHTML = '「申し訳ありませんが、<b>審査は通りません</b>。……失礼ですが、赤字の銭湯さんですので。」<br>—— 信用金庫 融資担当';
+    $('koukoAmts').innerHTML = '';
+  }
   const yDebt = G.yami ? G.yami.debt : 0;
   const canBorrow = yDebt + CONF.sarakinUnit <= CONF.sarakinMax;   // 10万すら借りられない＝枠いっぱい
   $('loanInfoYami').innerHTML =

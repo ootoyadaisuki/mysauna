@@ -6,6 +6,8 @@ python -m http.server はキャッシュ制御のヘッダを送らないので�
 このサーバーは毎回「保存するな」と伝えるので、リロードすれば必ず最新が出る。
 
 使い方:  python3 dev-server.py [ポート番号]   (既定 8931)
+        環境変数 PORT でも指定できる（引数のほうが優先）。
+        別のチャットのサーバーと port がぶつかった時に、空いている番号を割り当ててもらうため。
 """
 import functools
 import http.server
@@ -22,7 +24,7 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8931
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get('PORT') or 8931)
     root = os.path.dirname(os.path.abspath(__file__))
     handler = functools.partial(NoCacheHandler, directory=root)
     print(f'俺のサウナ 開発サーバー（キャッシュ無効）: http://localhost:{port}')

@@ -2,10 +2,11 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "oreno-sauna",
+      "name": "oreno-sauna-ch2",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["/Users/papa/Dev/oreno-sauna/dev-server.py", "8765"],
-      "port": 8765
+      "runtimeArgs": ["/Users/papa/Dev/oreno-sauna/dev-server.py"],
+      "port": 8940,
+      "autoPort": true
     }
   ]
 }

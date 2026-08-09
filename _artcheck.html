@@ -1,0 +1,24 @@
+<meta charset="utf-8"><title>月白 全8枚</title>
+<style>body{background:#0e1016;margin:0;padding:8px;font:11px system-ui;color:#8fa2b8}
+canvas{width:720px;max-width:100%;image-rendering:pixelated;border:1px solid #2a2f3a;display:block}
+p{margin:2px 0 10px}
+/* 一覧モード：#all または4枚以上で2列グリッド */
+#g.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px 12px}
+#g.grid canvas{width:100%}</style>
+<div id="g"></div>
+<script>window.G={}; window.StoryArt={}; window.STORY_ANIM_ARTS=new Set(); window.STORY_IMG={};</script>
+<script src="js/ch2b/rival_art_y.js"></script>
+<script>
+const ODEKAKE=['y_date_yamashita','y_date_motomachi','y_date_akarenga',
+ 'y_date_chuka1','y_date_chuka2','y_date_chuka3','y_date_chuka4','y_date_chuka5','y_date_chuka6',
+ 'y_date_minato1','y_date_minato2','y_intro_minato',
+ 'y_kai_marinard','y_kai_isezaki1','y_kai_isezaki2','y_kai_mall1','y_kai_mall2',
+ 'y_noge1','y_noge2','y_noge3','y_noge4','y_hospital','y_living'];
+const h=(location.hash||'#y_tenku_out').slice(1);
+const KEYS = h==='all' ? Object.keys(StoryArt) : h==='odekake' ? ODEKAKE : h.split(',');
+const g=document.getElementById('g'), CT=[];
+if(KEYS.length>=4) g.className='grid';
+for(const k of KEYS){const c=document.createElement('canvas');c.width=360;c.height=200;
+ const p=document.createElement('p');p.textContent=k;g.appendChild(c);g.appendChild(p);CT.push([c.getContext('2d'),k]);}
+(function loop(){for(const [x,k] of CT){x.clearRect(0,0,360,200);try{StoryArt[k](x);}catch(e){x.fillStyle='#f66';x.fillText(k+' '+e.message,6,20);}}requestAnimationFrame(loop);})();
+</script>
