@@ -1,6 +1,31 @@
 'use strict';
 /* ストーリー再生（一枚絵 + タイプライター文字送り） */
 
+/* 画像ファイルの一枚絵。
+   ライバル店の偵察のように、コードで描くには情報量が多すぎる絵は画像で持つ。
+   STORY_IMG['キー'] = 'assets/story/xxx.webp' と登録すると、その場面は画像で表示される。
+   画像が無い／読み込めないときは、同じキーの StoryArt（コード描画）が控えとして出る
+   ＝絵が揃っていなくてもゲームは止まらない。 */
+const STORY_IMG = {};
+const _storyImgCache = {};
+
+/* 画像を先に読み込んでおく（場面が始まった瞬間に黒くならないように） */
+function storyImgPreload(keys) {
+  (keys || Object.keys(STORY_IMG)).forEach(k => {
+    if (_storyImgCache[k] || !STORY_IMG[k]) return;
+    const im = new Image();
+    /* ⚠ **onload を付けずに控えると、その絵は一生出てこない。**
+       drawArt は「まだ読み込み中」なら控えの絵（コード描画）を出して、
+       画像が届いた時の `onload` で描き直す作りになっている。ここで作った Image に
+       その線が繋がっていなかったので、**場面が始まる直前に読み込んだ絵だけ、
+       控えの絵のまま固まっていた**（2026-08-07 実測：中華街の絵が銭湯の絵で出た） */
+    im.onerror = () => { im.__failed = true; if (typeof Story !== 'undefined') Story.redrawIf(k); };
+    im.onload = () => { if (typeof Story !== 'undefined') Story.redrawIf(k); };
+    im.src = STORY_IMG[k];
+    _storyImgCache[k] = im;
+  });
+}
+
 const StoryArt = {
   // 360x200 のドット風一枚絵をコードで描く
   draw(ctx, key) {
@@ -1197,11 +1222,52 @@ const Story = {
   setArtAnim(key) {
     clearInterval(this.artTimer); this.artTimer = null;
     if (!STORY_ANIM_ARTS.has(key)) return;
-    const ctx = this.el.art.getContext('2d');
     this.artTimer = setInterval(() => {
       if (this.el.root.classList.contains('hidden')) { clearInterval(this.artTimer); this.artTimer = null; return; }
-      StoryArt.draw(ctx, key);
+      this.drawArt(key);
     }, 80);
+  },
+
+  /* 一枚絵を出す。画像が登録されていて読めればそれを、
+     無い／読み込み中／読めなければコード描画を出す */
+  drawArt(key) {
+    const cv = this.el.art, ctx = cv.getContext('2d');
+    const src = STORY_IMG[key];
+    if (src) {
+      let im = _storyImgCache[key];
+      if (!im) {
+        im = _storyImgCache[key] = new Image();
+        im.onerror = () => { im.__failed = true; this.redrawIf(key); };
+        im.onload = () => this.redrawIf(key);
+        im.src = src;
+      }
+      if (im.complete && im.naturalWidth) {
+        // 幅が同じで高さだけ違う絵があるので、両方を見て合わせる
+        if (cv.width !== im.naturalWidth || cv.height !== im.naturalHeight) {
+          cv.width = im.naturalWidth; cv.height = im.naturalHeight;
+        }
+        ctx.imageSmoothingEnabled = false;
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        ctx.drawImage(im, 0, 0);
+        // 画像の一枚絵は動かないので、控えの絵のために回っていた時計は止める
+        if (this.artTimer) { clearInterval(this.artTimer); this.artTimer = null; }
+        return;
+      }
+      if (!im.__failed) {           // 読み込み中。控えの絵を出しておいて、届いたら差し替える
+        if (cv.width !== 360) { cv.width = 360; cv.height = 200; }
+        StoryArt.draw(ctx, key);
+        return;
+      }
+    }
+    if (cv.width !== 360) { cv.width = 360; cv.height = 200; }
+    StoryArt.draw(ctx, key);
+  },
+
+  // 画像が遅れて届いたとき、まだその場面を映していれば描き直す
+  redrawIf(key) {
+    if (this.el.root.classList.contains('hidden')) return;
+    const s = this.cur();
+    if (s && s.art === key) this.drawArt(key);
   },
 
   /* セリフの中の {店名} を、プレイヤーが名づけた銭湯の名前に差し替える（作者指定＝
@@ -1211,15 +1277,16 @@ const Story = {
     const nm = (typeof G !== 'undefined' && G.name) ? G.name : 'うち';
     let s = line.text;
     if (s.indexOf('{店名}') >= 0) s = s.replace(/\{店名\}/g, nm);
-    /* 台本は親父の代の屋号「夕凪湯」で書いてある。プレイヤーが暖簾に別の名前を
-       書いていたら、その屋号に読み替える（作者指定＝店の名前が物語に出てくる） */
-    if (typeof shopify === 'function') s = shopify(s);
+    /* 第1章の台本は親父の代の屋号「夕凪湯」で書いてある。プレイヤーが暖簾に別の名前を
+       書いていたら、その屋号に読み替える（作者指定＝店の名前が物語に出てくる）。
+       第2章の台本に出てくる「夕凪湯」は、本当に前の章の店を指しているので読み替えない */
+    if (typeof shopify === 'function' && (typeof G === 'undefined' || G.chapter === 1)) s = shopify(s);
     return s;
   },
 
   showLine() {
     const scene = this.cur();
-    StoryArt.draw(this.el.art.getContext('2d'), scene.art);
+    this.drawArt(scene.art);
     this.setArtAnim(scene.art);
     const line = scene.lines[this.lineIdx];
     this.el.sp.textContent = line.narr ? '' : line.sp;

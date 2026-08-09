@@ -1,7 +1,7 @@
 'use strict';
 
 /* ============ 基本設定 ============ */
-const CONF = {
+let CONF = {
   W: 13, H: 11, TILE: 32, SS: 2,          // マップ13x11タイル、1タイル32px、2倍解像度描画
   // 主人公の貯金500万でスタート（作者指定）。遠赤サウナ(80万)+水風呂(40万)+ロッカー・カラン・イスを揃えても
   // 200万以上残る＝1週目から「箱を整えてから開ける」余裕がある。親父は借金嫌い＝初期借金なし
@@ -97,8 +97,8 @@ const CONF = {
   playerSpd: 216,                          // 主人公は客より速い（掃除と会計を回す）
   npcSpd: 132,                             // 修理業者・来訪者
   staffSpd: 192,                           // バイトの基準（スピード★と慣れで前後する）
-  /* 動線の良し悪し（作者指定）。1回の来店で歩かされたマス数がこれを超えると、
-     客が「導線が悪い」とこぼす。玄人のサウナ客は動線にうるさいので基準が厳しい。
+  /* 導線の良し悪し（作者指定）。1回の来店で歩かされたマス数がこれを超えると、
+     客が「導線が悪い」とこぼす。玄人のサウナ客は導線にうるさいので基準が厳しい。
      設備の並べ方＝ロッカー→洗い場→湯→サウナ→水風呂→イスの距離がそのまま点数になる */
   dosenTiles: 95,
   dosenProTiles: 70,
@@ -109,6 +109,16 @@ const CONF = {
      方針は「判定は優しく、罰は重く」＝すぐには文句を言われないが、溜めたら一気に効く。
      以前は判定が厳しいわりに罰が軽く、汚れを無視して回すのが最適解になっていた */
   dirtOldMin: 90,                          // このゲーム分数ほったらかされた汚れが「濃い汚れ」になる（60→90に緩和）
+  /* あつ湯好きの客の「好みの湯温」の上限（作者指定 8/7）＝**この章で出せるいちばん熱い湯**に合わせる。
+     第1章のあつ湯を43℃にしたので、これより熱い湯を好む客は永久に「ぬるいな…」と言う客になってしまう。
+     個人差(furoVar)を持つタイプも、上側だけここで頭打ちにする（ぬるめ側のばらつきは残す）。
+     この札を持たない章（第2章＝44℃の湯船がある）は頭打ちなし＝これまでどおり */
+  // 超あつ湯（45℃）を置いたので、好みの上限も45へ（＝熱い湯を求める客に行き先ができた）
+  furoPrefMax: 45,
+  /* 湯船を選ぶとき、湯温の一致を★の高さよりどれだけ重く見るか（作者指定 8/8）。
+     水風呂には元から×1.5が掛かっていた（★5のシングルに釣られて寒すぎる槽へ入る客が出るため）が、
+     **湯船だけ手当てが漏れていた**＝43℃を求める客が★5の炭酸泉(38℃)に吸い寄せられていた */
+  furoFitMul: 1.5,
   dirtThinN: 3,                            // 薄いのも含めて汚れがこれだけあると、小さな不満が出はじめる
   dirtThinRate: 0.35,                      // そのうち口に出す客の割合（残りは黙って満足度だけ下げる）
   dirtThinHit: 5,                          // 小さな不満で落ちる満足度
@@ -169,7 +179,7 @@ const CONF = {
 };
 
 /* 運営メニュー（料金・アメニティ）の初期値 */
-const DEFAULT_OPTS = {
+let DEFAULT_OPTS = {
   fee: 600,                 // 入浴料（可変）。初期は目安どおりの¥600（作者指定）
   feeCustom: false,         // 「自由」＝スライダーで¥500〜¥1,000から決める
   saunaFee: 300,            // サウナ利用の追加料金。サウナを設置すると設定できる。初期は目安どおりの¥300（作者指定）
@@ -194,27 +204,27 @@ const DEFAULT_OPTS = {
    120分＝サウナ客の85%が満足　150分＝ほぼ全員が満足（＝混雑のピークだけ削る微調整）
    サウナを買う前は「90分にすれば誰も損せず回転だけ上がる」＝序盤の正解。
    サウナを入れた途端、同じ90分が「サウナ料を取って1セットで追い出す店」になる＝正解が反転する */
-const TIME_LIMITS = [0, 90, 120, 150];
+let TIME_LIMITS = [0, 90, 120, 150];
 /* サウナ客が「これだけ居られれば満足」と思う時間の内訳（作者指定＝実際のサウナもこんなもん）。
    入浴のみの客は STAY_NEED_BATH＝どの制限を選んでも、それだけで不満にはならない */
-const STAY_NEED_MIX = [[90, 0.50], [120, 0.35], [150, 0.15]];
-const STAY_NEED_BATH = 75;
+let STAY_NEED_MIX = [[90, 0.50], [120, 0.35], [150, 0.15]];
+let STAY_NEED_BATH = 75;
 
 // 街の小さな銭湯。相場は数百円で、どんなに設備を尽くしても¥1,000が上限
-const FEE_OPTIONS = [600, 700, 800];
-const SAUNA_FEE_OPTIONS = [300, 400, 500];      // サウナ料。入浴料への上乗せ
-const FEE_RANGE = [500, 1000];                  // 「自由」を選んだときのスライダーの範囲（入浴料）
-const SAUNA_FEE_RANGE = [200, 700];             // サウナ料のスライダー範囲
-const FEE_BASE = 700;                           // 集客・満足度の基準になる入浴料（＝定額ボタンの真ん中）
-const SAUNA_FEE_BASE = 400;                     // 同じくサウナ料の基準
-const FEE_STEP = 10;
-const FEE_CEIL = 1000;                          // 「この設備なら納得できる額」の上限
-const DRYER_FEES = [0, 20];                     // ドライヤー：無料 / 1回¥20
-const LOTION_FEES = [0, 50, 100];               // 化粧水・乳液：無料 / ¥50 / ¥100
-const AMENITY_PRICES = [50, 100, 150, 200];     // シャンプー・ボディソープの販売価格
+let FEE_OPTIONS = [600, 700, 800];
+let SAUNA_FEE_OPTIONS = [300, 400, 500];      // サウナ料。入浴料への上乗せ
+let FEE_RANGE = [500, 1000];                  // 「自由」を選んだときのスライダーの範囲（入浴料）
+let SAUNA_FEE_RANGE = [200, 700];             // サウナ料のスライダー範囲
+let FEE_BASE = 700;                           // 集客・満足度の基準になる入浴料（＝定額ボタンの真ん中）
+let SAUNA_FEE_BASE = 400;                     // 同じくサウナ料の基準
+let FEE_STEP = 10;
+let FEE_CEIL = 1000;                          // 「この設備なら納得できる額」の上限
+let DRYER_FEES = [0, 20];                     // ドライヤー：無料 / 1回¥20
+let LOTION_FEES = [0, 50, 100];               // 化粧水・乳液：無料 / ¥50 / ¥100
+let AMENITY_PRICES = [50, 100, 150, 200];     // シャンプー・ボディソープの販売価格
 // 手ぶらセット（タオル＋シャンプー＋ボディソープ）。¥700は「それならもう一回入れる」額なので廃した（作者指定）
-const TEBURA_PRICES = [300, 400, 500];
-const KID_FEES = [100, 200, 300];               // 子供料金。初期は¥100（作者指定）
+let TEBURA_PRICES = [300, 400, 500];
+let KID_FEES = [100, 200, 300];               // 子供料金。初期は¥100（作者指定）
 
 /* ============ 設備カタログ ============ */
 // cat: furo/sauna/mizu/wash/locker/rest/etc/sys
@@ -227,19 +237,32 @@ const KID_FEES = [100, 200, 300];               // 子供料金。初期は¥100
 /* room: 'bath'=浴室のみ / 'datsui'=脱衣所のみ / 無指定=どちらでも置ける
    gentle:true = 温度の好みで評価しない“別ジャンル”のサウナ（ミスト・塩）
    pas = 使うのではなく「あるだけで効く」設備（cap:0）。sat=満足度 / score=充実度 / likes=特に喜ぶ客 */
-const EQ = {
+let EQ = {
   bandai:     { cat:'sys',    name:'番台',                w:1,h:1, price:0,       q:1, run:0,    cap:0 },
   /* ── 風呂（湯温は設備ごとに固定。客は「湯温をいじれ」ではなく「風呂の種類を増やせ」と言ってくる）
      あつ湯好きとぬる湯好きの両方がいるので、1種類だけでは全員は満たせない */
   bath_old:   { room:'bath', cat:'furo',   name:'古い浴槽',            w:2,h:2, price:0,       q:1, run:1250, cap:4, old:true, temp:39, desc:'ヒビだらけ。ぬるい。', descFix:'ヒビは埋めた。だましだましなら、まだ使える。' },
   bath_nuru:  { room:'bath', cat:'furo',   name:'ぬる湯の浴槽',        w:2,h:2, price:300000,  q:2, run:1500, cap:4, temp:38, desc:'ぬるめでじっくり。湯温は38℃。長湯派はこっちを好む。' },
-  bath1:      { room:'bath', cat:'furo',   name:'あつ湯の浴槽',        w:2,h:2, price:350000,  q:2, run:1750, cap:4, temp:44, desc:'まっとうな熱い風呂。湯温は44℃。肩まで浸かって十数える、あれができる。' },
+  /* 湯温は44→43℃（作者指定 8/7）。44℃だと、好み41〜42℃の客が「いちばん近い湯」として選び、
+     満足しているのに「熱すぎ」と言っていた。**この店でいちばん熱い湯＝43℃**に揃えてある
+     （田所の要求も、あつ湯好きの客の好みも43℃。FURO_PREF_MAX を参照） */
+  bath1:      { room:'bath', cat:'furo',   name:'あつ湯の浴槽',        w:2,h:2, price:350000,  q:2, run:1750, cap:4, temp:43, desc:'まっとうな熱い風呂。湯温は43℃。肩まで浸かって十数える、あれができる。' },
+  /* 超あつ湯（作者指定 8/8）。あつ湯を43℃にしたぶん、**熱いのを求める客の行き先**として置く。
+     45℃は長く入っていられない＝小さい槽（2×1・2人）。第2章の `y_furo_gekiatsu` と同じ位置づけ。
+     熱いのが苦手な客がうっかり入ると「熱すぎる」と言う＝**ぬる湯と両方置いて初めて全員が満たせる** */
+  /* ★3にしてある（★2だと、終盤に檜風呂(★4・43℃)に負けて**熱いのが好きな客まで檜へ流れ**、
+     せっかく置いた超あつ湯が一度も使われない。実測で確認して上げた） */
+  bath_atsu2: { room:'bath', cat:'furo',   name:'超あつ湯の浴槽',      w:2,h:1, price:380000,  q:3, run:2200, cap:2, rep:20, temp:45, desc:'45℃。常連の爺さんが十数えて出ていく、あの湯。熱いのが苦手な客は入れない。' },
   bath_yuzu:  { room:'bath', cat:'furo',   name:'季節の替わり湯',      w:2,h:1, price:220000,  q:2, run:1200, cap:2, rep:45, temp:42, desc:'ゆず湯・菖蒲湯・しょうぶ湯。若い客には地味だが、古い常連にはこれが効く。' },
-  bath_denki: { room:'bath', cat:'furo',   name:'電気風呂',            w:2,h:1, price:480000,  q:3, run:1600, cap:2, rep:40, temp:41, desc:'ビリビリ効く。腰の痛い常連の定番。' },
+  /* 電気風呂と炭酸泉は **湯温を目当てに入る湯ではない**（作者指定 8/8）＝`noTemp`。
+     ビリビリ効くこと・ぬるいのに芯まで温まることが売りなのに、★の高さで客を引き寄せておいて
+     「ぬるい」と言わせていた（炭酸泉を置くと客の57%が文句・湯船の満足度がマイナスに落ちる。実測）。
+     サウナのミスト・薬草（gentle）と同じ扱い。`line` はその湯専用の台詞 */
+  bath_denki: { room:'bath', cat:'furo',   name:'電気風呂',            w:2,h:1, price:480000,  q:3, run:1600, cap:2, rep:40, temp:41, noTemp:true, line:'furoDenki', desc:'ビリビリ効く。腰の痛い常連の定番。' },
   bath_ne:    { room:'bath', cat:'furo',   name:'寝湯',                w:3,h:1, price:700000,  q:4, run:2000, cap:3, rep:65, temp:40, desc:'浅く寝そべる湯。うっかり寝てしまう客が続出。' },
   bath_jet:   { room:'bath', cat:'furo',   name:'ジェットバス',        w:2,h:2, price:800000,  q:4, run:2750, cap:4, rep:55, temp:41, desc:'背中に強烈な水流。「効く」と評判になる。' },
   bath2:      { room:'bath', cat:'furo',   name:'檜風呂',              w:2,h:2, price:900000,  q:4, run:2500, cap:4, rep:60, temp:43, desc:'木の香り。常連が喜ぶ。' },
-  bath_tansan:{ room:'bath', cat:'furo',   name:'高濃度炭酸泉',        w:2,h:2, price:1200000, q:5, run:3500, cap:4, rep:65, temp:38, desc:'ぬるいのに芯まで温まる。今どきの銭湯の主役。' },
+  bath_tansan:{ room:'bath', cat:'furo',   name:'高濃度炭酸泉',        w:2,h:2, price:1200000, q:5, run:3500, cap:4, rep:65, temp:38, noTemp:true, line:'furoTansan', desc:'ぬるいのに芯まで温まる。今どきの銭湯の主役。' },
   /* ── サウナ（90℃派と100℃超え派がいる。2室ないと両方の好みは満たせない）
      ドライサウナだけ室温を1℃刻みで調整できる。ミスト・塩は“別ジャンル”なので温度は固定 */
   sauna1:     { room:'bath', cat:'sauna',  name:'遠赤サウナ',          w:2,h:2, price:800000,  q:3, run:3000, cap:6, temp:90,  desc:'俺の夢、その第一歩。室温を10℃刻みで調整可。サウナ料は運営メニューで設定。' },
@@ -304,21 +327,21 @@ const EQ = {
   toilet2:    { cat:'datsui', name:'ウォシュレット',      w:1,h:1, price:320000,  q:4, run:500, cap:0, room:'datsui', rep:60,
                 pas:{ sat:5, score:5, likes:['salaryman','kinpatsu'], like:2 },
                 desc:'温水洗浄便座。トイレが綺麗な店は、それだけで信用される。' },
-  scale:      { cat:'datsui', name:'体重計',              w:1,h:1, price:30000,   q:1, run:0,   cap:0, room:'datsui',
+  scale:      { portable:true, cat:'datsui', name:'体重計',              w:1,h:1, price:30000,   q:1, run:0,   cap:0, room:'datsui',
                 pas:{ sat:2, score:2, likes:['jisan','oyaji'], like:2 }, desc:'昔ながらの針の体重計。乗らずにはいられない。' },
   tv:         { cat:'datsui', name:'テレビ',              w:1,h:1, price:120000,  q:2, run:300, cap:0, room:'datsui', wall:true,
                 pas:{ sat:3, score:3, likes:['jisan','oyaji','salaryman'], like:2 }, desc:'相撲にナイター。湯上がりの長っ尻を生む。左右の壁に掛けてもいい。' },
-  poster:     { cat:'datsui', name:'昭和アイドルのポスター',w:1,h:1, price:15000, q:1, run:0,   cap:0, room:'datsui', wall:true,
+  poster:     { portable:true, cat:'datsui', name:'昭和アイドルのポスター',w:1,h:1, price:15000, q:1, run:0,   cap:0, room:'datsui', wall:true,
                 pas:{ sat:1, score:1, likes:['jisan','oyaji'], like:4 }, desc:'色あせた昭和の笑顔。若者は苦笑いするが、爺さん連中には効く。左右の壁に貼れる。' },
-  shogi:      { cat:'datsui', name:'将棋台',              w:1,h:1, price:45000,   q:1, run:0,   cap:0, room:'datsui',
+  shogi:      { portable:true, cat:'datsui', name:'将棋台',              w:1,h:1, price:45000,   q:1, run:0,   cap:0, room:'datsui',
                 pas:{ sat:1, score:2, likes:['jisan','oyaji'], like:4 }, desc:'湯上がりの一局。常連の溜まり場になる。' },
   massage:    { cat:'datsui', name:'マッサージチェア',    w:1,h:1, price:230000,  q:3, run:200, cap:1, rep:45, room:'datsui',
                 pas:{ sat:2, score:4, likes:['salaryman','oyaji'], like:2 }, desc:'湯上がりの客が¥100を入れて座っていく。売上にもなる。' },
   /* 子連れ向けの備品（作者指定）。子ども料金の上限はこの2つを置いた数で決まる＝
      「子どもから金を取るなら、子どもが喜ぶものを置け」。置くと家族連れの満足度も上がる */
-  gacha:      { cat:'datsui', name:'ガチャガチャ',        w:1,h:1, price:60000,   q:1, run:0,   cap:0, room:'datsui', kids:true,
+  gacha:      { portable:true, cat:'datsui', name:'ガチャガチャ',        w:1,h:1, price:60000,   q:1, run:0,   cap:0, room:'datsui', kids:true,
                 pas:{ sat:2, score:2, likes:['oyako','kodomo'], like:6 }, desc:'湯上がりに一回。子どもが親にねだる、あの音がする台。置くと子連れが喜ぶ（子供料金の上限が上がる）。' },
-  ehon:       { cat:'datsui', name:'絵本の棚',            w:1,h:1, price:35000,   q:1, run:0,   cap:0, room:'datsui', kids:true,
+  ehon:       { portable:true, cat:'datsui', name:'絵本の棚',            w:1,h:1, price:35000,   q:1, run:0,   cap:0, room:'datsui', kids:true,
                 pas:{ sat:2, score:2, likes:['oyako','kodomo'], like:6 }, desc:'脱衣所の隅に絵本を数十冊。親が着替える間、子どもが静かに待てる（子供料金の上限が上がる）。' },
   vend1:      { cat:'datsui', name:'牛乳の自販機',        w:1,h:1, price:150000,  q:1, run:400, cap:1, room:'datsui', desc:'風呂上がりの定番。売上になる。' },
   vend2:      { cat:'datsui', name:'ドリンクの自販機',    w:1,h:1, price:200000,  q:2, run:500,cap:1, rep:40, room:'datsui', desc:'ポカリにビール。サウナ帰りは喉が渇く。' },
@@ -327,11 +350,11 @@ const EQ = {
   cooler:     { cat:'etc',    tab:'rest',   name:'冷水機',      w:1,h:1, price:100000,  q:2, run:350, cap:0,
                 pas:{ sat:4, score:4 }, desc:'サウナ中の給水に。浴室でも脱衣所でも置ける。無いとサウナ客の満足度が伸びない。' },
   // 旧「浴室の扇風機」。脱衣所専用に変えたが、昔のセーブと田所の要求が参照するので id は fan_bath のまま
-  fan_bath:   { cat:'etc',    tab:'datsui', name:'扇風機',      w:1,h:1, price:25000,   q:1, run:100, cap:0, room:'datsui',
+  fan_bath:   { portable:true, cat:'etc',    tab:'datsui', name:'扇風機',      w:1,h:1, price:25000,   q:1, run:100, cap:0, room:'datsui',
                 pas:{ sat:2, score:2, likes:['jisan','oyaji'], like:3 }, desc:'首振りの古い扇風機。若者は見向きもしないが、湯上がりの年寄りには天国。脱衣所の床に置く（壁には掛けられない）。' },
   // 観葉植物は「置くだけで小綺麗」＝格＋2（⭐1）と、汚れの発生を少し抑える効果を持つ（作者指定）。
   // 汚れ抑制は説明文に書かない＝置いてみて気付く隠し味
-  plant1:     { cat:'etc',    tab:'datsui', name:'観葉植物',    w:1,h:1, price:20000,   q:1, run:0,    cap:0, room:'datsui',
+  plant1:     { portable:true, cat:'etc',    tab:'datsui', name:'観葉植物',    w:1,h:1, price:20000,   q:1, run:0,    cap:0, room:'datsui',
                 pas:{ sat:1, score:2 }, clean:0.06, desc:'施設の雰囲気が良くなる。' },
   // アメニティの置き場。カタログには出さず、運営メニューをONにすると浴室内に設置する
   matrack:    { cat:'amenity', name:'サウナマット置き場', w:1,h:1, price:0, q:1, run:0, cap:0, room:'bath', desc:'サウナ客が敷くマットの棚。浴室内に置く。' },
@@ -341,11 +364,12 @@ const EQ = {
 /* カタログで名前の下に出る一行説明（小さい黄色の文字）。
    長い desc は設備をタップした時の詳細に譲り、ここは「短く・ちょっと可笑しく」で統一する。
    ※1行に収める＝全角14〜16文字までを目安に（はみ出す分は…で切られる） */
-const EQ_NOTE = {
+let EQ_NOTE = {
   // 風呂
   bath_old:    'ヒビから哀愁が漏れてる',
   bath_nuru:   '長湯派がここに根を張る',
   bath1:       '肩まで浸かって十数える',
+  bath_atsu2:  '45℃。入れる客を選ぶ湯',
   bath_yuzu:   '爺さんは暦で湯に入る',
   bath_denki:  'ビリビリ効く腰痛の駆込寺',
   bath_jet:    '背中に効くと噂が立つ',
@@ -398,22 +422,25 @@ const EQ_NOTE = {
 
 /* カタログのタブ。「その他」は廃止した＝迷子になる設備を作らず、必ずどれかのタブに入れる
    （どのタブに出すかは EQ の tab で指定。無ければ cat がそのままタブになる） */
-const CATS = [
+let CATS = [
   ['furo','風呂'], ['sauna','サウナ'], ['mizu','水風呂'], ['wash','洗い場'],
   ['rest','休憩'], ['datsui','脱衣所'],
 ];
 
 /* 昔のセーブに入っている旧IDを今のIDに読み替える（ドライヤーと化粧水・乳液は洗面所に吸収した） */
-const ID_ALIAS = { lotion: 'sink', dryer: 'sink' };
+let ID_ALIAS = { lotion: 'sink', dryer: 'sink' };
 
 /* 右上の【☰ メニュー】に並べる外部リンク。
    ウェブサイトができたら、ここに1行足すだけでボタンが増える（別のタブで開く）
    例： { label:'🌐 公式サイト', url:'https://example.com/' } */
+/* サウナ施設のオーナー向けの案内（施設のゲーム化）。タイトル画面と☰メニューの両方から開く */
+const OWNER_LINK = 'https://contena.co.jp/sauna/';
 const MENU_LINKS = [
+  { label: '♨ サウナ施設の方へ', url: OWNER_LINK },
 ];
 
 // 初期配置（ボロボロの夕凪湯）。番台は入口の真横（左）＝客が入ってすぐ料金を払う位置
-const INIT_EQUIP = [
+let INIT_EQUIP = [
   { id:'bandai',     x:5,  y:9, cond:100 },
   { id:'bath_old',   x:8,  y:1, cond:40 },
   { id:'sink_old',   x:1,  y:7, cond:40 },   // 脱衣所の左上、壁沿い（作者指定）
@@ -429,7 +456,7 @@ const INIT_EQUIP = [
 // furoVar: 湯温の好みの個人差(±℃)。※数値は叩き台
 //   じいさんだけは「あつ湯派」と「ぬる湯で長湯する派」が混ざっている。同じ常連のじいさんでも
 //   37〜47℃までばらけるので、ぬる湯(38℃)を入れると必ず何人かが「これこれ」と言って居着く
-const TYPES = {
+let TYPES = {
   /* フェーズ3：サウナの好みは「高温(100℃〜)」「灼熱(110℃〜)」に寄せた。低温・マイルド好きは排除（作者指定）。
      ぬるいドライサウナ(100℃未満)は誰の好みにも刺さらない＝「ぬるい」と文句が出る。※数値は叩き台 */
   jisan:     { name:'常連のじいさん', sex:'m', hair:'#d8d8d8', cloth:'#7a8a6f', likesSauna:0.15, tolerant:8,  milk:0.7, furoPref:42, furoVar:5, coldLove:0.15, saunaPref:100 },
@@ -439,7 +466,8 @@ const TYPES = {
   wakamono:  { name:'サウナー青年',   sex:'m',   hair:'#8a5a2f', cloth:'#2e6b4f', likesSauna:1.0,  tolerant:-4, milk:0.3, furoPref:43, coldLove:1.0, saunaPref:115 },
   ol:        { name:'OLさん',        sex:'f',        hair:'#4a3728', cloth:'#e2b04a', likesSauna:0.6,  tolerant:-6, milk:0.4, furoPref:40, coldLove:0.5, saunaPref:100 },
   kinpatsu:  { name:'金髪の兄ちゃん', sex:'m', hair:'#e8c24a', cloth:'#3a6ea8', likesSauna:0.55, tolerant:-7, milk:0.7, furoPref:41, coldLove:0.7, saunaPref:105 },
-  yakuza:    { name:'強面の親分',    sex:'m', hair:'#161616', cloth:'#5a2030', likesSauna:0.7,  tolerant:10, milk:0.5, furoPref:47, coldLove:0.4, saunaPref:110, shades:true, tattoo:true, bald:true },
+  // 親分は熱い湯が好き。超あつ湯(45℃)を置いたので45に戻した（CONF.furoPrefMax で頭打ち）
+  yakuza:    { name:'強面の親分',    sex:'m', hair:'#161616', cloth:'#5a2030', likesSauna:0.7,  tolerant:10, milk:0.5, furoPref:45, coldLove:0.4, saunaPref:110, shades:true, tattoo:true, bald:true },
   /* 「刺青・ヤクザお断り」にすると来るようになる親子（作者指定）。
      親子はサウナには入らない（likesSauna:0）。子供はひとりでは来ない＝必ず親とセットで湯に来る。
      子供は体が小さく描かれ（kid:true）、はしゃぐぶん浴室が汚れやすい。ぬるめの湯が好き */
@@ -450,7 +478,7 @@ const TYPES = {
 /* フェーズ3：バイト候補（カイロ風の人材プール）。スペックは各1〜5。
    maji=真面目さ（低いと遅刻・掃除サボり）／spd=スピード（歩き・作業の速さ）／aiso=愛想（客の帰り際の満足度に少し乗る）
    日給はスペック合計から自動で決まる（¥7,000〜¥10,000）。※人選もセリフも叩き台 */
-const STAFF_POOL = [
+let STAFF_POOL = [
   { pid:'daigaku',  name:'暇な大学生',       maji:2, spd:3, aiso:3, desc:'講義よりバイト優先。とにかく暇らしい' },
   { pid:'athlete',  name:'高校アスリート',   maji:4, spd:5, aiso:2, desc:'陸上部帰りにひと稼ぎ。廊下を風が通る' },
   { pid:'shufu',    name:'主婦',             maji:5, spd:3, aiso:4, desc:'家事20年のプロ。汚れは見逃さない' },
@@ -462,20 +490,39 @@ const STAFF_POOL = [
   { pid:'furita',   name:'フリーター',       maji:2, spd:2, aiso:2, desc:'なんとなく応募してきたらしい' },
   { pid:'sento',    name:'銭湯育ちの娘',     maji:4, spd:4, aiso:4, desc:'実家が銭湯。番台の空気が分かる即戦力' },
 ];
-/* スペック合計→日給。最低¥7,000、上限¥10,000（500円単位） */
+/* スペック合計→日給。第1章は3スキル（真面目・スピード・愛想）で ¥7,000〜¥10,000。
+   数えるスキルは章ごとに差し替えられる（第2章は【料理】を足した4つ）。
+   男女で差はつけない＝**腕だけで決まる**（作者指定） */
 function staffWageOf(p) {
+  const keys = CONF.staffSkills || ['maji', 'spd', 'aiso'];
+  const sum = keys.reduce((s, k) => s + (p[k] || 0), 0);
   return Math.min(CONF.staffWageMax,
-    CONF.staffWageBase + Math.max(0, (p.maji + p.spd + p.aiso) - 6) * CONF.staffWageStep);
+    CONF.staffWageBase + Math.max(0, sum - (CONF.staffSkillFloor ?? 6)) * CONF.staffWageStep);
 }
 /* 湯温の帯（℃で判定）。TEMP_RANGE はカテゴリ別の設定可能範囲
    ※調整できるのはドライサウナだけ。浴槽・水風呂・ミスト・塩サウナは設備ごとに温度が固定なので載せない
      （浴槽は「湯温をいじる」ではなく「別の風呂を買う」で客の好みに応える設計） */
-const TEMP_RANGE = { sauna: [60, 120] };
+let TEMP_RANGE = { sauna: [60, 120] };
 /* 主人公が温度を設定できる設備か＝ドライサウナだけ（浴槽・水風呂・ミスト・塩は固定） */
 function canSetTemp(def) { return def.cat === 'sauna' && !def.gentle && !def.old; }
+/* 床に固定されていない＝主人公ひとりで担いで動かせるもの（作者指定 8/5）＝**移動は無料**。
+   イス・ベンチ(rest)とマット/垢すりタオルの置き場(amenity)、それに `portable:true` を付けた小物。
+   配管・電気を引き直す風呂・サウナ・カラン・ロッカー・自販機などは、これまでどおり移動費がかかる */
+/* 床に固定されていない物＝移動は無料。
+   `portable:false` を持つ物だけは、cat が rest / amenity でも**造作**として有料に戻す
+   （第2章の畳の小上がり・よもぎ蒸しの個室・キッズスペースなど＝床や配線を伴うもの）。
+   第1章に `portable:false` を持つ設備は1つも無い＝第1章の移動費は変わらない */
+function isPortable(def) {
+  return !!def && def.portable !== false
+      && (def.portable === true || def.cat === 'rest' || def.cat === 'amenity');
+}
 function tempBand(t) {
   if (t >= 44) return { key:'atsu2', label:'超あつ湯',   water:'#e0663a', steam:'rgba(255,150,110,.5)' };
-  if (t >= 41) return { key:'atsu',  label:'あつ湯',     water:'#5aa8d8', steam:'rgba(255,255,255,.45)' };
+  /* あつ湯（41〜43℃）の水色を、青 #5aa8d8 から**あたたかい橙寄り**へ（作者指定 8/8）。
+     青のままだと**ぬる湯（緑がかった水色）より冷たそうに見える**＝温度の順と見た目が逆だった。
+     あつ湯を43℃にしたことで、この帯に主力の湯船が入ったので目立つようになった。
+     湯気も少し濃くして「湯気の立つ熱い湯」に見せる */
+  if (t >= 41) return { key:'atsu',  label:'あつ湯',     water:'#e09a63', steam:'rgba(255,225,200,.55)' };
   if (t >= 34) return { key:'nuru',  label:'ぬる湯',     water:'#8fd0c8', steam:'rgba(255,255,255,.3)' };
   if (t >= 15) return { key:'mizu',  label:'水風呂',     water:'#3a7bd5', steam:null };
   return               { key:'kinkin',label:'キンキン水風呂', water:'#7fe0f0', steam:null };
@@ -507,12 +554,16 @@ function equipDesc(def, cond) {
 }
 
 /* ============ セリフ ============ */
-const LINES = {
+let LINES = {
   pay:        ['よろしく〜', 'どうも', 'やってる？'],
   bathGood:   ['いい湯だ〜', '生き返る〜', '極楽極楽…', 'あ〜、染みるねえ', '肩まで浸かると効くわ', '一日の疲れが抜ける…', 'やっぱり銭湯はいいな'],
   bathHinoki: ['檜の香り…！', '最高だな…'],
   bathOld:    ['ぬるいな…', 'ヒビ入ってるぞ', '昔のままか…'],
-  saunaGood:  ['あっつ〜！最高！', 'ととのう準備よし', '蒸される〜', 'この蒸し加減、いいね', 'じっくり汗かける', '背中まで熱が回る…', 'サ室の空気が澄んでる'],
+  /* サウナの通常セリフは室温で言い分ける（作者指定 8/5）。
+     中温(95℃未満)の部屋で「あっつ〜！最高！」と言われると、温度の札と噛み合わない。
+     ＝浴槽で「40℃の湯なのに〈あ〜熱い！最高！〉」を直したのと同じ理屈 */
+  saunaGood:  ['じっくり汗かける', 'この蒸し加減、いいね', 'ととのう準備よし', '蒸される〜', 'サ室の空気が澄んでる', 'じんわり来るな…'],
+  saunaGoodHot:['あっつ〜！最高！', '背中まで熱が回る…', 'ととのう準備よし', 'この蒸し加減、いいね', 'じっくり汗かける', 'サ室の空気が澄んでる'],
   saunaSuper: ['ロウリュ！！', 'この熱波…本物だ', '聖地では？'],
   saunaHot:   ['灼熱…！ととのう', 'カリッカリだ！', '汗が一気に吹き出す'],
   saunaTooHot:['熱すぎる…無理', 'サウナで焦げるわ…', 'もう出る…！'],
@@ -528,6 +579,8 @@ const LINES = {
   // ぬるめの湯（40℃以下）で言うセリフ。ここで「あ〜熱い！」と言わせると湯船と噛み合わない（作者指摘）
   furoNuruYoi:['ぬるめでいつまでも入れる', 'この温度が長湯にいい', '芯までじんわり来るな', 'のぼせないのがありがたい'],
   furoTansan: ['泡がまとわりつく…！', 'ぬるいのに芯まで来る', '炭酸ってすごいな…'],
+  // 電気風呂の台詞（湯温ではなくビリビリを目当てに入る湯なので、専用の一言を持たせる）
+  furoDenki:  ['うおっ、ビリビリくる…！', '腰にはこれなんだよ', 'この痺れがたまらん', '効くわ〜、これ'],
   furoHot:    ['あっつ！熱すぎ！', 'ぬる湯も置いてくれ'],
   // ぬる湯はある店で、あつ湯に入ってしまった時（「置いてくれ」とは言わせない）
   furoHotOnly:['あっつ！熱すぎ！', 'こっちは熱いな…ぬる湯に移るか', '長くは入っていられん'],
@@ -648,7 +701,7 @@ const LINES = {
   // 汚れ・混雑を放置しすぎて、ついにキレた客
   // 設備がばらばらに置いてあって、館内を歩き回らされた客
   dosen:      ['導線が悪いなあ…', 'この店、無駄に歩かされる', '行ったり来たりで疲れた', 'もうちょい近くに置けよ…'],
-  dosenPro:   ['導線が終わってる。サウナ→水風呂が遠すぎだろ', 'ととのいイスまで歩かせるな、冷めるわ', '設備の配置が悪い。分かってないな', '動線を考えてくれ。それだけで化けるぞ'],
+  dosenPro:   ['導線が終わってる。サウナ→水風呂が遠すぎだろ', 'ととのいイスまで歩かせるな、冷めるわ', '設備の配置が悪い。分かってないな', '導線を考えてくれ。それだけで化けるぞ'],
   riot:       ['ふざけんな、こんな汚ぇ店！', 'いつまで待たせりゃ気が済むんだ！', 'もう我慢ならねぇ！', '金返せ！', 'こんな店、二度と来るか！'],
   // アメニティ・タオル・セットをいちばん高い値段にすると、はっきり文句が出る（作者指定）
   priceyTebura:   ['手ぶらセットが高すぎる', 'セット代でもう一回入れるぞ', 'その値段ならタオル持ってくるわ'],
@@ -959,7 +1012,7 @@ const STORY_KITO_AFTER_KINPATSU = [
 /* ============ 4つの対立（第1章の再建ミッション）＋親父＝最後の扉 ============ */
 /* 4つの対立を全部おさめ、かつ親父との関係が深まると→親父復活エンディング→第2章「独立編」。数値ゴールは置かない */
 /* 3人のライバル（田所＝地域/伝統・黒田修司＝数字/継続・玲奈＝設備/業界）は倒す敵でなく“味方に引き込む”。鬼頭＝別枠の反社。親父は通奏低音＝最後の鍵 */
-const PROBLEMS = [
+let PROBLEMS = [
   { key:'tadokoro', icon:'🧓', name:'田所と常連の心',  mystery:false,
     done:'古参の田所を認めさせ、常連の心を取り戻した',
     todo:'田所と向き合って「共存」を選び、常連との絆と評判を育てよう' },
@@ -995,8 +1048,9 @@ const TADOKORO_DEMANDS = [
   { key:'scale', need:{ type:'equip', id:'scale' },
     ask:'風呂上がりに<b>体重計</b>がないだと？　乗って一喜一憂するまでが、風呂だろうが。<br>あの針がぐるっと回るやつを置け。デジタルなんぞ味気ない。',
     ok:'……ふん。300グラム減ったわ。今日はいい風呂だった。' },
-  { key:'atsuyu', need:{ type:'temp', cat:'furo', op:'>=', v:44 },
-    ask:'この湯は<b>ぬるい</b>。年寄りの湯ってのはな、入った瞬間「熱っ！」と言うくらいでちょうどいい。<br>ひとつでいい、<b>44℃のあつ湯</b>を入れろ。',
+  // あつ湯の湯温を43℃にしたのに合わせて、要求も43℃以上へ（44のままだと**達成不能＝物語が止まる**）
+  { key:'atsuyu', need:{ type:'temp', cat:'furo', op:'>=', v:43 },
+    ask:'この湯は<b>ぬるい</b>。年寄りの湯ってのはな、入った瞬間「熱っ！」と言うくらいでちょうどいい。<br>ひとつでいい、<b>43℃のあつ湯</b>を入れろ。',
     ok:'……そうだ、この熱さだ。肩まで浸かって十数えるのが、たまらんのだ。' },
   { key:'yasune', need:{ type:'opt', opt:'fee', op:'<=', v:500 },
     ask:'値段の話だ。うちの常連は年金暮らしが多い。<b>入浴料を¥500以下</b>にしろ。<br>……銭湯ってのは、毎日来られる値段でなきゃ、銭湯じゃない。',

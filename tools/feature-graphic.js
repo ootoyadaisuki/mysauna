@@ -35,7 +35,7 @@ const HTML = `<!doctype html><meta charset="utf-8">
 <div class="wrap">
   <div>
     <h1>俺のサウナ</h1>
-    <p>たぶん世界初、サウナの経営シミュレーション。<br>あなただけのオリジナルサウナを作ろう。</p>
+    <p>ドット絵のサウナ経営シミュレーション。<br>あなただけのオリジナルサウナを作ろう。</p>
   </div>
 </div>`;
 

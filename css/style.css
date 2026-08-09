@@ -1,4 +1,12 @@
 * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+/* iPhoneのノッチ（上）とホームバー（下）で食われる帯の高さ。
+   --safe-v は上下の合計＝画面いっぱいに出す箱（日報・運営など）から差し引く分。
+   ノッチの無い端末やPCのブラウザでは 0px になる */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --safe-v: calc(var(--sat) + var(--sab));
+}
 html,body { height:100%; overscroll-behavior:none; }
 body {
   font-family:'DotGothic16', 'Hiragino Kaku Gothic ProN', sans-serif;
@@ -13,7 +21,13 @@ body {
   position:absolute; inset:0; z-index:50;
   background:#1c1714; display:flex; flex-direction:column;
   align-items:center; justify-content:center; padding:16px;
+  /* ノッチ・ホームバーを避ける（iPhone実機。SEなど無い端末では 0 になる） */
+  padding-top:calc(16px + var(--sat));
+  padding-bottom:calc(16px + var(--sab));
 }
+/* 妻の関門は、ほかの画面（資金繰り・運営）の**上に**かぶせる。
+   HTMLの並び順では資金繰りのほうが後ろにあるので、ここで上へ持ち上げておく */
+#wifeModal { z-index:70; }
 .modal {
   background:#3a2f28; border:3px solid #c9a86a; border-radius:10px;
   padding:20px; width:100%; max-width:400px; text-align:center;
@@ -32,6 +46,10 @@ body {
 .big-btn:active { transform:translateY(3px); box-shadow:0 1px 0 #3d2517; }
 .big-btn.danger { background:linear-gradient(#8a3030,#6b2020); border-color:#c96a6a; box-shadow:0 4px 0 #3d1515; }
 .big-btn.danger:active { box-shadow:0 1px 0 #3d1515; }
+/* 控えめなボタン＝本命の隣に置く二番手（開業ボードの【今日は終わり】など） */
+.big-btn.sub { background:linear-gradient(#4a3b2c,#3a2d20); border-color:#7a6448; color:#d8c8ac;
+  font-size:14px; padding:10px; box-shadow:0 3px 0 #241a10; }
+.big-btn.sub:active { box-shadow:0 1px 0 #241a10; }
 /* 押せないボタン＝グレー（融資の審査未達など。作者指定） */
 .big-btn:disabled {
   background:linear-gradient(#4a4038,#3a322b); border-color:#6b5b47; color:#8f8371;
@@ -73,6 +91,13 @@ body {
 .big-btn.locked:active { transform:none; box-shadow:0 4px 0 #241d16; }
 .big-btn .soon { display:block; font-size:12px; color:#e6b04a; margin-top:2px; letter-spacing:1px; }
 #titleStart .sm-btn { margin-top:14px; }
+/* タイトルの一番下に置く小さな案内（施設のオーナー向け）。遊ぶ導線の邪魔をしない色味にする */
+.title-link {
+  margin-top:30px; padding:8px 16px; font:inherit; font-size:12px; letter-spacing:1px;
+  background:none; border:1px solid #6b5b47; border-radius:999px;
+  color:#a3907a; cursor:pointer;
+}
+.title-link:active { transform:translateY(1px); }
 
 /* ===== ストーリー ===== */
 #story { background:#0d0a08; justify-content:center; gap:14px; }
@@ -102,7 +127,12 @@ body {
 #topbar {
   display:flex; justify-content:space-between; align-items:center;
   padding:8px 10px; background:#3a2f28; border-bottom:3px solid #c9a86a;
-  font-size:13px; gap:6px;
+  /* 画面が狭い端末（iPhone SEなど幅320px）だと、日付・所持金・評判・☰ が横に入りきらず
+     ☰ が画面の外へ押し出される。狭いほど文字を詰める＝どの端末でも1行に収まる */
+  font-size:clamp(11px, 3.4vw, 13px); gap:6px;
+  /* iPhoneのノッチ／ステータスバーの下に潜らせない。
+     帯そのものを上に伸ばすので、ノッチのまわりも帯の色で埋まる */
+  padding-top:calc(8px + var(--sat));
 }
 #topbar span { white-space:nowrap; }
 /* 右上のメニューボタン。保存・トップ画面へ・（今後）ウェブサイトの入口 */
@@ -113,6 +143,35 @@ body {
 }
 #btnMenu:active { background:#7a5c46; }
 #uiCash { color:#ffd98a; }
+/* 体力バー（第2章）。主人公が今日あと何ができるか＝金の代わりに払うもの。
+   上の帯は日付・時刻・所持金・評判で詰まっているので、案内図の帯の右端に置く */
+/* ゲージの帯（第2章）＝**体力と妻の機嫌は常時出す**（作者指定）。
+   日付の帯のすぐ下に、いつも同じ場所で並べる                                 */
+#gaugeBar {
+  display:flex; align-items:center; justify-content:center; gap:18px;
+  padding:5px 10px; background:#241c16; border-bottom:2px solid #4a3a2c;
+}
+#uiStam, #uiMood, #uiStress {
+  flex:none; display:flex; align-items:center; gap:5px;
+  font-size:11px; color:#d8c6a8; white-space:nowrap;
+}
+#uiStam b, #uiMood b, #uiStress b { font-weight:normal; }
+#uiStam::before, #uiMood::before, #uiStress::before {
+  content:''; display:block; flex:none; width:56px; height:8px; border:1px solid #6b533c;
+  border-radius:4px; background:#2a211a; background-repeat:no-repeat;
+}
+#uiStam::before {
+  background-image:linear-gradient(to right, var(--stam-col, #8fd4a0) var(--stam, 100%), transparent 0);
+}
+#uiMood::before {
+  background-image:linear-gradient(to right, var(--mood-col, #f0a0bc) var(--mood, 100%), transparent 0);
+}
+/* ストレスだけは**溜まるほど悪い**。満タンに近づくと赤くなる */
+#uiStress::before {
+  background-image:linear-gradient(to right, var(--stress-col, #7ec8e8) var(--stress, 0%), transparent 0);
+}
+/* 危ないときは文字も一緒に色が変わる＝バーを見ていなくても気づく */
+#uiStam.low b, #uiMood.low b { color:#ff8a7a; }
 /* 資金がマイナスの日は赤で出す（0で隠さない） */
 #uiCash.minus { color:#ff8a7a; }
 #uiClock { color:#9fd8ff; }
@@ -120,13 +179,74 @@ body {
 
 #canvasWrap { position:relative; background:#17110d; line-height:0; }
 #game { width:100%; image-rendering:pixelated; display:block; }
+/* 第2章の館内案内図。ゲーム画面と同じ枠に重ねて出す */
+#guide { width:100%; image-rendering:pixelated; display:block; cursor:pointer; }
+/* 区画にいる間だけ出る帯（← 館内案内図／いまどの部屋か） */
+/* ⚠ キャンバスの**上に重ねる**（作者指定 8/8）。
+   帯が場所を取っていたぶん(52px)を、フロア画面の縦に返すため。
+   左上に寄せた小さな帯にして、床を隠す面積を最小にする */
+#areaBar {
+  position:absolute; top:4px; left:4px; z-index:5;
+  display:flex; align-items:center; gap:5px;
+  background:rgba(26,19,14,.82); border:1px solid #6b533c; border-radius:8px;
+  padding:2px 5px; line-height:1.15; max-width:calc(100% - 8px);
+}
+/* **床を隠す面積を最小に。** 帯はマス目の上に乗っているので、1マス(約19px)ぶんに収める */
+#areaBar .sm-btn { padding:1px 6px; font-size:10px; box-shadow:none; border-width:1px; border-radius:5px; }
+#areaBar .sm-btn:active { transform:none; }
+/* 【家へ】と体力は、案内図ボタンのすぐ隣に詰める（作者指定）。余白は右端にまとめる */
+#areaBar #areaLabel { font-size:10px; color:#e8d9bd; flex:1; min-width:0; order:9; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#areaBar #btnHome { flex:none; }
 #hint {
   position:absolute; left:8px; right:8px; bottom:8px; line-height:1.5;
   background:rgba(20,14,10,.88); border:2px solid #c9a86a; border-radius:8px;
   padding:8px 10px; font-size:12px; color:#ffe8c0; pointer-events:none;
 }
 
-#panel { flex:1; overflow-y:auto; background:#2a2320; padding:8px; }
+/* ============ 客をタップしたときの札（第2章・custcard_y.js）============
+   **キャンバスには描かない。**キャンバスの字はマップと同じ倍率で縮むので、
+   スマホの画面では読めない大きさになる（作者指摘 8/6）。
+   ここに実寸の DOM を重ねる＝どの機種でも同じ大きさで、同じ読みやすさになる。
+   pointer-events:none ＝札の上を叩いても、下のキャンバスがタップを受け取る（＝閉じる） */
+/* **スマホの地図は高さが220px ほどしかない。**7行の札はそれより背が高くなるので、
+   行間と余白を詰めて、必ず地図の中に収まるようにしてある（max-height が最後の関門） */
+#custCard {
+  position:absolute; left:0; top:0; z-index:6; pointer-events:none;
+  width:min(250px, 64%); max-height:calc(100% - 12px); overflow:hidden;
+  background:rgba(20,14,10,.94); border:2px solid #ffd98a; border-radius:8px;
+  padding:6px 9px; color:#e8d8b8; line-height:1.3;
+  box-shadow:0 3px 10px rgba(0,0,0,.5);
+}
+#custCard.hidden { display:none; }
+.cc-head { display:flex; align-items:baseline; gap:6px; margin-bottom:3px; }
+/* 大きく出すのは**その人の呼び名**（強面の客／子ども／遠征サウナー）。
+   層の名前（子連れ・サウナー）は、その人を指す言葉ではないので出さない */
+.cc-seg  { font-size:16px; font-weight:bold; color:#ffd98a; flex:1; min-width:0;
+           overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cc-sat  { font-size:15px; font-weight:bold; }
+.cc-sec  { display:flex; justify-content:space-between; align-items:baseline;
+           font-size:10px; color:#8a8070; border-top:1px solid rgba(255,217,138,.25);
+           padding-top:3px; margin-bottom:1px; }
+.cc-sec b { font-size:11px; color:#c9bda8; }
+.cc-row  { font-size:13px; display:flex; gap:5px; align-items:flex-start; }
+.cc-row i { font-style:normal; width:1em; flex:none; }
+.cc-row span { flex:1; min-width:0; }
+.cc-row.ok { color:#6fd07b; }
+.cc-row.ng { color:#ff7a6e; }
+/* 働く人の札（バイト・妻・主人公）＝★・持ち場・日給の行と、一言 */
+.cc-line { font-size:12px; color:#d8cbb2; }
+/* ★の行だけは一行に収めたい（折り返すと札が伸びる） */
+.cc-skill { font-size:11px; color:#c9bda8; white-space:nowrap; }
+.cc-warn { color:#ff9a5e; font-weight:normal; }
+.cc-say  { font-size:13px; color:#f5ead8; margin-top:4px;
+           border-top:1px solid rgba(255,217,138,.25); padding-top:4px; }
+.cc-more { font-size:10px; color:#8a8070; margin-top:3px; }
+/* 満足度の色は、データ画面の段と揃える */
+.cc-sat.s4 { color:#6fd07b; } .cc-sat.s3 { color:#e8c65a; }
+.cc-sat.s2 { color:#e0954c; } .cc-sat.s1 { color:#ff7a6e; }
+
+/* 一番下はホームバー（黒い横棒）にボタンが隠れるので、その分だけ下に余白を足す */
+#panel { flex:1; overflow-y:auto; background:#2a2320; padding:8px; padding-bottom:calc(8px + var(--sab)); }
 
 /* 営業中 */
 #bizLog {
@@ -148,14 +268,22 @@ body {
 /* 「🏮 営業開始」は1行に収める（折り返すと2行になって高さが揃わない） */
 .prep-actions .open-btn { flex:1.6; margin:0; padding:8px 4px; font-size:14px; white-space:nowrap; }
 .prep-actions .sm-btn { flex:1; font-size:11px; padding:6px 1px; white-space:nowrap; }
-#shopTabs { display:flex; gap:4px; margin-bottom:6px; flex-wrap:wrap; }
-#shopTabs .tab {
+/* 設備カタログのタブ。**外観・増築（#shopTabsG）も同じ見た目にする。**
+   ここを #shopTabs だけにしていたので、外観・増築のタブだけ素のボタンで出ていた */
+#shopTabs, #shopTabsG { display:flex; gap:4px; margin-bottom:6px; flex-wrap:wrap; }
+#shopTabs .tab, #shopTabsG .tab {
   font-family:inherit; font-size:12px; padding:6px 9px; border-radius:6px 6px 0 0;
   background:#3a2f28; color:#c9b494; border:2px solid #6b5b44; border-bottom:none; cursor:pointer;
 }
-#shopTabs .tab.on { background:#5a4433; color:#ffd98a; border-color:#c9a86a; }
+#shopTabs .tab.on, #shopTabsG .tab.on { background:#5a4433; color:#ffd98a; border-color:#c9a86a; }
 /* 運営メニューのタブ（料金／アメニティ／ルール）。1画面に収めるための切り替え */
 .opt-tabs { display:flex; gap:6px; margin:0 0 10px; }
+/* タブが3つ以上ある章（第2章＝料金・ルール・バイト・融資）は**2段に並べる**（作者指定 8/8）。
+   横スクロールにしていたが、**右端のタブが画面の外に隠れて気づかれない。**
+   2段なら全部いちどに見える。文字は折り返さない（`nowrap`）ので背も揃う。
+   タブが2つの章（第1章）はこの class が付かない＝これまでと1pxも変わらない */
+.opt-tabs.many { flex-wrap:wrap; }
+.opt-tabs.many .tab { flex:1 1 calc(50% - 3px); white-space:nowrap; padding:8px 4px; }
 .opt-tabs .tab {
   flex:1; font-family:inherit; font-size:13px; padding:8px 4px; border-radius:8px;
   background:#3a2f28; color:#c9b494; border:2px solid #6b5b44; cursor:pointer;
@@ -175,7 +303,7 @@ body {
 .rep-bar-row .low { background:#d99a3a; color:#f0b45a; }
 .rep-bar-row .bad { background:#c9543a; color:#e8735a; }
 .rep-bar-row .bv.ok, .rep-bar-row .bv.mid, .rep-bar-row .bv.low, .rep-bar-row .bv.bad { background:none; }
-#shopTabs .tab { position:relative; }
+#shopTabs .tab, #shopTabsG .tab { position:relative; }
 /* 新しく解放された設備があるカテゴリの赤丸 */
 .new-dot {
   position:absolute; top:-3px; right:-3px; width:9px; height:9px; border-radius:50%;
@@ -217,6 +345,8 @@ body {
 /* ボタン群は必ず一列（折り返して二段にしない・作者指定）。幅は均等割りで詰める */
 .sel-actions { display:flex; gap:6px; flex-wrap:nowrap; }
 .sel-actions .sm-btn { flex:1; min-width:0; padding:8px 2px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#zanchiActions { display:none; }
+#zanchiActions .sm-btn.ok { border-color:#8fd4a0; color:#d8f4de; }
 .cond-bar { display:inline-block; width:90px; height:9px; background:#1a140f; border:1px solid #6b5b44; vertical-align:middle; }
 .cond-bar i { display:block; height:100%; background:#7ac96a; }
 /* 壊れている設備の一行（修理は自動＝プレイヤーの操作はない） */
@@ -234,16 +364,81 @@ body {
   display:inline-block; font-size:10px; color:#cfe8ff; background:#2b3a4a;
   border:1px solid #4a6274; border-radius:4px; padding:1px 5px; vertical-align:middle;
 }
+/* 一行説明を「置く画面」に譲った章（第2章）のカタログ。
+   行の高さを決めているのはアイコンなので、説明を消すだけでは詰まらない＝
+   アイコンと余白も一緒に削って、はじめて一画面に並ぶ数が増える */
+/* ⚠ **横スクロールの棚にする**（作者指定 8/8）。縦に積むと画面の半分を食うので、
+     一列の帯にして、余った縦をフロア画面に返す。
+     `compact` が付くのは placeInfo フックを持つ章＝**第2章だけ**なので、
+     第1章のカタログは縦積みのまま1pxも変わらない                          */
+#shopList.compact {
+  flex-direction:row; flex-wrap:nowrap; gap:6px;
+  overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;
+  scroll-snap-type:x proximity; padding-bottom:6px;
+}
+/* 営業中は縦にスクロールさせる指定が上にあるので、こちらで打ち消す */
+#bizPanel:not(.hidden) + #shopPanel #shopList.compact { max-height:none; overflow-y:hidden; }
+#shopList.compact .shop-item {
+  flex:0 0 auto; width:84px; flex-direction:column; align-items:center;
+  padding:6px 4px; gap:2px; text-align:center; scroll-snap-align:start;
+}
+#shopList.compact .shop-icon { width:30px; height:30px; }
+#shopList.compact .shop-body { flex:none; width:100%; }
+/* 名前のうしろに【収容6人】【🔒ととのい38】が同じ行に入っているので、
+   2行で切ると**チップごと切れて読めない。**3行まで許して、チップを収める */
+#shopList.compact .shop-name {
+  font-size:10.5px; line-height:1.3; white-space:normal;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+}
+#shopList.compact .shop-price { margin-left:0; font-size:12px; }
+#shopList.compact .cap-chip, #shopList.compact .lock-chip { font-size:9px; padding:0 3px; margin-top:1px; }
+#shopList.compact .shop-note { display:none; }
+/* タブも一列の横スクロールに（折り返して二段になると、そのぶん縦を食う） */
+#shopTabs, #shopTabsG {
+  flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px;
+}
+#shopTabs .tab, #shopTabsG .tab { flex:0 0 auto; }
+
+/* 設備の詳細（第2章）＝設備を選んでから【ここに置く】を押すまでのあいだに読む一枚。
+   下のボタン（確認バー）に被らないよう、この箱だけが縦に伸び縮みする */
+#placeInfo {
+  background:#241d17; border:2px solid #6b5b44; border-radius:8px;
+  padding:8px 10px; margin-bottom:6px; font-size:12px; line-height:1.6;
+  max-height:30dvh; overflow-y:auto;
+}
+.pi-head { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
+.pi-icon { width:34px; height:34px; image-rendering:pixelated; flex:none; }
+.pi-head b { font-size:14px; }
+.pi-chips { margin-top:3px; display:flex; flex-wrap:wrap; gap:4px; }
+.pi-desc { color:#d8c8a8; }
+/* 効きどころ＝この設備を選ぶ客層。採点式から出しているので、飾りではなく根拠のある行 */
+.pi-fit { margin-top:5px; color:#cfe8ff; }
+.pi-fit b { color:#fff; }
+.pi-note { margin-top:4px; color:#e8c84a; }
+/* 誰の好みにも合っていない温度＝この階に置いても金を生まない。買う前に止める一行 */
+.pi-warn {
+  margin-top:5px; padding:4px 7px; border-radius:5px;
+  background:#3a221e; border:1px solid #e07a6a; color:#ff9a8a;
+}
+.pi-warn b { color:#ffd0c4; }
+
 /* 配置確認 */
 #confirmBar {
   display:flex; align-items:center; gap:8px; padding:10px;
   background:#3a2f28; border:2px solid #c9a86a; border-radius:8px; font-size:13px;
 }
 #confirmText { flex:1; }
+/* 【向き・ここに置く・やめる】を、スクロールせずに必ず見えるところへ（作者指定 8/8）。
+   パネルの下に貼り付ける。`stickyPlaceBar` を持つ章にだけ js が付ける class なので、
+   第1章にはこの規則が一度も当たらない */
+#confirmBar.stick {
+  position:sticky; bottom:0; z-index:5; margin-top:6px;
+  box-shadow:0 -6px 12px rgba(0,0,0,.45);
+}
 
 /* 日報。iPhone実機のスクロールなし1画面に収まる密度を基準（作者指定）。
    イベントが重なった日はそれでも溢れうるので、安全弁として overflow-y:auto は残す */
-.report { text-align:left; max-height:96dvh; overflow-y:auto; padding:12px 14px; }
+.report { text-align:left; max-height:calc(96dvh - var(--safe-v)); overflow-y:auto; padding:12px 14px; }
 .report h2 { text-align:center; font-size:17px; margin-bottom:6px; }
 /* 本日の収支＝この画面の主役。最上部に大きく */
 .rep-headline {
@@ -293,7 +488,7 @@ body {
 .rep-chip.total .cv { color:#ffe6a8; }
 .rep-chip.wide .cl { font-size:12px; }
 .rep-voice { font-size:11px; color:#c9e8ff; background:#241d17; border-radius:6px; padding:5px 7px; margin-top:6px; line-height:1.5; }
-#reportModal { padding:6px; }
+#reportModal { padding:6px; padding-top:calc(6px + var(--sat)); padding-bottom:calc(6px + var(--sab)); }
 #reportModal .big-btn { margin:8px 0 0; padding:10px; }
 
 /* 広告（宣伝）・融資。※クラス名に ad を使わないこと＝広告ブロッカーに消される（index.htmlの注記参照） */
@@ -319,14 +514,14 @@ body {
 
 /* 汎用トースト */
 #toast {
-  position:absolute; top:52px; left:50%; transform:translateX(-50%); z-index:99;
+  position:absolute; top:calc(52px + var(--sat)); left:50%; transform:translateX(-50%); z-index:99;
   background:rgba(30,20,12,.94); border:2px solid #ffd98a; color:#ffe8c0;
   padding:8px 16px; border-radius:8px; font-size:13px; white-space:nowrap;
   transition:opacity .3s; pointer-events:none;
 }
 
 /* 運営メニュー */
-.manage { text-align:left; max-height:84dvh; overflow-y:auto; }
+.manage { text-align:left; max-height:calc(84dvh - var(--safe-v)); overflow-y:auto; }
 .manage h2 { text-align:center; }
 .opt-sec { font-size:13px; color:#ffd98a; font-weight:bold; margin:12px 0 4px; border-bottom:1px solid #6b5b44; padding-bottom:3px; }
 .opt-row { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:13px; padding:6px 2px; }
@@ -342,9 +537,11 @@ body {
 .opt-btn:disabled { cursor:default; opacity:.7; }
 /* 「自由」を選んだときの料金スライダー */
 .slider-row { background:rgba(201,168,106,.1); border-radius:6px; padding:8px 6px; }
-.fee-slider { display:flex; align-items:center; gap:8px; flex:1.4; }
-.fee-slider input[type=range] { flex:1; min-width:110px; accent-color:#c9a86a; }
-.fee-slider b { color:#ffd98a; min-width:62px; text-align:right; font-size:15px; }
+/* 料金の【−】【＋】（旧スライダー）。指で押しやすい大きさにして、金額は真ん中に大きく出す */
+.fee-step { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex:1.4; }
+.fee-step b { color:#ffd98a; min-width:72px; text-align:center; font-size:16px; }
+.opt-btn.step { min-width:44px; padding:6px 0; font-size:18px; line-height:1; touch-action:none; user-select:none; }
+.opt-btn.step:disabled { opacity:.35; }
 
 /* ヤミ金（灰田金融）の枠 */
 .yami-box {
@@ -366,3 +563,309 @@ body {
 .temp-ctrl { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:13px; }
 .temp-ctrl b { min-width:38px; text-align:center; color:#ffd98a; }
 .temp-band { font-size:11px; color:#9fd0ff; }
+
+/* ===== 第2章の開業準備 ===== */
+.modal.kaigyo { max-width:440px; max-height:calc(88dvh - var(--safe-v)); overflow-y:auto; text-align:left; }
+.kg-step { border:2px solid #6b533c; border-radius:8px; padding:10px 12px; margin-bottom:10px; background:#33291f; }
+.kg-step.done { border-color:#6a8a5a; opacity:.85; }
+.kg-step > b { color:#ffd98a; font-size:15px; }
+.kg-step > span { float:right; font-size:12px; color:#d8c6a8; }
+.kg-note { font-size:12px; color:#d8c6a8; line-height:1.7; margin:6px 0; clear:both; }
+.kg-keep { color:#e0b070; }
+.kg-item { border-top:1px dashed #6b533c; padding:8px 0 6px; }
+.kg-item > b { font-size:14px; color:#fff8ea; }
+.kg-item.settled { color:#9a8a72; }
+.kg-item.settled > span { float:right; font-size:12px; color:#8aa87a; }
+/* 部屋の名前を押すと、その部屋へ飛ぶ（開けるための最低限） */
+.kg-item.kg-go { cursor:pointer; padding-left:8px; border-left:3px solid transparent; }
+.kg-item.kg-go:hover { border-left-color:#c9a86a; background:rgba(201,168,106,.07); }
+.kg-item.kg-go > span { float:right; font-size:12px; color:#c9a86a; }
+.kg-item.kg-go > b::after { content:' ›'; color:#c9a86a; }
+.kg-acts { display:flex; gap:6px; flex-wrap:wrap; }
+.kg-acts .sm-btn { flex:1 1 auto; font-size:12px; padding:7px 6px; }
+.kg-cash { text-align:center; font-size:13px; color:#ffd98a; margin:10px 0 4px; }
+
+/* ===== 上の一行（いま何をすればいいか）=====
+   下のヒント帯は長くなりがちで、画面を食うわりに毎回同じことを言う。
+   「あと何個か」だけは常に見えていてほしいので、上に一行だけ置く（作者指定） */
+#tip {
+  padding:6px 10px; font-size:13px; line-height:1.5; text-align:center;
+  color:#ffe6a8; background:#3a2d20; border-bottom:2px solid #6b533c;
+}
+#tip b { color:#fff8ea; }
+#tip.flash { color:#8fd4a0; background:#2e3a2a; }
+
+/* ===== 第2章：注文（ミッション） ===== */
+.msn-box { border:1px solid #6b533c; border-radius:6px; padding:8px 10px; background:#2b231b; }
+.msn-head { display:flex; justify-content:space-between; font-size:15px; color:#fff8ea; }
+.msn-head span { color:#c9a86a; font-size:13px; }
+.msn-lead { font-size:11px; color:#9a8a72; margin:4px 0 8px; line-height:1.7; }
+.msn-row { border-top:1px dashed #4a3b2c; padding:7px 0 5px; }
+.msn-row > b { font-size:13px; color:#fff8ea; }
+.msn-row > span { float:right; font-size:11px; color:#9a8a72; }
+.msn-row.ok > b { color:#8fd4a0; }
+.msn-row.ok > span { color:#8fd4a0; }
+.msn-row.now { background:rgba(201,168,106,.09); }
+.msn-row.now > b { color:#ffd98a; }
+.msn-row.now > span { color:#ffd98a; }
+.msn-row.ng > b, .msn-row.ng > span { color:#c98a8a; }
+.msn-row.yet > b { color:#8a7a62; }
+.msn-note { font-size:11px; color:#9a8a72; margin:3px 0 0; line-height:1.6; clear:both; }
+
+/* ===== 第2章：バイト管理ページ ===== */
+.modal.wide { max-width:460px; max-height:calc(86dvh - var(--safe-v)); overflow-y:auto; text-align:left; }
+.sm-area { margin:8px 0; border:1px solid #6b533c; border-radius:6px; padding:7px 8px; background:#2b231b; }
+.sm-area.closed { border-color:#8a3030; background:#332020; }
+.sm-area-h { display:flex; justify-content:space-between; align-items:baseline; font-size:14px; color:#fff8ea; }
+.sm-area-h span { font-size:11px; color:#e08a8a; }
+/* 人数の表示は**赤で警告しない**（枠が空いているのは事故ではない）。
+   空きがあれば金色、埋まっていれば緑。赤は「🚫 利用不可」だけに取っておく */
+.sm-area-h .sm-free { color:#c9a86a; }
+.sm-area-h .sm-full { color:#7ac96a; }
+.sm-note { font-size:11px; color:#9a8a72; margin:3px 0 0; }
+.sm-card { display:flex; gap:8px; align-items:center; margin-top:6px; padding:6px;
+  background:#372c21; border-radius:5px; cursor:pointer; }
+.sm-card:hover { background:#423426; }
+.sm-card > div { flex:1; min-width:0; }
+.sm-card b { font-size:13px; color:#fff8ea; }
+.sm-face { font-size:20px; }
+.sm-go { color:#c9a86a; font-size:18px; }
+.sm-card .shop-price { float:right; font-size:12px; }
+.sm-sulk { margin-left:3px; }
+.sm-night { margin-left:4px; font-size:10px; color:#8ab0d8; }
+/* 空いている枠（第2章のバイト管理）。**枠は空いたまま描く**＝
+   「まだ立たせられる」ことが、数字ではなく形で分かる（作者指定 8/7） */
+.sm-slot { display:flex; gap:8px; align-items:center; justify-content:center; width:100%;
+  margin-top:6px; padding:9px 6px; background:transparent; color:#8f7a5c; font-size:15px;
+  border:1px dashed #6b533c; border-radius:5px; cursor:pointer; font-family:inherit; }
+.sm-slot:hover, .sm-slot.on { background:#372c21; color:#e8d5a8; border-color:#c9a86a; }
+.sm-slot span { font-size:11px; }
+/* 【＋】を押したときに開く、立たせられる人の一覧 */
+.sm-picker { margin-top:6px; padding:6px; background:#231c15; border-radius:5px; }
+.sm-pick { display:flex; gap:8px; align-items:center; width:100%; text-align:left;
+  margin-top:6px; padding:6px; background:#372c21; border:0; border-radius:5px;
+  cursor:pointer; font-family:inherit; color:inherit; }
+.sm-pick:first-child { margin-top:0; }
+.sm-pick:hover { background:#423426; }
+.sm-pick > div { flex:1; min-width:0; }
+.sm-pick b { font-size:13px; color:#fff8ea; }
+.sm-pick .shop-price { float:right; font-size:12px; }
+.sm-picker .sm-hire { width:100%; margin-top:8px; }
+/* 妻の札。バイトと同じ形だが、押しても個別パネルは開かない（給料もクビも無い） */
+.sm-card.sm-wife { cursor:default; }
+.sm-card.sm-wife:hover { background:#372c21; }
+.sm-tag { margin-left:5px; font-size:10px; color:#d8a0b8; }
+
+/* 公庫の審査条件（宮下は数字しか見ない） */
+.kou-checks { margin-top:6px; font-size:11px; line-height:1.9; }
+.kou-ok { color:#8fd4a0; }
+.kou-ng { color:#c98a8a; }
+.kou-next { margin-top:6px; padding-top:5px; border-top:1px solid #4a3b2c;
+  font-size:11px; color:#9a8a72; line-height:1.7; }
+
+/* 面接の中で持ち場を決める（採用と同時に「どこに立たせるか」） */
+.job-post { margin-top:6px; }
+.job-post-h { display:block; font-size:11px; color:#c9a86a; margin-bottom:3px; }
+.job-post .opt-btn { font-size:11px; padding:4px 7px; margin:0 4px 4px 0; }
+.job-post .opt-btn.on { border-color:#c9a86a; background:rgba(201,168,106,.2); color:#ffe6a8; }
+.job-post .opt-btn:disabled { opacity:.38; }
+
+/* ===== 第2章：スタッフの持ち場と性別 ===== */
+.post-pick { margin-bottom:10px; }
+.post-pick .opt-btn { display:block; width:100%; margin:4px 0; text-align:left; }
+.post-pick .opt-btn.on { border-color:#c9a86a; background:rgba(201,168,106,.18); color:#ffe6a8; }
+.post-pick .opt-btn:disabled { opacity:.42; }
+.sex-f { color:#e59ac0; font-size:12px; margin-left:3px; }
+.sex-m { color:#7fb0d8; font-size:12px; margin-left:3px; }
+
+/* ===== 第2章：10日ごとに来る、重い出費（日報の下の別枠） =====
+   店の損益ではないので、営業の数字とは色も枠も分ける（青い縁＝店の外の金） */
+.rep-bill { font-size:12px; color:#e8d9bd; background:#2a3340; border-left:3px solid #6ab0d8;
+  border-radius:4px; padding:8px 10px; margin:8px 0 2px; line-height:1.7; text-align:left; }
+.rep-bill b { color:#a8d8f0; }
+.rep-bill .bill-row { display:flex; justify-content:space-between; gap:8px; margin-top:4px; }
+.rep-bill .bill-row .yen { color:#ff8a7a; white-space:nowrap; }
+.rep-bill .bill-note { color:#9a8a72; font-size:11px; }
+.rep-bill .bill-sum { border-top:1px solid #4a5a6b; margin-top:6px; padding-top:5px; color:#ffd98a; }
+.rep-bill .bill-next { color:#9a8a72; font-size:11px; margin-top:5px; }
+
+/* 何も置けない部屋（廊下）。カタログの代わりに一行だけ出す */
+.shop-empty { color:#9a8a72; font-size:12px; text-align:center; padding:14px 10px; margin:0; }
+
+/* ===== 第2章：停められずに帰った客（日報の下の別枠） =====
+   店の外で失っている客なので、引き落としと同じ「営業の数字ではない」枠。
+   ただしこちらは損失＝橙の縁にして、青い引き落としと取り違えないようにする */
+.rep-park { font-size:12px; color:#e8d9bd; background:#3a3026; border-left:3px solid #d8a04a;
+  border-radius:4px; padding:8px 10px; margin:8px 0 2px; line-height:1.7; text-align:left; }
+.rep-park b { color:#ffcf7a; }
+.rep-park .bill-row { display:flex; justify-content:space-between; gap:8px; margin-top:4px; }
+.rep-park .bill-row .yen { color:#ff8a7a; white-space:nowrap; }
+.rep-park .bill-note { color:#a89272; font-size:11px; }
+
+/* ===== 第2章：メニュータブ ===== */
+.menu-head { padding:8px 10px; margin-bottom:6px; background:#33291f; border-left:3px solid #c9a86a; border-radius:4px; }
+.menu-head b { color:#ffd98a; font-size:14px; display:block; margin-bottom:3px; }
+.menu-item { cursor:pointer; }
+.menu-item.menu-on { border-color:#8fd4a0; background:#2f3a2c; }
+.menu-tag { display:inline-block; padding:1px 5px; margin-right:4px; font-size:10px;
+  color:#12200f; background:#8fd4a0; border-radius:3px; }
+
+/* ===== 番付の表（第2章のデータ画面）=====
+   8部門＋合計を1枚に収める。横に溢れたら、この枠の中だけ横スクロールする */
+.banzuke-tbl { overflow-x:auto; margin:4px 0 8px; }
+.banzuke-tbl table { border-collapse:collapse; width:100%; font-size:12px; }
+.banzuke-tbl th, .banzuke-tbl td {
+  padding:5px 3px; text-align:center; border-bottom:1px solid #3a2f28; white-space:nowrap;
+}
+.banzuke-tbl th { color:#c9a86a; font-weight:normal; }
+.banzuke-tbl td.nm { text-align:left; color:#e8ded0; padding-right:8px; }
+.banzuke-tbl td.tot { font-weight:bold; color:#ffd98a; }
+.banzuke-tbl td.top { color:#8fe08f; font-weight:bold; }   /* その部門の1位 */
+.banzuke-tbl tr.me { background:#3a2f28; }
+.banzuke-tbl tr.me td.nm { color:#ffd98a; font-weight:bold; }
+
+
+/* ============ 朝の一枚（第2章「今日は何をする？」）============
+   上にリビングの絵、下に選択肢を2列。作者の別作品（億女）と同じ作り。
+   絵が届いていない間は <img> の onerror で丸ごと隠れる                    */
+.y-visual {
+  margin: -4px 0 10px; border-radius: 10px; overflow: hidden;
+  border: 1px solid #5a4632; background: #1a1512;
+}
+.y-visual img { display: block; width: 100%; height: auto; }
+/* コードのドット絵（canvas）。ドットをにじませない */
+.y-visual canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.y-cmd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.y-cmd {
+  position: relative; text-align: left; padding: 10px 12px;
+  background: #3a2f26; border: 1px solid #6b563d; border-radius: 10px;
+  color: #f2e6d2; font-family: inherit; font-size: 13px; line-height: 1.5; cursor: pointer;
+}
+.y-cmd:active { transform: translateY(1px); }
+.y-cmd:disabled { opacity: .38; cursor: default; }
+.y-cmd.go { border-color: #c8a05a; background: #4a3826; }
+.y-cmd b { display: block; font-size: 14px; }
+.y-cmd-cost { position: absolute; top: 10px; right: 12px; color: #ffd98a; font-size: 12px; }
+.y-cmd-sub { display: block; margin-top: 2px; color: #b9a892; font-size: 11px; }
+@media (max-width: 380px) { .y-cmd-grid { grid-template-columns: 1fr; } }
+
+/* ── 応募者の札（第2章の採用画面）──────────────────────────
+   顔・歳・性別・★・ひとこと・日給を1枚にまとめる。
+   一枚絵（assets/story/y_staff_<pid>.webp）が無ければ絵文字に落ちる。
+   ⚠ この `.y-*` は第2章の画面しか出さない＝第1章の見た目は変わらない  */
+.y-scout {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 10px; margin-bottom: 10px;
+  background: #3a2f26; border: 1px solid #6b563d; border-radius: 10px;
+}
+.y-scout-img {
+  position: relative; flex: 0 0 84px; width: 84px; height: 84px;
+  border-radius: 8px; overflow: hidden; background: #241d18; border: 1px solid #5a4632;
+  display: flex; align-items: center; justify-content: center;
+}
+.y-scout-img img { width: 100%; height: 100%; object-fit: cover; }
+.y-scout-face { position: absolute; font-size: 40px; opacity: 0; }
+.y-scout-img.noimg .y-scout-face { opacity: 1; }
+.y-scout-txt { flex: 1 1 auto; min-width: 0; line-height: 1.6; }
+.y-scout-txt b { display: block; font-size: 15px; color: #f2e6d2; }
+.y-scout-meta { display: block; color: #b9a892; font-size: 11px; }
+.y-scout-skill { display: block; color: #ffd98a; font-size: 12px; margin-top: 2px; }
+.y-scout-desc { display: block; color: #cbbba4; font-size: 11px; margin-top: 3px; }
+.y-scout-wage { display: block; color: #ffd98a; font-size: 12px; margin-top: 4px; }
+
+
+/* ============ 朝の一枚を「画面ごと」に（作者指定 8/5・億女ゲームと同じ）============
+   モーダルとして店の上にかぶせるのではなく、**その日の朝そのものとして1画面を占める**。
+   枠も角丸も消して、上のリビングの絵から下の選択肢まで、ひと続きの画面に見せる      */
+.overlay.y-day { padding: 0; padding-top: 0; padding-bottom: var(--sab); background: #17120f; }
+.overlay.y-day .modal {
+  width: 100%; max-width: 520px; height: 100%;
+  border: 0; border-radius: 0; box-shadow: none; background: transparent;
+  padding: 0 16px 16px; text-align: left;
+  display: flex; flex-direction: column; overflow-y: auto;
+}
+.overlay.y-day .modal h2 {
+  margin: 0 -16px 0; padding: 12px 16px 10px; font-size: 18px; text-align: center;
+  position: sticky; top: 0; background: #17120f; z-index: 2;
+}
+.overlay.y-day .modal-note { margin-bottom: 12px; }
+/* 画面ごとになったぶん、絵は大きく使う（上端いっぱいまで） */
+.overlay.y-day .y-visual { margin: 0 -16px 12px; border-radius: 0; border-left: 0; border-right: 0; }
+.overlay.y-day .y-cmd-grid { margin-bottom: 8px; }
+.overlay.y-day .big-btn { margin-top: auto; }
+
+/* 【✨ スキル】＝主人公が身につけたもの（第2章・データ画面）。
+   野球ゲームの特殊能力のように、3列に名前だけを並べて、押すと下に説明が出る */
+.sk-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:5px; margin:4px 0 8px; }
+.sk-chip {
+  padding:8px 4px; font-family:inherit; font-size:11px; line-height:1.35;
+  color:#7a6a55; background:#231c15; border:1px solid #4a3c2c; border-radius:5px;
+  cursor:pointer; text-align:center; word-break:break-all;
+}
+.sk-chip.got { color:#ffd98a; background:#3a2f22; border-color:#c9a86a; }
+.sk-chip:active { transform:translateY(1px); }
+/* 押した中身を出す一枚。**画面は動かさない**（並びを見ながら読み比べられる） */
+.sk-detail {
+  min-height:52px; padding:9px 10px; font-size:12px; line-height:1.7;
+  color:#9a8a72; background:#231c15; border:1px solid #4a3c2c; border-radius:6px;
+}
+.sk-detail.got { color:#e8d5a8; background:#2b231b; border-color:#6b533c; }
+.sk-detail b { color:#ffd98a; }
+.sk-detail .opt-sub { display:block; margin-top:3px; }
+
+/* ============ 館内案内図の下のメニュー（第2章・作者指定 8/8）============
+   【外観】【増築】は**横スクロールの棚**にする。フロア画面のカタログと同じ形。
+   品と、その操作ボタンを1枚のカード（.gk-card）にまとめてあるので横に並べられる。
+   【集客】は共有の renderAds が縦のリストを作るので、そこだけ縦のまま
+   （`hstrip` を外して切り替える）                                          */
+#gaikanList.hstrip {
+  display:flex; flex-direction:row; flex-wrap:nowrap; gap:8px;
+  overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;
+  scroll-snap-type:x proximity; padding-bottom:6px;
+}
+/* **フロアのカタログのカードと同じ形に揃える**（作者指定 8/8）＝
+   絵 → 名前 → 値段 を縦に積んだ札。幅も同じ84px系に合わせる           */
+#gaikanList.hstrip .gk-card {
+  flex:0 0 auto; width:104px; display:flex; flex-direction:column; gap:5px;
+  scroll-snap-align:start;
+}
+#gaikanList.hstrip .gk-card .shop-item {
+  flex:1; flex-direction:column; align-items:center; text-align:center;
+  padding:6px 4px; gap:2px;
+}
+#gaikanList.hstrip .gk-card .shop-icon { width:34px; height:34px; }
+#gaikanList.hstrip .gk-card .shop-body { flex:none; width:100%; }
+#gaikanList.hstrip .gk-card .shop-name {
+  font-size:10.5px; line-height:1.3; white-space:normal;
+  display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden;
+}
+#gaikanList.hstrip .gk-card .cap-chip,
+#gaikanList.hstrip .gk-card .lock-chip { font-size:9px; padding:0 3px; }
+#gaikanList.hstrip .gk-card .shop-price { margin-left:0; font-size:12px; }
+#gaikanList.hstrip .gk-card .shop-note { display:none; }
+#gaikanList.hstrip .gk-card .sel-actions .sm-btn {
+  font-size:10px; padding:5px 2px; white-space:normal; line-height:1.25;
+}
+
+/* ── 【📣 集客】も横スクロールに（作者指定 8/8）──────────────
+   広告の一覧は共有の renderAds が作るが、**器は案内図の中の #sendenPane** で、
+   これは第2章の外観メニューしか作らない＝ここを狙えば第1章の広告画面
+   （#sendenList・モーダル側）には1pxも触れない                          */
+#gaikanList.ads #sendenPane {
+  display:flex; flex-direction:row; flex-wrap:nowrap; gap:8px;
+  overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;
+  scroll-snap-type:x proximity; padding-bottom:6px;
+}
+#gaikanList.ads #sendenPane .senden-item {
+  flex:0 0 auto; width:104px; flex-direction:column; align-items:center;
+  text-align:center; padding:6px 4px; gap:3px; scroll-snap-align:start;
+}
+#gaikanList.ads #sendenPane .senden-item > span:first-child { font-size:26px; line-height:1; }
+#gaikanList.ads #sendenPane .senden-item > div { width:100%; }
+#gaikanList.ads #sendenPane .senden-item b { font-size:10.5px; line-height:1.3; display:block; }
+#gaikanList.ads #sendenPane .senden-item .shop-desc {
+  font-size:9.5px; line-height:1.25;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+}
+#gaikanList.ads #sendenPane .shop-price { margin-left:0; font-size:11px; }
+/* 【外観】【増築】のタブも一列の横スクロール（#shopTabsG は上でまとめて指定ずみ） */

@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>第2章 画面プレビュー — 館内案内図＋5区画</title>
+<link rel="stylesheet" href="css/font-dotgothic16.css">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body { height:100%; }
+body {
+  font-family:'DotGothic16','Hiragino Kaku Gothic ProN',sans-serif;
+  background:#2a2320; color:#f5ead8; user-select:none; touch-action:manipulation;
+}
+#app { min-height:100dvh; max-width:520px; margin:0 auto; display:flex; flex-direction:column; }
+
+/* 上のバー（第1章と同じ作り） */
+#topbar {
+  display:flex; align-items:center; gap:10px; padding:8px 12px;
+  background:#3a2f28; border-bottom:3px solid #c9a86a; font-size:14px;
+}
+#topbar .sp { flex:1; }
+#topbar b { color:#ffd98a; }
+
+/* 画面 */
+.screen { padding:10px 12px 18px; }
+.screen h2 { color:#ffd98a; font-size:16px; margin:2px 0 8px; }
+.note { font-size:12px; color:#bfae90; line-height:1.7; margin:6px 0 10px; }
+
+/* ===== 館内案内図 ===== */
+#mapCanvasWrap { background:#1c1714; border:3px solid #6b533c; border-radius:8px; padding:8px; }
+#guideCv { width:100%; height:auto; display:block; image-rendering:pixelated; cursor:pointer; }
+
+/* ===== 区画の画面 ===== */
+#areaCv { width:100%; height:auto; display:block; image-rendering:pixelated;
+          background:#1c1714; border:3px solid #6b533c; border-radius:8px; }
+.backbar { display:flex; gap:8px; align-items:center; margin:10px 0 6px; }
+.sm-btn {
+  font-family:inherit; font-size:13px; color:#fff8ea; padding:8px 12px;
+  background:linear-gradient(#8a5a3a,#6b432a); border:2px solid #c9a86a;
+  border-radius:6px; box-shadow:0 3px 0 #3d2517; cursor:pointer;
+}
+.sm-btn:active { transform:translateY(2px); box-shadow:0 1px 0 #3d2517; }
+.tag { font-size:12px; padding:3px 8px; border-radius:4px; background:#4a3d33; color:#e8d9bd; }
+.tag.warn { background:#6b2020; color:#ffd6d6; }
+.legend { display:flex; flex-wrap:wrap; gap:6px 12px; font-size:11px; color:#bfae90; margin-top:8px; }
+.legend i { display:inline-block; width:10px; height:10px; margin-right:4px; vertical-align:-1px; border-radius:2px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <span>3週目（土）</span><span class="sp"></span>
+    <span><b>¥1,284,000</b></span><span>評判 <b>32</b></span>
+  </div>
+
+  <!-- ① 館内案内図 -->
+  <div class="screen" id="scGuide">
+    <h2>🏮 館内案内図</h2>
+    <div id="mapCanvasWrap"><canvas id="guideCv" width="1040" height="900"></canvas></div>
+    <div class="note">
+      区画をタップすると、その区画へ入る。<br>
+      どこが汚れて・混んで・壊れているかが、この1枚で分かる。
+    </div>
+    <div class="legend">
+      <span><i style="background:#c46a6a"></i>汚れ</span>
+      <span><i style="background:#d8b46a"></i>待ち行列</span>
+      <span><i style="background:#8a3030"></i>故障</span>
+      <span><i style="background:#6ab0d8"></i>いま主人公がいる区画</span>
+      <span><i style="background:#4a4038"></i>まだ何も置いていない</span>
+    </div>
+  </div>
+
+  <!-- ② 区画の画面 -->
+  <div class="screen hidden" id="scArea" style="display:none">
+    <div class="backbar">
+      <button class="sm-btn" id="btnBack">← 館内案内図</button>
+      <span class="tag" id="areaName"></span>
+      <span class="tag" id="areaTag"></span>
+    </div>
+    <canvas id="areaCv" width="832" height="704"></canvas>
+    <div class="note" id="areaNote"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const T = 32, SS = 2;
+
+/* ============ 第2章の5区画 ============
+   区画ごとに大きさが違ってよい（案内図で行き来するので、揃える必要がない）  */
+const AREAS = [
+  /* 案内図の間取り（4列×3行のグリッドに敷き詰める）。
+     浴室は建物の奥（上）、館内着のゾーンが真ん中、ロビーは入口（下）に置く＝客の導線の順に並ぶ */
+  { key:'otoko', name:'♨ 男湯', W:13, H:11, wear:'裸',
+    gx:0, gy:0, gw:2, gh:1,
+    note:'脱衣所＋浴室（サウナ・水風呂・浴槽・洗い場・垢すり台）＋屋外の外気浴デッキ。',
+    floor:'bath', divideY:8, outdoor:true },
+  { key:'onna', name:'♨ 女湯', W:13, H:11, wear:'裸',
+    gx:2, gy:0, gw:2, gh:1,
+    note:'男湯と同じものを置けるかが評価の核。主人公は入れない＝女性バイトに任せるしかない。',
+    floor:'bath', divideY:8, outdoor:true, noPlayer:true },
+  { key:'kyukei', name:'🛋 休憩スペース', W:13, H:11, wear:'館内着（男女共用）',
+    gx:0, gy:1, gw:2, gh:1,
+    note:'居心地が良いほど客が延長する＝客数を増やさずに売上が伸びる。第2章の売上装置。',
+    floor:'tatami' },
+  { key:'shokudo', name:'🍚 食堂', W:13, H:11, wear:'館内着',
+    gx:2, gy:1, gw:2, gh:1,
+    note:'厨房・カウンター席・テーブル席・生ビール。灯がいない日は閉まる。',
+    floor:'wood' },
+  { key:'lobby', name:'🏮 ロビー＆駐車場', W:13, H:11,  wear:'私服→館内着',
+    gx:0, gy:2, gw:4, gh:1,
+    note:'上が屋内のロビー、下が屋外の駐車場。満車だと入店前に客を失う。夜が暗いと女性客が来ない。国道沿いの看板が新規客の入口。',
+    floor:'wood', parkY:4 },
+];
+
+/* 区画ごとの状態（プレビュー用の作り話） */
+const STATE = {
+  lobby:   { guests:3,  dirt:0, wait:0, broken:0, player:true },
+  shokudo: { guests:4,  dirt:1, wait:1, broken:0 },
+  otoko:   { guests:12, dirt:3, wait:0, broken:0 },
+  onna:    { guests:8,  dirt:2, wait:0, broken:1 },
+  kyukei:  { guests:15, dirt:0, wait:0, broken:0 },
+};
+
+/* 設備の置きかた（プレビュー用の見本の間取り）
+   [id, x, y] ／ 大きさと色は EQP から */
+const EQP = {
+  // ロビー＆裏方
+  front:   { w:3,h:1, c:'#8a6a44', t:'受付' },
+  ticket:  { w:1,h:1, c:'#5a7a8a', t:'券売機' },
+  shoe:    { w:2,h:1, c:'#7a6a54', t:'靴箱' },
+  sofa:    { w:2,h:1, c:'#8a5a5a', t:'ソファ' },
+  goods:   { w:2,h:1, c:'#7a6a8a', t:'物販' },
+  vend:    { w:1,h:1, c:'#4a7a5a', t:'自販' },
+  // 駐車場（屋外）
+  park:    { w:2,h:2, c:'#5a5a5a', t:'駐車ﾏｽ' },
+  parkbig: { w:3,h:2, c:'#4a4a52', t:'大型車' },
+  light:   { w:1,h:1, c:'#d8c46a', t:'外灯' },
+  kanban:  { w:2,h:1, c:'#c96a3a', t:'看板' },
+  ev:      { w:1,h:2, c:'#4a8a6a', t:'EV' },
+  bicycle: { w:2,h:1, c:'#6a7a8a', t:'駐輪' },
+  // 食堂
+  kitchen: { w:3,h:2, c:'#8a6a3a', t:'厨房' },
+  counter: { w:2,h:1, c:'#9a7a4a', t:'ｶｳﾝﾀｰ' },
+  table:   { w:2,h:2, c:'#8a7a5a', t:'テーブル' },
+  beer:    { w:1,h:1, c:'#c9a83a', t:'生ﾋﾞｰﾙ' },
+  // 浴室
+  sauna:   { w:3,h:2, c:'#8a5a3a', t:'ｻｳﾅ' },
+  kero:    { w:2,h:2, c:'#a07a4a', t:'ｹﾛ室' },
+  mizu:    { w:2,h:1, c:'#4a86a8', t:'水風呂' },
+  single:  { w:2,h:1, c:'#3a6a9a', t:'ｼﾝｸﾞﾙ9℃' },
+  bath:    { w:3,h:2, c:'#6a9a9a', t:'浴槽' },
+  wash:    { w:3,h:1, c:'#7a9a9a', t:'洗い場' },
+  kakeyu:  { w:1,h:1, c:'#7a9a9a', t:'かけ湯' },
+  akasuri: { w:2,h:2, c:'#9a6a7a', t:'垢すり' },
+  gaiki:   { w:3,h:2, c:'#5a7a4a', t:'外気浴' },
+  locker:  { w:2,h:1, c:'#7a6a54', t:'ﾛｯｶｰ' },
+  powder:  { w:3,h:1, c:'#9a7a8a', t:'ﾊﾟｳﾀﾞｰ' },
+  sink:    { w:2,h:1, c:'#8a8a7a', t:'洗面' },
+  toilet:  { w:1,h:1, c:'#8a8a8a', t:'WC' },
+  // 休憩
+  recl:    { w:1,h:1, c:'#7a5a8a', t:'ﾘｸﾗｲﾅｰ' },
+  goro:    { w:2,h:1, c:'#6a7a5a', t:'ごろ寝' },
+  jukusui: { w:2,h:1, c:'#5a5a8a', t:'熟睡ﾏｯﾄ' },
+  work:    { w:2,h:1, c:'#4a6a7a', t:'ﾜｰｸ席' },
+  yomi:    { w:2,h:1, c:'#7a6a4a', t:'読書灯' },
+  care:    { w:2,h:2, c:'#9a6a7a', t:'ﾎﾞﾃﾞｨｹｱ' },
+  massage: { w:1,h:1, c:'#8a5a6a', t:'ﾏｯｻｰｼﾞ' },
+  laundry: { w:2,h:1, c:'#5a6a8a', t:'ﾗﾝﾄﾞﾘｰ' },
+  cooler:  { w:1,h:1, c:'#5a8a9a', t:'給水' },
+};
+
+const LAYOUT = {
+  lobby: [
+    // 屋内のロビー＝上3マスで終わり（受付・券売機・物販・自販機・靴箱）
+    ['goods',1,1],['ticket',3,1],['front',5,1],['shoe',9,1],['vend',11,1],
+    // 屋外＝駐車場（壁は無い。左右いっぱいが敷地で、下端は国道）
+    ['park',0,5],['park',3,5],['park',6,5],['parkbig',9,5],
+    ['light',2,4],['light',8,4],
+    ['park',0,8],['park',3,8],['ev',6,8],['bicycle',8,9],['kanban',10,9],
+  ],
+  shokudo: [
+    ['kitchen',1,1],['beer',5,1],['counter',7,1],['counter',10,1],
+    ['table',1,4],['table',4,4],['table',7,4],['table',10,4],
+    ['table',1,7],['table',4,7],['table',7,7],['table',10,7],
+  ],
+  otoko: [
+    ['gaiki',1,0],['gaiki',9,0],
+    ['sauna',1,2],['kero',5,2],['akasuri',8,2],
+    ['single',1,5],['mizu',4,5],['bath',7,5],['kakeyu',11,5],
+    ['wash',1,4],['wash',8,4],
+    ['locker',1,9],['locker',4,9],['sink',7,9],['toilet',11,9],
+  ],
+  onna: [
+    ['gaiki',1,0],
+    ['sauna',1,2],['kero',5,2],
+    ['mizu',1,5],['bath',7,5],['kakeyu',11,5],
+    ['wash',4,4],
+    ['locker',1,9],['powder',4,9],['toilet',11,9],
+  ],
+  kyukei: [
+    ['jukusui',1,1],['goro',4,1],['work',7,1],['yomi',10,1],
+    ['recl',1,4],['recl',3,4],['recl',5,4],['recl',7,4],['recl',9,4],['recl',11,4],
+    ['care',1,6],['massage',5,6],['massage',7,6],['laundry',9,6],['cooler',11,6],
+  ],
+};
+
+/* ============ 館内案内図 ============ */
+const gcv = document.getElementById('guideCv'), gx = gcv.getContext('2d');
+const GCOL = 4, GROW = 3;                        // 4列×3行に区画を敷き詰める
+const GW = gcv.width / GCOL, GH = gcv.height / GROW;
+let guideRects = [];
+
+function drawGuide() {
+  gx.setTransform(1,0,0,1,0,0);
+  gx.fillStyle = '#1c1714'; gx.fillRect(0,0,gcv.width,gcv.height);
+  guideRects = [];
+
+  // 建物の外枠
+  gx.strokeStyle = '#6b533c'; gx.lineWidth = 6;
+  gx.strokeRect(12, 12, gcv.width-24, gcv.height-24);
+
+  for (const a of AREAS) {
+    const st = STATE[a.key];
+    const x = 12 + a.gx*GW + 14, y = 12 + a.gy*GH + 14;
+    const w = a.gw*GW - 28, h = a.gh*GH - 28;
+    guideRects.push({ x, y, w, h, key:a.key });
+
+    const empty = !(LAYOUT[a.key] || []).length;
+    // 部屋の床
+    gx.fillStyle = empty ? '#4a4038' : (a.floor==='bath' ? '#3a4a4a' : a.floor==='tatami' ? '#4a4a38' : '#4a3d33');
+    gx.fillRect(x, y, w, h);
+    // いま主人公がいる区画は青く光らせる
+    gx.lineWidth = 5;
+    gx.strokeStyle = st.player ? '#6ab0d8' : '#8a7a5a';
+    gx.strokeRect(x+2.5, y+2.5, w-5, h-5);
+
+    // 名前
+    gx.fillStyle = '#f5ead8'; gx.textAlign = 'center';
+    gx.font = 'bold 34px "DotGothic16",sans-serif';
+    gx.fillText(a.name, x + w/2, y + 52);
+    gx.font = '22px "DotGothic16",sans-serif'; gx.fillStyle = '#bfae90';
+    gx.fillText(a.wear, x + w/2, y + 84);
+
+    // 客数
+    gx.font = 'bold 30px "DotGothic16",sans-serif'; gx.fillStyle = '#ffd98a';
+    gx.fillText('👤 ' + st.guests, x + w/2, y + h/2 + 16);
+
+    // 状態のバッジ
+    const badges = [];
+    if (st.dirt)   badges.push(['#c46a6a', '汚れ '+st.dirt]);
+    if (st.wait)   badges.push(['#d8b46a', '待ち '+st.wait]);
+    if (st.broken) badges.push(['#8a3030', '⚠ 故障']);
+    let bx = x + w/2 - (badges.length*112)/2;
+    for (const [c,t] of badges) {
+      gx.fillStyle = c; roundRect(gx, bx, y+h-56, 104, 34, 6); gx.fill();
+      gx.fillStyle = '#1c1714'; gx.font = 'bold 20px "DotGothic16",sans-serif';
+      gx.textAlign = 'center'; gx.fillText(t, bx+52, y+h-32);
+      bx += 112;
+    }
+    if (st.player) {
+      gx.fillStyle = '#6ab0d8'; roundRect(gx, x+w-130, y+12, 118, 32, 6); gx.fill();
+      gx.fillStyle = '#0e1a20'; gx.font = 'bold 20px "DotGothic16",sans-serif';
+      gx.fillText('いまここ', x+w-71, y+35);
+    }
+  }
+
+  // 入口
+  gx.fillStyle = '#c9a86a'; gx.textAlign = 'center';
+  gx.font = 'bold 26px "DotGothic16",sans-serif';
+  gx.fillText('▼ 入口', gcv.width/2, gcv.height - 22);
+}
+function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
+
+gcv.addEventListener('pointerdown', ev => {
+  const r = gcv.getBoundingClientRect();
+  const px = (ev.clientX - r.left) / r.width * gcv.width;
+  const py = (ev.clientY - r.top) / r.height * gcv.height;
+  const hit = guideRects.find(q => px>=q.x && px<=q.x+q.w && py>=q.y && py<=q.y+q.h);
+  if (hit) openArea(hit.key);
+});
+
+/* ============ 区画の画面 ============ */
+const acv = document.getElementById('areaCv'), ax = acv.getContext('2d');
+
+function openArea(key) {
+  const a = AREAS.find(v => v.key === key);
+  acv.width = a.W * T * SS; acv.height = a.H * T * SS;
+  document.getElementById('scGuide').style.display = 'none';
+  document.getElementById('scArea').style.display = '';
+  document.getElementById('areaName').textContent = a.name + '（' + a.W + '×' + a.H + '）';
+  const tag = document.getElementById('areaTag');
+  tag.textContent = a.noPlayer ? '主人公は入れない' : a.wear;
+  tag.className = 'tag' + (a.noPlayer ? ' warn' : '');
+  document.getElementById('areaNote').textContent = a.note;
+  drawArea(a);
+}
+document.getElementById('btnBack').onclick = () => {
+  document.getElementById('scArea').style.display = 'none';
+  document.getElementById('scGuide').style.display = '';
+};
+
+function drawArea(a) {
+  ax.setTransform(SS,0,0,SS,0,0);
+  ax.imageSmoothingEnabled = false;
+  const W = a.W, H = a.H, dv = a.divideY || 0;
+  // 外の帯
+  ax.fillStyle = '#3a2f28'; ax.fillRect(0,0,W*T,H*T);
+
+  /* 床。駐車場は屋外なので左右に壁が無い＝端(x=0/W-1)まで敷地。
+     いちばん下の1行は敷地の外＝国道 */
+  for (let y=1; y<H; y++) {
+    const park = a.parkY && y >= a.parkY;
+    const x0 = park ? 0 : 1, x1 = park ? W : W-1;
+    if (!park && y >= H-1) continue;
+    for (let x=x0; x<x1; x++) {
+    const outdoor = a.outdoor && y <= 1;
+    let c;
+    if (park && y === H-1)       c = (x % 4 < 2) ? '#3f3d3b' : '#3b3937';   // 国道
+    else if (park)               c = (x+y)%2 ? '#565049' : '#514b45';   // 舗装した駐車場
+    else if (outdoor)            c = (x+y)%2 ? '#6f7f5c' : '#677755';   // 屋外＝土と芝
+    else if (a.floor==='bath')   c = dv && y>=dv ? ((x+y)%2 ? '#d9b98a':'#d2b181')   // 脱衣所の木床
+                                                 : ((x+y)%2 ? '#cfd8d4':'#c4cec9');  // 浴場タイル
+    else if (a.floor==='tatami') c = (x+y)%2 ? '#cdc79a' : '#c5bf92';   // 畳
+    else                         c = (x+y)%2 ? '#d9b98a' : '#d2b181';   // 木床
+    ax.fillStyle = c; ax.fillRect(x*T, y*T, T, T);
+    ax.strokeStyle = 'rgba(0,0,0,.06)'; ax.strokeRect(x*T+.5, y*T+.5, T-1, T-1);
+    }
+  }
+  // 国道の白い破線（敷地の外＝いちばん下）
+  if (a.parkY) {
+    ax.fillStyle = 'rgba(255,255,255,.55)';
+    for (let x=0; x<W*T; x+=26) ax.fillRect(x, (H-1)*T + T/2 - 1, 14, 2);
+  }
+  // 建物の正面（ロビーの外壁）と自動ドア。ここから外が駐車場
+  if (a.parkY) {
+    ax.fillStyle = '#4a3528'; ax.fillRect(0, a.parkY*T-8, W*T, 12);
+    ax.fillStyle = '#6b533c'; ax.fillRect(0, a.parkY*T-8, W*T, 4);
+    const dxA = 5*T;
+    ax.fillStyle = 'rgba(198,232,242,.65)'; ax.fillRect(dxA, a.parkY*T-12, 3*T, 23);
+    ax.strokeStyle = '#4a3528'; ax.lineWidth=2; ax.strokeRect(dxA, a.parkY*T-12, 3*T, 23);
+    ax.fillStyle='#c9a86a'; ax.font='bold 9px "DotGothic16",sans-serif'; ax.textAlign='center';
+    ax.fillText('自動ドア', dxA+1.5*T, a.parkY*T+4);
+  }
+  // 仕切り（浴室↔脱衣所）
+  if (dv) {
+    ax.fillStyle = '#6b533c'; ax.fillRect(T, dv*T-5, (W-2)*T, 9);
+    ax.fillStyle = '#9c8465'; ax.fillRect(T, dv*T-5, (W-2)*T, 3);
+    // 引き戸（中央）
+    const dxL = 6*T;
+    ax.fillStyle = 'rgba(198,232,242,.6)'; ax.fillRect(dxL, dv*T-12, T, 23);
+    ax.strokeStyle = '#4a3528'; ax.lineWidth=2; ax.strokeRect(dxL, dv*T-12, T, 23);
+  }
+  // 屋外との境（浴室の上）
+  if (a.outdoor) {
+    ax.fillStyle = '#6b533c'; ax.fillRect(T, 2*T-4, (W-2)*T, 7);
+    ax.fillStyle = 'rgba(198,232,242,.55)'; ax.fillRect(5*T, 2*T-9, 2*T, 17);
+  }
+  /* 壁。駐車場のある区画は、屋外に壁が無い＝
+     左右の壁は建物のぶん（y < parkY）だけ、下の壁も引かない（そこは国道） */
+  const wallBottom = a.parkY ? a.parkY : H - 1;   // 建物の下端
+  ax.fillStyle = '#4a3528';
+  ax.fillRect(0, 0, W*T, T);                                   // 上
+  ax.fillRect(0, 0, T, wallBottom*T);                          // 左
+  ax.fillRect((W-1)*T, 0, T, wallBottom*T);                    // 右
+  if (!a.parkY) ax.fillRect(0, (H-1)*T, W*T, T);               // 下（駐車場がある区画には無い）
+  ax.fillStyle = '#6b533c';
+  ax.fillRect(0, T-5, W*T, 5);
+  if (!a.parkY) ax.fillRect(0, (H-1)*T, W*T, 5);
+
+  // 設備
+  for (const [id,ex,ey] of (LAYOUT[a.key]||[])) {
+    const d = EQP[id]; if (!d) continue;
+    const px = ex*T, py = ey*T, pw = d.w*T, ph = d.h*T;
+    ax.fillStyle = 'rgba(0,0,0,.25)'; ax.fillRect(px+2, py+3, pw, ph);
+    ax.fillStyle = d.c; ax.fillRect(px, py, pw, ph);
+    ax.strokeStyle = 'rgba(255,255,255,.22)'; ax.lineWidth = 2;
+    ax.strokeRect(px+1, py+1, pw-2, ph-2);
+    ax.strokeStyle = 'rgba(0,0,0,.35)'; ax.lineWidth = 1;
+    ax.strokeRect(px+.5, py+.5, pw-1, ph-1);
+    ax.fillStyle = '#fff8ea'; ax.textAlign='center';
+    ax.font = 'bold 9px "DotGothic16",sans-serif';
+    ax.fillText(d.t, px+pw/2, py+ph/2+3);
+  }
+
+  // 出入口（ロビーは施設の入口、それ以外は館内の通路）
+  ax.fillStyle = '#c9a86a'; ax.textAlign='center';
+  ax.font = 'bold 10px "DotGothic16",sans-serif';
+  ax.fillText(a.key==='lobby' ? '▼ 入口（ここから客が入り、ここから帰る）' : '▼ 館内の通路へ', W*T/2, H*T-9);
+
+  // 客と主人公（見た目の確認用に何人か置く）
+  const st = STATE[a.key];
+  for (let i=0;i<Math.min(st.guests,10);i++) {
+    const cx = (2 + (i*3)%(W-4)) * T + T/2;
+    const cy = (3 + Math.floor(i/4)*2) * T + T/2;
+    drawChar(cx, cy, i%3===0 ? '#c77bb0' : '#6a7a8a');
+  }
+  if (st.player) drawChar(6*T+T/2, (H-3)*T+T/2, '#3a6ea8', true);
+  // 汚れ
+  for (let i=0;i<st.dirt;i++) {
+    const dx0 = (2+i*3)*T+T/2, dy0 = (H-5)*T+T/2;
+    ax.fillStyle = '#5a4630'; ax.beginPath(); ax.ellipse(dx0,dy0,7,5,0,0,7); ax.fill();
+  }
+}
+function drawChar(cx, cy, cloth, isPlayer) {
+  ax.fillStyle = 'rgba(0,0,0,.25)'; ax.beginPath(); ax.ellipse(cx, cy+9, 7, 3, 0, 0, 7); ax.fill();
+  ax.fillStyle = cloth; ax.fillRect(cx-5, cy-2, 10, 11);
+  ax.fillStyle = '#f0d0b0'; ax.fillRect(cx-4, cy-11, 8, 9);
+  ax.fillStyle = '#3a3a3a'; ax.fillRect(cx-4, cy-12, 8, 4);
+  if (isPlayer) { ax.fillStyle='#fff'; ax.fillRect(cx-5,cy-14,10,3); }
+}
+
+drawGuide();
+</script>
+</body>
+</html>
