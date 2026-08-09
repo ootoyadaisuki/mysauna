@@ -397,8 +397,17 @@ function yDosenLines(c, pro) {
   return pro ? Y_DOSEN_PRO : Y_DOSEN;
 }
 
+/* 番台に、いま実際に立てる人（掃除はしない妻も含む）が居るか。
+   ⚠ **ここは yStaffOnFloor と逆に妻を数えなければならない**（作者報告 8/9）。
+   yStaffOnFloor は「掃除を任せられる階か」の判定なので妻を除くが、
+   yDeskCovered は「会計を任せられるか」の判定。妻を除いたままだと、
+   1Fに妻が立って会計をさばいていても「まだ誰も居ない」ことになり、
+   主人公がその階へ用もなく呼び戻され、着いた瞬間に会計を横取りして
+   居座ってしまう（実測：主人公が2Fの持ち場を離れ1Fに張り付いたまま
+   戻らず、妻は会計から弾かれてタスクが null のまま） */
 function yDeskCovered() {
-  return G.phase === 'biz' && yStaffOnFloor(yDeskFloor());
+  const f = yDeskFloor();
+  return G.phase === 'biz' && G.staff.some(s => !(s.lateT > 0) && (s.f | 0) === f);
 }
 /* いま拭きに行きたい階を選ぶ。true＝移動を始めたので、今回の予定選びは中断 */
 function yRoamPlayer(w, tired) {
@@ -615,7 +624,7 @@ const Y_TABS_OF_AREA = {
      ドリンク自販機だけは1階のロビーにも置きたいので、その品を【待合】へ移してある
      （2026-08-08、`front` タブを【受付】【待合】の2枚に割ったのに、
        ここを直し忘れて**1階からタブが消えていた**のも同時に修正） */
-  [AY.FRONT]:   ['uketsuke', 'machiai', 'goods'],
+  [AY.FRONT]:   ['uketsuke', 'machiai', 'goods', 'shukyaku'],
   [AY.OTOKO]:   ['sauna', 'furo', 'mizu', 'wash', 'gaiki', 'datsui'],
   [AY.ONNA]:    ['sauna', 'furo', 'mizu', 'wash', 'gaiki', 'datsui'],
   [AY.LOUNGE]:  ['ne', 'suwaru', 'sugosu', 'shitsurae'],
@@ -1108,25 +1117,17 @@ function yRenderGaikan() {
        ・未建設の階の【＋】     → `yAskZou`（増築しますか？）
        ・ビルの横の【＋ 看板】 → `yAskSign`（どの看板を出す？）
      絵の中の、その場所を押す。メニューを開いて名前で選ぶより短い。
-     残ったのは【集客】だけなのでタブ自体を出さない（1枚のタブは押す意味がない）。
+     【集客】は1F受付のカタログへ引っ越した（作者指定 8/9）＝
+     ここは空くので、代わりに熱波太郎のアドバイスを常駐させる。
+     タブ自体を出さない（1枚のタブは押す意味がない）。
      ⚠ 戻すなら、この `tabs.innerHTML` に3枚を並べ直すだけでいい
        （`yRenderZou` も `Y_PANEL_TAB` の分岐も消していない）             */
-  Y_PANEL_TAB = 'shukyaku';
+  Y_PANEL_TAB = 'advice';
   if (tabs) tabs.innerHTML = '';
   box.innerHTML = '';
-  /* 【外観】【増築】は**横スクロールの棚**（作者指定 8/8）。
-     【集客】は共有の renderAds が縦のリストを作るので、そこだけ縦のまま */
-  box.classList.toggle('hstrip', Y_PANEL_TAB !== 'shukyaku');
-  box.classList.toggle('ads', Y_PANEL_TAB === 'shukyaku');
+  box.classList.remove('hstrip', 'ads');
   if (Y_PANEL_TAB === 'zou') { yRenderZou(box); return; }
-  /* 集客＝広告。中身は game.js の renderAds をそのまま使う */
-  if (Y_PANEL_TAB === 'shukyaku') {
-    const pane = document.createElement('div');
-    pane.id = 'sendenPane';
-    box.appendChild(pane);
-    if (typeof renderAds === 'function') renderAds();
-    return;
-  }
+  if (Y_PANEL_TAB === 'advice') { yRenderAdvice(box); return; }
 
   const floors = yGaikanFloors();
   for (const s2 of GAIKAN_Y) {
@@ -1177,6 +1178,80 @@ function yRenderGaikan() {
     card.appendChild(row);
     box.appendChild(card);
   }
+}
+
+/* ============================================================
+   熱波太郎のアドバイス（作者指定 2026-08-09・docs/NAPPA_ADVICE.md）
+   ------------------------------------------------------------
+   外観図パネルの【集客】タブを1F受付のカタログへ移した後、空いた場所に置く。
+   進捗に関係なく、いつ出てもおかしくない「攻略の基本」を30本。
+   ・1日1本、朝に選ぶ（営業中は差し替えない＝日付で選び直しをキャッシュする）
+   ・直近10本は出さない（G.ch2.advSeen）
+   ・req を持つ本は、その条件を満たすまで出さない
+   ⚠ **ボタンは置かない**（作者指定 8/9）＝「ととのいを見る」等、行き先の名前だけでは
+     何が起きるボタンか初見で分からず、面積も食う。読むだけの助言にする              */
+const NAPPA_ADVICE_Y = [
+  { id: 1, text: '客が文句を言う「導線」ってのはな、歩いた総距離だ。サウナと水風呂の距離じゃない' },
+  { id: 2, text: '入口→洗い場、風呂→サウナ、サウナ→水風呂、水風呂→イス。この4本を全部3マス以内にしろ。1本でも遠けりゃ満点は無い' },
+  { id: 3, text: '4マスなら半分もらえる。5マス離れたら0点だ。1マスの差で点が消える' },
+  { id: 4, text: 'サウナ好きの客は導線にうるさい。普通の客より3割厳しい目で見てるぞ' },
+  { id: 5, text: '掃除は階ごとに見られてる。5階建てなら、誰も立ってない階が1つあるだけで平均が落ちる', req: () => (CONF.areas || []).length > 2 },
+  { id: 6, text: 'バイト1人で客60人が限界だ。300人入れる気なら5人は要る' },
+  { id: 7, text: '濃い汚れが平均2.7個転がってたら、清潔度は0点。1個でも減らせ' },
+  { id: 8, text: '深夜に人を置かない階は、朝まで誰も拭かん。開ける階と置く人は同じ数だ', req: () => typeof nightOpenOn === 'function' && nightOpenOn() },
+  { id: 9, text: '客が納得する額は評判×30円だ。評判が10上がるたびに300円取れる' },
+  { id: 10, text: '1円でも超えたら、コスパは0点。高くするなら、先に評判を上げろ' },
+  { id: 11, text: '適正額より1割安くしておけ。それで満点だ。ギリギリを攻める意味は無い' },
+  { id: 12, text: '安けりゃいいってもんじゃない。赤字なら、それも減点だ' },
+  { id: 13, text: 'サウナは1台で客6人ぶん。それを超えたら、いくらいい台でも点が落ちる' },
+  { id: 14, text: '熱さの好みは客ごとに違う。温度帯の違う部屋を2つ持て。1つじゃ必ず外す' },
+  { id: 15, text: '女は85℃が限界だ。100℃の部屋しか無い店の女湯は、埋まらん', req: () => yBuilt(AY.ONNA) },
+  { id: 16, text: '水風呂は1槽で客18人ぶん。サウナの3倍が目安だ' },
+  { id: 17, text: '水風呂は好みの±2℃で満点。14℃以下はキンキン、20℃超えはぬるい。両方置けば外さない' },
+  { id: 18, text: '炭酸泉と電気風呂は、湯温で文句を言われん。ぬるくていい湯ってのは、そういうことだ' },
+  { id: 19, text: '3万のベンチを5脚並べるより、いいイスを1脚。ととのいは質が半分を持ってる' },
+  { id: 20, text: 'イス1脚で客8人ぶん。種類も2つ以上置け。寝るのと座るのは別の欲だ' },
+  { id: 21, text: '脱衣所はロッカー以外を見られてる。洗面所、体重計、扇風機。あれが「サービス」だ' },
+  { id: 22, text: 'バイトが1人もいない店は、愛想の点が丸ごと入らん。番台に立つだけでも違う', req: () => !((G.roster || []).length) },
+  { id: 23, text: 'アメニティは置くだけじゃ点にならん。高けりゃ0点だ。相場より安くしろ' },
+  { id: 24, text: '壊れたまま置いてある台は評判を10点持っていく。直せば、その場で戻るぞ', req: () => (G.equip || []).some(e => e.cond <= 0) },
+  { id: 25, text: 'サウナマットと垢すりタオル。置き場を作るだけならタダだ。無いと5点ずつ引かれる', req: () => !(typeof hasMat === 'function' && hasMat()) || !(typeof hasAkasuri === 'function' && hasAkasuri()) },
+  { id: 26, text: '評判の減点は、直したその場で消える。明日を待たなくていいのは、ここだけだ' },
+  { id: 27, text: '評判は7日ぶんの平均だ。今日いい店にしても、数字が動くのは1週間かけてになる' },
+  { id: 28, text: '入れられる客の数は靴箱で決まる。中をどれだけ広げても、靴箱が20足なら20足だ' },
+  { id: 29, text: '番付は8部門で800点。持ってない部門は0点だ。飯は5階を建てるまで、ずっと0のままだ', req: () => G.ch2 && G.ch2.battleKnown },
+  { id: 30, text: '全部そこそこ、がいちばん強い。1位を3つ取ってる店が4位にいるのを見ただろう', req: () => G.ch2 && G.ch2.battleKnown },
+  /* サウナバトルの点数の説明（作者指定 2026-08-09）＝冒頭ストーリーから引き上げてここへ。
+     いきなり数字の話を物語で聞かされても頭に入らない。触ってから読むほうが早い */
+  { id: 31, text: '番付は店の地力そのものだ。8部門×百点、合わせて八百点。王者SAUNA GATE37は六百五十点だ', req: () => G.ch2 && G.ch2.battleKnown },
+  { id: 32, text: '番付(八百点)と大会本番の点数(百点)は別物だ。番付は日ごろの地力、大会はその日の一発勝負だぞ', req: () => G.ch2 && G.ch2.battleKnown },
+];
+/* 今日のアドバイスを選ぶ（同じ日は選び直さない＝キャッシュ） */
+function yTodayAdvice() {
+  if (!G.ch2) return null;
+  if (G.ch2.advDay === G.day && G.ch2.advId != null) return NAPPA_ADVICE_Y.find(a => a.id === G.ch2.advId) || null;
+  const seen = G.ch2.advSeen || [];
+  const okReq = a => !a.req || a.req();
+  const fresh = NAPPA_ADVICE_Y.filter(a => okReq(a) && !seen.includes(a.id));
+  const pool = fresh.length ? fresh : NAPPA_ADVICE_Y.filter(okReq);
+  const picked = pool.length ? pick(pool) : null;
+  G.ch2.advDay = G.day;
+  G.ch2.advId = picked ? picked.id : null;
+  if (picked) G.ch2.advSeen = [...seen, picked.id].slice(-10);
+  return picked;
+}
+/* 熱波太郎からのアドバイス（外観図パネル）を描く */
+function yRenderAdvice(box) {
+  const a = yTodayAdvice();
+  const card = document.createElement('div');
+  card.className = 'advice-card';
+  card.innerHTML =
+    '<img class="advice-face" src="assets/char/nappa_taro_256.webp" alt="熱波太郎">'
+    + '<div class="advice-body">'
+    + '<div class="advice-name">熱波太郎からのアドバイス</div>'
+    + '<div class="advice-text">' + (a ? a.text : '今日はもう言うことがねえよ。腕を磨いとけ') + '</div>'
+    + '</div>';
+  box.appendChild(card);
 }
 
 /* この2枚（増築・看板）は `kaigyoModal` を借りている。
@@ -1900,6 +1975,8 @@ const Y_INTRO_Y = [
     { narr: true, text: '三年目の春、転勤の辞令が出た。行き先は、ととのい市。' },
     { sp: '俺', text: 'ととのい市か' },
     { narr: true, text: '辞令を、二度読んだ。' },
+    { narr: true, text: 'ととのい市といえば、サウナバトル。全国のサウナーが注目する、まさに「サウナ界の王者」を決める大会だ。' },
+    { sp: '俺', text: '（俺もいつか、自分のサウナで挑戦したい……）' },
   ]},
   { art: 'y_living', lines: [
     { narr: true, text: 'ととのい市で所帯を持った。妻の奈津とは社内結婚。' },
@@ -1920,14 +1997,12 @@ const Y_INTRO_Y = [
     { narr: true, text: 'それ以上は、聞けなかった。' },
   ]},
   { art: 'y_tenku_meshi', lines: [
-    { narr: true, text: '契約の帰り、二人で王者の店に寄った。風呂を上がって、食事処で落ち合う。' },
+    { narr: true, text: '契約の帰り、二人でととのい市のサウナ王者の店に寄った。風呂を上がって、食事処で落ち合う。' },
     { sp: '俺', text: '悔しいが、ととのっちまった。サ室のストーブ、納めたのは俺だ' },
     { sp: '奈津', text: '言われなくても、顔に書いてある' },
-    /* 上の帯「番付 N/800」に、ここで意味を渡す（呼称はUIの「ととのい番付」と一致させる） */
-    { narr: true, text: '食事処の壁に、ととのい番付の額。八つの部門を百点ずつ、合わせて八百点。' },
-    { sp: '奈津', text: 'サウナバトル六連覇、SAUNA GATE 37。番付は六百五十。頭ひとつ抜けてる' },
-    { sp: '俺', text: '出る。次の大会に' },
-    { narr: true, text: '——挑戦は、王者の店から始まった。' },
+    { sp: '奈津', text: '私たちも出るの？　サウナバトルに' },
+    { sp: '俺', text: 'もちろんだ' },
+    { narr: true, text: '——俺たちの挑戦が、始まった。' },
   ]},
 ];
 

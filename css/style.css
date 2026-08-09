@@ -502,6 +502,13 @@ body {
 .kuroda-off { color:#ff6a5a; font-weight:bold; }
 .price-was  { color:#9a9088; text-decoration:line-through; }
 .senden-item .shop-price { margin-left:auto; }
+/* 熱波太郎のアドバイス（外観図パネル。旧【集客】タブの跡地） */
+.advice-card { display:flex; align-items:flex-start; gap:8px; padding:9px;
+  background:#54402f; border:2px solid #a68656; border-radius:8px; }
+.advice-face { width:56px; height:56px; border-radius:8px; object-fit:cover; flex:none; border:2px solid #c9a86a; }
+.advice-body { flex:1; min-width:0; text-align:left; }
+.advice-name { font-size:11px; color:#ffd98a; font-weight:bold; margin-bottom:2px; }
+.advice-text { font-size:13px; line-height:1.5; color:#f2e6d3; }
 .loan-actions { display:flex; gap:8px; }
 .loan-actions .big-btn { font-size:14px; }
 /* 借入額のボタン（10万円刻み）。1行に収めて折り返さない */

@@ -326,8 +326,18 @@ function yRenderMenuTab(list) {
   return true;
 }
 function yShopTabRender(tab, list) {
-  if (tab !== 'menu') return false;
-  return yRenderMenuTab(list);
+  if (tab === 'menu') return yRenderMenuTab(list);
+  /* 【集客】＝広告（作者指定 8/9）。外観図パネルにあった集客タブを1F受付の
+     カタログへ引っ越した。中身は game.js の renderAds をそのまま使う。
+     renderAds は id="sendenPane" の器を探して描くので、ここに同じ器を作る */
+  if (tab === 'shukyaku') {
+    const pane = document.createElement('div');
+    pane.id = 'sendenPane';
+    list.appendChild(pane);
+    if (typeof renderAds === 'function') renderAds();
+    return true;
+  }
+  return false;
 }
 
 /* ============================================================
