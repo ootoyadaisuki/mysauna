@@ -16,11 +16,35 @@ function yEndingType(b) {
   /* 絆＝デート合計2 または 日単位ネット（rules_y.js の yWifeAnswer が数える） */
   const kizuna = dateSum >= 2 || ((w.stoppedDays || 0) >= (w.pushedDays || 0));
   if (b.result && b.result.win) return (b.profitSum > 0 && kizuna) ? 'shin' : 'win';
-  /* 敗北側は悪い方から。純借金はヤミ金込み（徳政令対策）・総合点は予告時のスナップ */
-  const netDebt = Math.max(0, ((G.debt || 0) + ((G.yami && G.yami.debt) || 0)) - (G.cash || 0));
+
+  /* ============ 敗北側の分け方（2026-08-09 作り替え）============
+     **借金の「額」では分けない。「払えているか」で分ける。**
+
+     ⚠ 前の版は `純借金（残債−現金）≥1,000万` を廃業の条件にしていた。
+       だがビルの借入5,000万（CONF.startDebt）は**7年返済**で、120日では
+       ほとんど減らない＝**誰も条件から抜けられない**。
+       120日の通しプレイで実測：現金1,583万・通期利益558万・直近28日も黒字・
+       客134人／日・6位で完走した店が「廃業」になった。
+       あれは経営に失敗した店ではなく、**優勝しなかっただけの店**だった。
+
+     いまの分け方：
+       廃業 … 支払いを落とした／次の支払いが払えない（＝本当に続けられない）
+       傘下 … 払えてはいるが**借り増して**ここまで来た。神代は数字を見て買う
+       人気店 … 自力で回っている（借金があっても、返せているなら店は続く）      */
+  const bill  = (typeof yBillLines === 'function') ? yBillLines().total : 0;   // 1か月の固定費
+  const p28   = (b.profit || []).reduce((a, x) => a + x, 0);                   // 直近28営業日の利益
+  const yami  = (G.yami && G.yami.debt) || 0;
   const score = (b.scoreSnap != null) ? b.scoreSnap : yBattleScore100().total;
-  if (netDebt >= 10000000 && score < 55) return 'haigyo';
-  if (netDebt >= 20000000 && score >= 55) return 'sanka';
+
+  /* 廃業＝払えなかった。billMissed は「実際に落とした月がある」印＝数字の傷は消えない */
+  if (G.ch2 && G.ch2.billMissed) return 'haigyo';
+  if (p28 <= 0 && (G.cash || 0) < bill) return 'haigyo';   // 赤字続きで、次の支払いに届かない
+  if (yami > 0 && p28 <= 0) return 'haigyo';               // ヤミ金を抱えたまま赤字
+
+  /* 傘下＝開業時より借金が増えている（借り増した）うえで、買う価値のある数字がある */
+  const borrowed = (G.debt || 0) + yami - (CONF.startDebt || 0);
+  if (borrowed > 0 && score >= 55) return 'sanka';
+
   return 'ninki';
 }
 
