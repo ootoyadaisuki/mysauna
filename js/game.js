@@ -3178,7 +3178,12 @@ function customerLeave(c) {
   const tiles = (c.walkPx || 0) / T;
   const pro = c.wantsSauna && (c.type.likesSauna || 0) >= 0.9;
   const lim = pro ? CONF.dosenProTiles : CONF.dosenTiles;
-  if (tiles > lim) {
+  /* 濡れ衣の廃止（作者指定 8/10）。4区間の採点（入口→洗い場…水風呂→イス）が
+     すべて3マス以内＝置き方として満点の店では、総歩数の文句を言わせない。
+     第2章は盤面が13×19に伸びた＋歩数を正確に数える（walkExact）ので、
+     ほぼ理想の配置でも玄人客の1割が基準70に届いていた（実測 8/10）。
+     フックの無い章（第1章）は undefined＝これまでどおり */
+  if (tiles > lim && !chHook('dosenExempt')) {
     // 基準をどれだけ超えたかで痛みが増す（最大2倍まで）
     c.sat -= Math.round(CONF.dosenHit * Math.min(tiles / lim, 2));
     gripe('dosen');
@@ -10182,6 +10187,15 @@ function renderShop(markSeen) {
       startPlacing(id, null);
     };
     list.appendChild(div);
+  }
+  /* 新着の赤枠は「一度画面に出したら確認済み」（第2章・作者指定 8/10）。
+     この描画では赤枠のまま出て、**次にカタログを開いたときには消えている。**
+     パネルが畳まれている間（案内図など）は数えない＝見ていないのに消えない。
+     フラグの無い章（第1章）は従来どおり「タブを自分で開いたら既読」だけ */
+  if (CONF.seenOnView && !$('shopPanel').classList.contains('hidden')) {
+    let ch = false;
+    for (const id of shopIds(shopTab)) if (isNewItem(id)) { G.seenEq[id] = true; ch = true; }
+    if (ch) saveGame();
   }
   // このタブを自分で開いたときだけ既読にする（見ていないのに消えないように）
   if (markSeen) {

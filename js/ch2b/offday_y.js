@@ -1387,7 +1387,7 @@ const OWNER_LINES_Y = {
             'いい店ですね。ただ、小さい店が美しいのは、経営が苦しくなるまでです'],
     value: [
       ['番付は見ています。伸び方に、癖がありますね。——設備屋の買い方だ'],
-      ['この動線は短くしました。客が速く動くためではなく、迷わないためです'],
+      ['この導線は短くしました。客が速く動くためではなく、迷わないためです'],
       (o) => {   // 清潔の前回比。前回の視察時より上がっていれば言う
         const c = (typeof yMyScore === 'function') ? (yMyScore().clean || 0) : 0;
         const d = o.lastClean != null ? c - o.lastClean : 0; o.lastClean = c;

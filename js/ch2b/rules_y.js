@@ -383,6 +383,17 @@ function yDosenFloors() {
   return out;
 }
 
+/* 導線の濡れ衣の廃止（作者指定 8/10）。
+   4区間の採点（入口→洗い場／風呂→サウナ／サウナ→水風呂／水風呂→イス）が
+   **すべて3マス以内なら、総歩数の文句を出させない。**
+   置き方が満点なのに歩数だけで怒られるのは濡れ衣＝盤面が大きい章の宿命であって
+   プレイヤーに直せる余地が無い。1区間でも欠けていれば（遠い・設備が無い）従来どおり */
+function yDosenExempt() {
+  if (!G.ch2) return false;
+  const d = dosenParts();
+  return d.list.every(l => l.d != null && l.d <= 3);
+}
+
 /* サウナと水風呂が、本当に離れているか（同じ階で、遠いか） */
 function ySaunaMizuFar() {
   const near = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
@@ -395,8 +406,8 @@ function ySaunaMizuFar() {
   return best > 8;                                  // 8マス以上離れていたら「遠い」と言ってよい
 }
 /* 台詞。歩かされたことへの不満であって、サウナ→水風呂の話とは限らない */
-const Y_DOSEN = ['館内を歩かされるな…', '行ったり来たりで疲れた', 'この動線、無駄が多い', 'もう少しまとめて置いてくれ'];
-const Y_DOSEN_PRO = ['導線が終わってる。無駄に歩かされる', '動線を考えてくれ。それだけで化けるぞ', '設備の並びが悪い。分かってないな'];
+const Y_DOSEN = ['館内を歩かされるな…', '行ったり来たりで疲れた', 'この導線、無駄が多い', 'もう少しまとめて置いてくれ'];
+const Y_DOSEN_PRO = ['導線が終わってる。無駄に歩かされる', '導線を考えてくれ。それだけで化けるぞ', '設備の並びが悪い。分かってないな'];
 const Y_DOSEN_FAR = ['導線が終わってる。サウナ→水風呂が遠すぎだろ', 'サウナから水風呂まで歩かせるな、冷めるわ'];
 function yDosenLines(c, pro) {
   if (!G.ch2) return null;
@@ -528,6 +539,7 @@ registerChapter2Hooks({
   noWalkCount: yNoWalkCount,       // 導線は浴室の階で歩いたぶんだけ数える
   dosenFloors: yDosenFloors,       // 評判の導線は浴室ごとに測り、悪いほうを採る
   dosenLines: yDosenLines,         // 台詞は、本当に離れているものだけ名指しする
+  dosenExempt: yDosenExempt,       // 4区間すべて3マス以内なら、総歩数の文句を出さない
   playerKeepWorking: () => true,   // 体力が尽きるまで動き続ける
   noWarpPlayer: () => true,        // 画面に付いて来ない
   sleepAnyPhase: () => true,       // 営業中でも、力尽きたら番台の横で寝る
@@ -2028,7 +2040,7 @@ const Y_INTRO_Y = [
   { art: 'y_living', lines: [
     { narr: true, text: 'ととのい市で所帯を持った。妻の奈津とは社内結婚。' },
     { narr: true, text: '休みの日は、二人で市内のサウナを開拓した。ちゃぶ台の脇に、ノートが増えていった。' },
-    { narr: true, text: '動線、椅子の数、水風呂の温度。' },
+    { narr: true, text: '導線、椅子の数、水風呂の温度。' },
     { sp: '奈津', text: '水風呂、十六度だった。あなた、十七って書いてたけど' },
     { sp: '俺', text: '……直しとく' },
     { narr: true, text: '二冊目から、ノートの字は二人ぶんになった。' },

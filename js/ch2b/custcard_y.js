@@ -318,10 +318,12 @@ function yStaffCardFill(el, e) {
   if (el.dataset.sig === sig) return;
   el.dataset.sig = sig;
 
+  /* 妻の右肩の数字（機嫌）は出さない（作者指定 8/10）。機嫌は一言と絵文字で伝わる。
+     バイトの働きぶりは残す＝雇い替えの判断材料 */
   el.innerHTML =
     '<div class="cc-head"><span class="cc-seg">' + esc(who) + '</span>'
-    + '<span class="cc-sat ' + cls + '">' + v + (wife ? '' : '点') + '</span></div>'
-    + '<div class="cc-sec"><span>' + (wife ? '機嫌' : '働きぶり') + '</span></div>'
+    + (wife ? '' : '<span class="cc-sat ' + cls + '">' + v + '点</span>') + '</div>'
+    + (wife ? '' : '<div class="cc-sec"><span>働きぶり</span></div>')
     + (wife ? '' : '<div class="cc-skill">' + esc(skillLine(emp)) + '</div>')
     + '<div class="cc-line">' + esc(yCardFloorName(f) || '持ち場なし')
     + (wife ? '' : '　' + yen(emp.wage) + '／勤続' + (emp.days || 0) + '日') + '</div>'
@@ -349,9 +351,9 @@ function yPlayerCardFill(el) {
   if (el.dataset.sig === sig) return;
   el.dataset.sig = sig;
 
+  /* 右肩の「体力％」は出さない（作者指定 8/10）。体力は上の帯のバーで見えている */
   el.innerHTML =
-    '<div class="cc-head"><span class="cc-seg">自分</span>'
-    + '<span class="cc-sat ' + cls + '">体力 ' + pct + '%</span></div>'
+    '<div class="cc-head"><span class="cc-seg">自分</span></div>'
     + '<div class="cc-sec"><span>いま</span></div>'
     + '<div class="cc-line">' + esc(yCardFloorName(G.actF) + '　' + doing) + '</div>'
     + '<div class="cc-line">ストレス ' + st + (CONF.stressMax ? ' / ' + CONF.stressMax : '') + '</div>'
