@@ -37,8 +37,34 @@ function yPower(e) {
 function ySum(cat) { return yEquips(cat).reduce((s, e) => s + yPower(e), 0); }
 
 /* 🔥サウナ ―― 台数だけでは天井が来る。**温度帯の違う部屋を持つ**と伸びる（作り分け） */
-function yScoreSauna() {
-  const list = yEquips('sauna');
+/* ============ 浴室は男湯50点＋女湯50点（作者決定 2026-08-10）============
+   🔥サウナ・💧風呂と水風呂・🌤ととのい の3部門は、**階ごとに採って半分ずつ持ち寄る。**
+
+   以前は全階を合算して100点満点だったので、**男湯だけ磨けば満点**が取れた＝
+   3F女湯は「客がもう1人入れる」以外に建てる理由が無かった。
+   半分ずつにすると、**両方を同じ水準にしないと部門1位は取れない**＝増築が番付に直結する。
+
+   ⚠ **最初からこの形なので、3Fを建てて点が下がることは無い。**
+     男湯だけの店はもともと50が天井＝女湯は足すだけの側にしかならない
+     （くつろぎがラウンジを建てた瞬間に+45入るのと同じ考え方＝増築は必ず報われる）。
+   ⚠ **解放の段には使わせない。** 上限が半分になると、部門55点以上を要求する品が
+     3Fを建てるまで開かなくなる。3部門とも解放は鎖（UNLOCK_CHAIN_Y）に移してある。
+   ⚠ ライバル5軒は男女とも揃っている設定なので、向こうの持ち点は0〜100のまま      */
+function yBathFloorsY() {
+  return [AY.OTOKO, AY.ONNA].filter(f => {
+    const a = (CONF.areas || [])[f];
+    return a && a.floor === 'bath';
+  });
+}
+/* 男湯の素点×0.5 ＋ 女湯の素点×0.5。女湯がまだ無ければ、その半分は0のまま */
+function yBathHalves(fn) {
+  const m = clamp(fn(AY.OTOKO), 0, 100);
+  const w = yBathFloorsY().includes(AY.ONNA) ? clamp(fn(AY.ONNA), 0, 100) : 0;
+  return clamp(Math.round(m * 0.5 + w * 0.5), 0, 100);
+}
+function yScoreSauna() { return yBathHalves(ySaunaOn); }
+function ySaunaOn(f) {
+  const list = yEquipsOn('sauna', [f]);
   if (!list.length) return 0;
   const power = list.reduce((s, e) => s + yPower(e), 0);         // 質×傷み
   const bands = new Set(list.map(e => {
@@ -54,8 +80,9 @@ function yScoreSauna() {
    水風呂が主（65点ぶん・温度の段を揃えるほど伸びる）、湯船が従（35点ぶん）。
    湯船を独立した部門にすると9部門になってライバルの持ち点と噛み合わないので、
    **同じ「水まわり」としてひとつに束ねた**（作者指定 8/8）                */
-function yScoreMizu() {
-  const cold = yEquips('mizu'), hot = yEquips('furo');
+function yScoreMizu() { return yBathHalves(yMizuOn); }
+function yMizuOn(f) {
+  const cold = yEquipsOn('mizu', [f]), hot = yEquipsOn('furo', [f]);
   if (!cold.length && !hot.length) return 0;
   const band = (list, f) => new Set(list.map(f)).size;
   /* 水風呂が主（65点ぶん）。サウナ専門店なので、ここが本丸 */
@@ -74,12 +101,17 @@ function yScoreMizu() {
 }
 /* 🌤ととのい ―― **裸で過ごす時間**（ととのいイス・外気浴・屋上）。
    客の数に対してイスが足りているかが効く＝置くだけでなく「足りているか」  */
-function yScoreTotono() {
-  const list = yEquipsOn('rest', TOTONO_F_Y);            // **浴室と屋上に置いたものだけ**
+function yScoreTotono() { return yBathHalves(yTotonoOn); }
+function yTotonoOn(f) {
+  /* **その浴室のイス＋屋上のイス。** 屋上は男女共用なので、どちらの半分にも数える＝
+     屋上に置いた1脚は、男湯の客も女湯の客も使う（実際そのとおり） */
+  const list = yEquipsOn('rest', [f, AY.ROOF]);
   const seats = list.reduce((s, e) => s + (EQ[e.id].cap || 1), 0);
   if (!seats) return 0;
   const power = list.reduce((s, e) => s + yPower(e), 0);
-  const need = Math.max(4, Math.round((G.today && G.today.guests ? G.today.guests : 10) * 0.35));
+  /* 要る席数は**その浴室に来る客ぶん**＝全体の見込みを、開いている浴室の数で割る */
+  const guests = (G.today && G.today.guests) ? G.today.guests : 10;
+  const need = Math.max(4, Math.round(guests * 0.35 / Math.max(1, yBathFloorsY().length)));
   const enough = clamp(seats / need, 0, 1.2);
   const roof = yBuilt(AY.ROOF) ? 18 : 0;                        // 屋上の夜景（最後の切り札）
   return clamp(Math.round(power * 6 + enough * 30 + roof), 0, 100);

@@ -994,7 +994,8 @@ const EQ_Y = {
                desc: '石の台に畳が一枚。脇に木の仕切りが立つ。裸のまま、隣を気にせず寝ころべる。' },
   /* **屋上だけ**（`area` で縛る＝他の階のカタログには出ない）。
      7階を建てて初めて買えるものが、これで1つできる                        */
-  y_chair_deck:{ cat: 'rest', tab: 'gaiki', area: AY.ROOF, name: 'デッキチェア', w: 2, h: 1, price: 70000, q: 3, run: 0, cap: 1,
+  /* ord は鎖の最後（7）より後ろ＝カタログの右端に置く。鎖には入れない（上のコメント参照） */
+  y_chair_deck:{ cat: 'rest', tab: 'gaiki', area: AY.ROOF, ord: 20, name: 'デッキチェア', w: 2, h: 1, price: 70000, q: 3, run: 0, cap: 1,
                desc: '屋上専用。ととのい市の風に当たるための椅子。' },
 
   /* ── 2F 脱衣所 ── */
@@ -1091,7 +1092,9 @@ const EQ_Y = {
   /* ── ととのい（**屋内のものだけ**。外気浴の品は持ち込まない）── */
   /* **浴室にも脱衣所にも置ける**（作者指定 8/5）＝ room を指定しない。
      湯上がりに飲む客も、サウナの合間に飲む客もいる                          */
-  y_cooler:  { cat: 'etc', tab: 'gaiki', name: '冷水機', w: 1, h: 1, price: 130000, q: 2, run: 350, cap: 0,
+  /* 鎖に入らない備品は左端にまとめる（サウナマット置き場と同じ ord:-1）。
+     鎖（木のベンチ→…→フルフラットベッド）の途中に挟まると、順番が分かりにくい */
+  y_cooler:  { cat: 'etc', tab: 'gaiki', ord: -1, name: '冷水機', w: 1, h: 1, price: 130000, q: 2, run: 350, cap: 0,
                pas: { sat: 4, score: 4 }, desc: '汗をかいた分だけ飲む。これが無いと、いいサウナでも締まらない。' },
 
   /* ── 脱衣所（**男湯だけ／女湯だけ**に置けるものが混ざる＝左右で作り分けが生まれる）── */
@@ -1230,6 +1233,14 @@ const UNLOCK_CHAIN_Y = {
   furo:  ['y_furo_nuru', 'y_furo_atsu', 'y_furo_gekiatsu',
           'y_furo_denki', 'y_furo_jet', 'y_furo_tansan'],
   mizu:  ['y_mizu1', 'y_mizu_chiller', 'y_mizu_ne', 'y_mizu_deep'],
+  /* ととのいイスも鎖に入れる（作者決定 8/10・案1）。
+     🌤ととのいの部門スコアで開く形が1系統だけ残っていた＝サウナ・風呂・水風呂を
+     8/9に鎖へ移したときの取りこぼし。しかも部門を男湯50＋女湯50に分けると、
+     男湯だけの店は50が天井になって、55点以上を要求する上位のイスが永久に開かない。
+     ⚠ **デッキチェア（y_chair_deck）は鎖に入れない。** 屋上（7F）にしか置けないので、
+       鎖の途中に挟むと、屋上を建てるまで先が全部止まる                      */
+  totono: ['y_bench', 'y_chair', 'y_chair_ado', 'y_chair_tatami',
+           'y_chair_rec', 'y_chair_inf', 'y_chair_cloud', 'y_chair_flat'],
 };
 for (const [chainKey, chainIds] of Object.entries(UNLOCK_CHAIN_Y)) {
   chainIds.forEach((id, i) => {
