@@ -2029,7 +2029,7 @@ const Y_INTRO_Y = [
      **作者の言葉が正＝勝手に整えない**（句点の有無・改行位置もこのまま） */
   { art: 'gate', lines: [
     { narr: true, text: '夕凪湯を立て直してから、六年。' },
-    { narr: true, text: '親父と常連客の笑い声が聞こえる' },
+    { narr: true, text: '親父と常連客の笑い声が聞こえる。' },
     { sp: '俺', text: '親父、元気そうだな' },
   ]},
   { art: 'office', lines: [
