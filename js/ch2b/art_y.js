@@ -1069,7 +1069,31 @@ function yDrawGuide(g, W, H, list) {
   return true;                                   // ここで描き切った＝間取り図は描かない
 }
 
-registerChapter2Hooks({ drawGuide: yDrawGuide, guideTap: yGuideTap });
+/* ============ 1Fの入口マット ============
+   下の壁1行は表示から削った（CONF_Y.cropBottomWall・作者指定 8/10）ので、
+   入口の自動ドアの絵は画面の外になった。かわりに**見えている最下列の中央マス**
+   （entrance の1つ上）を玄関マットの色に変えて「▼入口」と書く＝
+   客はこのマスから湧いて入ってくるように見える。
+   外への入口が下壁にある階＝1Fだけ描く（上の階の entrance はEVの前） */
+function yDrawEntryTile() {
+  if (!CONF.cropBottomWall) return;
+  const e = CONF.entrance;
+  if (!e || e.y !== CONF.H - 1) return;
+  const c = ctx, x = e.x * T, y = (e.y - 1) * T;
+  // マット（えんじ色）。床の上に敷いてある感じに、マスから少しだけ内側へ
+  c.fillStyle = 'rgba(0,0,0,.20)'; c.fillRect(x + 4, y + 5, T - 6, T - 6);      // 影
+  c.fillStyle = '#a34a3a';
+  c.beginPath(); c.roundRect(x + 2, y + 3, T - 4, T - 6, 4); c.fill();
+  c.fillStyle = '#8a3a2c';                                                       // 縁
+  c.beginPath(); c.roundRect(x + 2, y + 3, T - 4, 4, 2); c.fill();
+  c.beginPath(); c.roundRect(x + 2, y + T - 7, T - 4, 4, 2); c.fill();
+  const s = CONF.bubScale || 1;
+  c.fillStyle = '#f5e6c8'; c.font = 'bold ' + Math.round(9 * s) + 'px "DotGothic16",sans-serif';
+  c.textAlign = 'center';
+  c.fillText('▼入口', x + T / 2, y + T / 2 + 4 * s);
+}
+
+registerChapter2Hooks({ drawGuide: yDrawGuide, guideTap: yGuideTap, drawEntryTile: yDrawEntryTile });
 
 /* ============ エレベーターの絵（各階の右下 2×2）============
    **扉は左側の面**（作者指定）＝客は左のマスに立って待ち、そこから乗り降りする。

@@ -7418,8 +7418,9 @@ function drawEntryLimit(rt) {
     || G.customers.some(c => c.state === 'waitLocker' || c.state === 'turnAway');
   if (!waiting) return;
   const cx = (CONF.entrance.x + 0.5) * T;
-  // 番台の絵にかぶらないよう、店の外（下端の帯）の高さに置く
-  const y = (CONF.H - 1) * T - 5 + Math.sin(rt * 4) * 1.5;    // かすかに揺らして視線を引く
+  // 番台の絵にかぶらないよう、店の外（下端の帯）の高さに置く。
+  // 下壁を表示から削る章（第2章＝cropBottomWall）は、その帯が画面の外なので1行ぶん上げる
+  const y = (CONF.H - 1 - (CONF.cropBottomWall ? 1 : 0)) * T - 5 + Math.sin(rt * 4) * 1.5;    // かすかに揺らして視線を引く
   const w = 84, h = 17;
   ctx.fillStyle = '#6b5a2a'; ctx.fillRect(cx - 2, y + h, 4, 9);        // 立て看板の脚
   ctx.fillStyle = 'rgba(0,0,0,.30)'; ctx.fillRect(cx - w / 2 + 2, y + 2, w, h);
@@ -7634,6 +7635,9 @@ function drawPlainWalls(W, H) {
   drawBandaiSign(W);
   drawTopDoor();
   drawBottomDoor(W, H);
+  /* 下壁を表示から削る章（第2章）は、見えている最下列に入口のマットを描く。
+     フックの無い章（第1章）は何も起きない */
+  chHook('drawEntryTile');
 }
 /* ============ 屋号の看板 ============
    店の名前は**番台の脇の壁**に一枚だけ掛ける（作者指定）。

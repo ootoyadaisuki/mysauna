@@ -189,6 +189,10 @@ body {
    タップ座標は実キャンバスの矩形（getBoundingClientRect）基準なのでズレない */
 #canvasWrap.crop-top { overflow:hidden; }
 #canvasWrap.crop-top #game { margin-top:calc(-100% / 13); }
+/* 下の壁1行も表示から削る（第2章・作者指定 8/10）。仕掛けは crop-top と同じ。
+   1Fの入口は、見えている最下列の中央マスに「▼入口」のマットを描いて守る（yDrawEntryTile） */
+#canvasWrap.crop-bottom { overflow:hidden; }
+#canvasWrap.crop-bottom #game { margin-bottom:calc(-100% / 13); }
 /* フロア画面のキャンバスは**縮めない**（作者指定 8/9・幅いっぱいの等比のまま）。
    縦の帳尻は上の帯（#tip）の廃止で合わせた＝帯の文言は熱波太郎の一言へ移動 */
 #game { width:100%; image-rendering:pixelated; display:block; }

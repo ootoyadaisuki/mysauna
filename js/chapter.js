@@ -227,6 +227,7 @@ function applyChapter(n) {
      第1章はフラグを持たない＝これまでどおり1pxも動かない                   */
   const cw = document.getElementById('canvasWrap');
   if (cw) cw.classList.toggle('crop-top', !!CONF.cropTopWall);
+  if (cw) cw.classList.toggle('crop-bottom', !!CONF.cropBottomWall);
 }
 
 /* いま遊んでいる章のセーブ先。章ごとに別のキー＝互いに上書きしない */
