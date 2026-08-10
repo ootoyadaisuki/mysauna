@@ -188,7 +188,7 @@ body {
    （作者指定 8/9＝縦スクロールを無くす）。max-height が効く短い画面では等比で縮む。
    タップ座標は表示サイズの比で割っている（canvasPos）ので、縮んでもズレない */
 #game { max-width:100%; width:auto; height:auto; margin:0 auto;
-  max-height:calc(100dvh - 278px - var(--safe-v));
+  max-height:calc(100dvh - 264px - var(--safe-v));   /* 🔒左上化でカードが縮んだぶん床へ返した（8/9） */
   image-rendering:pixelated; display:block; }
 /* 第2章の館内案内図。ゲーム画面と同じ枠に重ねて出す */
 #guide { width:100%; image-rendering:pixelated; display:block; cursor:pointer; }
@@ -392,17 +392,22 @@ body {
 #shopList.compact .shop-item {
   flex:0 0 auto; width:84px; flex-direction:column; align-items:center;
   padding:6px 4px; gap:2px; text-align:center; scroll-snap-align:start;
+  position:relative;   /* 🔒を左上に貼るための基準（作者指定 8/9） */
 }
 #shopList.compact .shop-icon { width:30px; height:30px; }
 #shopList.compact .shop-body { flex:none; width:100%; }
-/* 名前のうしろに【収容6人】【🔒ととのい38】が同じ行に入っているので、
-   2行で切ると**チップごと切れて読めない。**3行まで許して、チップを収める */
+/* 🔒は左上の角に貼る（作者指定 8/9）＝名前の行からチップが消えるので、
+   名前は2行で足りる＝カード全体の縦が1行ぶん縮む */
 #shopList.compact .shop-name {
   font-size:10.5px; line-height:1.3; white-space:normal;
-  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
 }
 #shopList.compact .shop-price { margin-left:0; font-size:12px; }
-#shopList.compact .cap-chip, #shopList.compact .lock-chip { font-size:9px; padding:0 3px; margin-top:1px; }
+#shopList.compact .cap-chip { font-size:9px; padding:0 3px; margin-top:1px; }
+#shopList.compact .lock-chip {
+  position:absolute; top:2px; left:2px; margin:0;
+  font-size:10px; padding:0 3px; line-height:1.4;
+}
 #shopList.compact .shop-note { display:none; }
 /* タブも一列の横スクロールに（折り返して二段になると、そのぶん縦を食う） */
 #shopTabs, #shopTabsG {
