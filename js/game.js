@@ -10155,7 +10155,10 @@ function renderShop(markSeen) {
     const capTxt = !CONF.noCapChip && CAP_CATS.includes(def.cat) && def.cap > 0 ? ` <span class="cap-chip">収容${def.cap}人</span>` : '';
     // ⭐（店の格への貢献）は廃止した（作者指定）。名前・収容・値段・鍵だけを1行に置く
     const div = document.createElement('div');
-    div.className = 'shop-item' + (locked ? ' locked' : '') + (isNew ? ' is-new' : '');
+    /* 新着の見せ方は章で違う（作者指定 8/10）。
+       第2章＝文字の「NEW」は出さず、カードの外枠を赤くするだけ（noNewTag＋new-frame）。
+       第1章はフラグを持たない＝これまでどおり橙の枠＋NEWバッジ */
+    div.className = 'shop-item' + (locked ? ' locked' : '') + (isNew ? ' is-new' + (CONF.noNewTag ? ' new-frame' : '') : '');
     // 名前の下に一行だけ短い説明（EQ_NOTE）。長い説明は設備をタップした時の詳細に置いてある
     /* 置く画面に詳細を出す章（第2章）は、この一行をそちらへ譲る＝
        カタログの行が縮んで、小さい画面に並ぶ数が増える。
@@ -10163,7 +10166,7 @@ function renderShop(markSeen) {
     const noteTxt = hasHook('placeInfo') ? '' : (EQ_NOTE[id] || '');
     const note = noteTxt ? `<div class="shop-note">${noteTxt.replace('{店名}', G.name)}</div>` : '';
     div.innerHTML = `<img class="shop-icon" src="${iconFor(id)}">
-      <div class="shop-body"><div class="shop-name">${isNew ? '<b class="new-tag">NEW</b> ' : ''}${def.name}${capTxt}${locked ? (id === DUEL_ONLY_EQ ? ' <span class="lock-chip">🔒決戦仕様</span>' : ` <span class="lock-chip">🔒${CONF.noUnlockLabel ? '' : unl.label}</span>`) : ''}</div>${note}</div>
+      <div class="shop-body"><div class="shop-name">${isNew && !CONF.noNewTag ? '<b class="new-tag">NEW</b> ' : ''}${def.name}${capTxt}${locked ? (id === DUEL_ONLY_EQ ? ' <span class="lock-chip">🔒決戦仕様</span>' : ` <span class="lock-chip">🔒${CONF.noUnlockLabel ? '' : unl.label}</span>`) : ''}</div>${note}</div>
       <div class="shop-price">${
         // 黒田割引中は「定価を消して、赤で割引後の額」。定価のほうを赤で出すと、どちらを払うのか分からなくなる
         kurodaDiscountId() === id

@@ -332,6 +332,9 @@ body {
   padding:3px 4px; border-radius:3px; vertical-align:middle; letter-spacing:.5px;
 }
 .shop-item.is-new { border-color:#e8825a; }
+/* 第2章の新着はバッジを出さず、外枠を赤くするだけ（作者指定 8/10）。
+   class は CONF.noNewTag を立てた章の renderShop だけが付ける＝第1章には現れない */
+.shop-item.new-frame { border-color:#e8402e; }
 #shopList { display:flex; flex-direction:column; gap:5px; }
 /* カタログは名前＋収容＋価格に、下段の一行説明だけを添えたコンパクト表示（作者指定） */
 .shop-item {

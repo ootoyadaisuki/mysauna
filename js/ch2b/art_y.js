@@ -1079,18 +1079,19 @@ function yDrawEntryTile() {
   if (!CONF.cropBottomWall) return;
   const e = CONF.entrance;
   if (!e || e.y !== CONF.H - 1) return;
-  const c = ctx, x = e.x * T, y = (e.y - 1) * T;
+  // 横3マス×縦1マス（作者指定 8/10）。入口マスを中心に左右へ1マスずつ広げる
+  const c = ctx, x = (e.x - 1) * T, y = (e.y - 1) * T, w = 3 * T;
   // マット（えんじ色）。床の上に敷いてある感じに、マスから少しだけ内側へ
-  c.fillStyle = 'rgba(0,0,0,.20)'; c.fillRect(x + 4, y + 5, T - 6, T - 6);      // 影
+  c.fillStyle = 'rgba(0,0,0,.20)'; c.fillRect(x + 4, y + 5, w - 6, T - 6);      // 影
   c.fillStyle = '#a34a3a';
-  c.beginPath(); c.roundRect(x + 2, y + 3, T - 4, T - 6, 4); c.fill();
+  c.beginPath(); c.roundRect(x + 2, y + 3, w - 4, T - 6, 4); c.fill();
   c.fillStyle = '#8a3a2c';                                                       // 縁
-  c.beginPath(); c.roundRect(x + 2, y + 3, T - 4, 4, 2); c.fill();
-  c.beginPath(); c.roundRect(x + 2, y + T - 7, T - 4, 4, 2); c.fill();
+  c.beginPath(); c.roundRect(x + 2, y + 3, w - 4, 4, 2); c.fill();
+  c.beginPath(); c.roundRect(x + 2, y + T - 7, w - 4, 4, 2); c.fill();
   const s = CONF.bubScale || 1;
   c.fillStyle = '#f5e6c8'; c.font = 'bold ' + Math.round(9 * s) + 'px "DotGothic16",sans-serif';
   c.textAlign = 'center';
-  c.fillText('▼入口', x + T / 2, y + T / 2 + 4 * s);
+  c.fillText('▼入口', x + w / 2, y + T / 2 + 4 * s);
 }
 
 registerChapter2Hooks({ drawGuide: yDrawGuide, guideTap: yGuideTap, drawEntryTile: yDrawEntryTile });
