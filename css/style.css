@@ -184,6 +184,11 @@ body {
 #uiRep { color:#ffb3c8; }
 
 #canvasWrap { position:relative; background:#17110d; line-height:0; }
+/* 上の壁1行を表示から削る（第2章・作者指定 8/9）。
+   1行の高さ＝幅÷13マス。キャンバスを1行ぶん上へはみ出させ、器で切る。
+   タップ座標は実キャンバスの矩形（getBoundingClientRect）基準なのでズレない */
+#canvasWrap.crop-top { overflow:hidden; }
+#canvasWrap.crop-top #game { margin-top:calc(-100% / 13); }
 /* フロア画面のキャンバスは**縮めない**（作者指定 8/9・幅いっぱいの等比のまま）。
    縦の帳尻は上の帯（#tip）の廃止で合わせた＝帯の文言は熱波太郎の一言へ移動 */
 #game { width:100%; image-rendering:pixelated; display:block; }

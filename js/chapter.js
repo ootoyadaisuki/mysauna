@@ -222,6 +222,11 @@ function applyChapter(n) {
   // タイトル画面の副題を、いま選ばれている章の名前にする
   const sub = document.getElementById('titleSub');
   if (sub) sub.textContent = '― ' + (CHAPTERS[G.chapter] || CHAPTERS[1]).name + ' ―';
+  /* 章が「上の壁を表示から削る」を持っていれば、キャンバスの器に印を付ける
+     （第2章＝cropTopWall。CSSが1行ぶん上へはみ出させて、器の overflow で切る）。
+     第1章はフラグを持たない＝これまでどおり1pxも動かない                   */
+  const cw = document.getElementById('canvasWrap');
+  if (cw) cw.classList.toggle('crop-top', !!CONF.cropTopWall);
 }
 
 /* いま遊んでいる章のセーブ先。章ごとに別のキー＝互いに上書きしない */
