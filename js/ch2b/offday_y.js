@@ -319,6 +319,9 @@ function ySyncKaigyoBtn() {
   if (btn) {
     const why = yClosedWhy();
     btn.textContent = !closed ? '🏮 営業開始' : '🛌 今日は動けない';
+    /* 定休日は**ボタンを出さない**（作者指定 8/10）。押して初めて月曜の一枚が出る形だと、
+       押すまで外観画面で足止めされる＝店を開けられない日に「開く」以外の操作は要らない */
+    btn.classList.toggle('hidden', !!closed);
   }
   /* 【臨時休業】は廃止（作者決定 8/5）。同じボタンを**朝の選択をやり直す**入口に使う＝
      一度決めたあとでも、営業を始める前なら考え直せる                       */
@@ -332,6 +335,10 @@ function ySyncKaigyoBtn() {
   if (!closed && !yPlanDone() && G.day > 1 && G.phase === 'prep' && !Y_OFFDAY_OPEN) {
     yOffDay();
   }
+  /* 定休日（月曜）は**その場で一枚を出す**（作者指定 8/10）。
+     以前は【🛌 今日は動けない】を押させてから出していたので、
+     押すまで外観画面を眺めるだけの間があった＝月曜は開いた瞬間にイベントが始まる */
+  if (closed && G.phase === 'prep' && !Y_OFFDAY_OPEN) yOffDay();
   /* 体力が尽きたときの処理は **closeDay（rules_y.js）へ移した**（8/8）。
      ここで見ると翌朝の回復を足したあとになり、体力が25で張り付いて一度も倒れなかった */
 }

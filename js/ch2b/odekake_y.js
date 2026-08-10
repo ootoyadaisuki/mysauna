@@ -226,18 +226,26 @@ function yGoKaidashi(s) {
   const n = been[s.id] | 0;
   been[s.id] = n + 1;
   G.cash -= s.cost;
-  G.ch2.waribikiUntil = G.day + 7;
-  G.ch2.waribikiPct = s.waribiki;              // 行き先ごとの割引率（yEqDiscount が見る）
   yStamAdd(25); yMoodAdd(2, s.name); yStressAdd(0, s.name);
+  /* ⚠ **全設備の割引と、掘り出し物（特定の1点だけ安い）は同時に出さない**（作者指定 8/10）。
+     以前は両方を重ねて掛けていたので、「全部10%引き＋この1点は40%引き」の日ができ、
+     どちらが効いているのか分からないうえ、買い出し1回の値打ちが日によって跳ねていた。
+     **掘り出し物が出た日は、その1点だけ。出なかった日は、全部が少し安い。**
+     期限はどちらも3日（作者指定 8/10・以前は7日）                            */
   const hit = (typeof yBargainPick === 'function') ? yBargainPick(s.bargain) : null;
-  let text = '<b>' + s.name + '</b>で買い出しをした。<br>'
-           + '<b>これから1週間、設備が' + Math.round(s.waribiki * 100) + '%引きで入る。</b>';
+  let text = '<b>' + s.name + '</b>で買い出しをした。';
   if (hit) {
-    G.ch2.sale = { id: hit.id, pct: hit.pct, until: G.day + 7 };
+    G.ch2.waribikiUntil = 0; G.ch2.waribikiPct = 0;     // 全設備の割引は掛けない
+    G.ch2.sale = { id: hit.id, pct: hit.pct, until: G.day + 3 };
     text += '<br><br>店の奥から一点だけ、値札の違うものが出てきた。<br>'
           + '<b>「' + hit.name + '」が' + Math.round(hit.pct * 100) + '%引き。</b>'
-          + '<span class="opt-sub">（1週間）</span>';
-    log('🛍 掘り出し物：' + hit.name + ' が' + Math.round(hit.pct * 100) + '%引き（1週間）');
+          + '<span class="opt-sub">（3日間）</span>';
+    log('🛍 掘り出し物：' + hit.name + ' が' + Math.round(hit.pct * 100) + '%引き（3日間）');
+  } else {
+    G.ch2.sale = null;                                   // 前の掘り出し物を引きずらない
+    G.ch2.waribikiUntil = G.day + 3;
+    G.ch2.waribikiPct = s.waribiki;            // 行き先ごとの割引率（yEqDiscount が見る）
+    text += '<br><b>これから3日間、設備が' + Math.round(s.waribiki * 100) + '%引きで入る。</b>';
   }
   log('🛍 ' + s.name + 'で買い出し（' + yen(s.cost) + '）');
   const ev = yPickEvent(KAI_EVENTS_Y[s.id]);
@@ -417,7 +425,7 @@ function yMotomachiChoice(text) {
    ・**その場所でしか起きないこと**を書く。どこでも起きる話は書かない
    ・**得ばかりにしない。** 人混みで疲れる／腹を壊す／うっかり店の話をする——
      休みの日にも失敗はある。それがあるから、当たりの日が当たりになる
-   ・持続効果（原価・速さ・値引き）は日数で切る＝**その1週間だけ店が変わる**
+   ・持続効果（原価・速さ・値引き）は日数で切る＝**その数日だけ店が変わる（値引きは3日）**
    ・`w` は出やすさ。`need` が false を返す日は候補から外れる
    ============================================================ */
 
@@ -666,13 +674,13 @@ const SPOT_EVENTS_Y = {
 const KAI_EVENTS_Y = {
   marinard: [
     { id: 'coupon', name: '割引クーポン', w: 3,
-      apply: () => { G.ch2.waribikiPct = 0.10; G.ch2.waribikiUntil = G.day + 7; },
+      apply: () => { G.ch2.waribikiPct = 0.10; G.ch2.waribikiUntil = G.day + 3; G.ch2.sale = null; },
       lines: ['通路の端で、地下街の福引をやっていた。',
               '二等。景品は、加盟店で使える割引券の束だった。'],
-      note: '割引クーポンをもらった。<b>1週間、設備が−10%</b>',
-      log: '🎟 駅の地下街で割引クーポン（1週間、設備−10%）' },
+      note: '割引クーポンをもらった。<b>3日間、設備が−10%</b>',
+      log: '🎟 駅の地下街で割引クーポン（3日間、設備−10%）' },
     { id: 'heiten', name: '閉店セール', w: 2,
-      apply: () => { G.ch2.waribikiPct = 0.20; G.ch2.waribikiUntil = G.day + 3; },
+      apply: () => { G.ch2.waribikiPct = 0.20; G.ch2.waribikiUntil = G.day + 3; G.ch2.sale = null; },
       lines: ['一軒が閉めるらしい。',
               '「三日で全部さばくから、好きなだけ持っていって」',
               '——安いのは嬉しい。嬉しいのだが、店を畳む人の顔は見たくない。'],
@@ -699,12 +707,12 @@ const KAI_EVENTS_Y = {
               '——うちの5階に、この席数があったら。'],
       note: 'フードコートで昼を食べた。<b>−¥1,200／体力+12</b>' },
     { id: 'tenji', name: '展示品', w: 3,
-      apply: () => { G.ch2.waribikiPct = Math.max(G.ch2.waribikiPct || 0, 0.18); G.ch2.waribikiUntil = G.day + 7; },
+      apply: () => { G.ch2.waribikiPct = Math.max(G.ch2.waribikiPct || 0, 0.18); G.ch2.waribikiUntil = G.day + 3; G.ch2.sale = null; },
       lines: ['売場の隅に、展示に使っていた品がまとめて置いてあった。',
               '傷はあるが、動く。',
               '「これ、値段付いてないんですけど」と言ったら、店員が奥へ走っていった。'],
-      note: '展示品を分けてもらった。<b>1週間、設備が−18%</b>',
-      log: '🏷 展示品の値引き（1週間、設備−18%）' },
+      note: '展示品を分けてもらった。<b>3日間、設備が−18%</b>',
+      log: '🏷 展示品の値引き（3日間、設備−18%）' },
     { id: 'tsukareta', name: '一日仕事', w: 2, stam: -12, stress: 6,
       lines: ['電車を乗り継いで、荷物を提げて、また乗り継いで帰った。',
               '着いたときには、日が暮れていた。',

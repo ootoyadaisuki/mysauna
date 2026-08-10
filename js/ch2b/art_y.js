@@ -913,6 +913,32 @@ function yDrawGuide(g, W, H, list) {
   // 庇（ひさし）＝ドアの上。ここに窓は無い
   g.fillStyle = '#3a2f26'; g.fillRect(cx - dW / 2 - 16, bottom - dH - 18, dW + 32, 18);
   g.fillStyle = '#5a4636'; g.fillRect(cx - dW / 2 - 16, bottom - dH - 18, dW + 32, 6);
+
+  /* ── お断りの札（作者指定 8/10）───────────────────────────
+     運営メニューで掲げたものを、**入口の右手の壁**に貼り出す。
+     ・刺青・ヤクザお断り（banYakuza）
+     ・子供不可（banKids＝小学生以下お断り）
+     **両方オンでも重ならない。** 右端に揃えて下から積む＝
+     1枚だけのときは必ず同じ位置（いちばん下）に出るので、増えた時に気づける */
+  {
+    const plates = [];
+    if (G.opts && G.opts.banYakuza) plates.push(['刺青・ヤクザ', 'お断り']);
+    if (G.opts && G.opts.banKids)   plates.push(['子供不可']);
+    const pw = 118, gap = 8, fs = 15;
+    // 入口の右端より右、ビルの右端より内側に収める
+    const px = Math.max(cx + dW / 2 + 10, bx + bw - 14 - pw);
+    let py = bottom - 26;                                    // いちばん下の札の下辺
+    for (const rows of plates) {
+      const ph = 14 + rows.length * 19;
+      const top = py - ph;
+      g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(px + 3, top + 4, pw, ph);   // 影
+      g.fillStyle = '#f2ead8'; g.fillRect(px, top, pw, ph);                   // 白い掲示板
+      g.strokeStyle = '#a33028'; g.lineWidth = 3; g.strokeRect(px + 2, top + 2, pw - 4, ph - 4);
+      g.fillStyle = '#a33028'; g.font = 'bold ' + fs + 'px "DotGothic16",sans-serif'; g.textAlign = 'center';
+      rows.forEach((t, i) => g.fillText(t, px + pw / 2, top + 22 + i * 19));
+      py = top - gap;                                        // 次の札は、この上に積む
+    }
+  }
   /* ── 看板は「買った物」だけ出す（作者指定）──────────────
      開業時は看板ゼロ＝通りから見ると、ただの古いビル。
      【🪧 外観】で買い、**付ける階も自分で選ぶ**（壁の看板は2階以上だけ）。
@@ -1314,6 +1340,10 @@ const EQ_ART_ALIAS_Y = {
   y_sauna_steam:'sauna_mist',  // 蒸気サウナ＝噴霧ノズルとタイル壁
   y_sauna_kusa: 'sauna_mist',  // 薬草の蒸サウナ
   y_sauna_ne:   'sauna3',      // 大型（寝サウナ付）＝ベンチが3段になる
+  /* 脱衣所の小物は第1章の絵をそのまま借りる（作者指定 8/10）。
+     どちらも第1章では cat 'datsui' の分岐にある絵なので、EQ_ART_CAT_Y にも登録する */
+  y_scale:     'scale',        // 体重計（アナログ・針が振れる）
+  y_fan:       'fan_bath',     // 扇風機（首振り・羽根が回る）
   y_sink:      'sink',         // 洗面所
   y_powder:    'sink',         // パウダーコーナー（鏡＋ドライヤー）
   y_dresser:   'sink',         // 高級ドレッサー
@@ -1326,7 +1356,8 @@ const EQ_ART_ALIAS_Y = {
 /* id はそのまま、**cat だけ読み替える**品。第1章では脱衣所の設備だったものを、
    第2章では1階（front）とラウンジ（rest）に置いているため                     */
 const EQ_ART_CAT_Y = { gacha: 'datsui', ehon: 'datsui',
-  y_milk: 'datsui' };   // 牛乳の自販機＝第1章の絵は cat 'datsui' の分岐にある
+  y_milk: 'datsui',     // 牛乳の自販機＝第1章の絵は cat 'datsui' の分岐にある
+  y_scale: 'datsui', y_fan: 'datsui' };   // 体重計・扇風機も同じ分岐の中にある
 
 /* ============ 音サウナ（作者指摘 8/5＝赤系）============
    候補1（js/ch2/art_eq2.js の s2_oto）の「真っ赤な照明と重低音」を、
