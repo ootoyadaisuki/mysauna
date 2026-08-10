@@ -178,15 +178,22 @@ function yDirtSpot(item) {
 
 /* 主人公が店に立つ時間（深夜まで開けても、22時で帰る） */
 function yWorkHoursRange() { return [yOpenHour(), Math.min(yCloseHour(), yNightStart())]; }
-/* その人がもう帰ったか。22時を過ぎたら、深夜バイト以外はみんな帰る（妻も） */
+/* その人がもう帰ったか。22時を過ぎたら、深夜バイト以外はみんな帰る（妻も）。
+   ⚠ 準備中は「帰った」判定をしない＝準備中に立たせた妻（prepWorkers）が
+     描画から消えないように（workerHere が draw の filter に使われている） */
 function yWorkerOff(s) {
+  if (G.phase !== 'biz') return false;
   if (!yIsNight()) return false;
   return !(s && s.emp && s.emp.night);
 }
+/* 準備中に店に立っている人＝妻だけ（作者報告 8/9「妻が番台に立たない」＝
+   開店前の受付が無人だった）。updateStaff は準備中回らない＝立ち姿の絵として置くだけ */
+function yPrepWorkers() { const w = yMakeWife(); return w ? [w] : []; }
 
 registerChapter2Hooks({
   workHours: yWorkHoursRange,
   workerOff: yWorkerOff,
+  prepWorkers: yPrepWorkers,
   nightLockWhy: yNightLockWhy,
   nightNote: yNightNote,
   dirtMul: yDirtMul,       // 無人の階は汚れが溜まる（深夜は3.5倍）
@@ -624,7 +631,7 @@ const Y_TABS_OF_AREA = {
      ドリンク自販機だけは1階のロビーにも置きたいので、その品を【待合】へ移してある
      （2026-08-08、`front` タブを【受付】【待合】の2枚に割ったのに、
        ここを直し忘れて**1階からタブが消えていた**のも同時に修正） */
-  [AY.FRONT]:   ['uketsuke', 'machiai', 'goods', 'shukyaku'],
+  [AY.FRONT]:   ['uketsuke', 'goods', 'shukyaku'],   // 【待合】は廃止（作者指定 8/9）
   [AY.OTOKO]:   ['sauna', 'furo', 'mizu', 'wash', 'gaiki', 'datsui'],
   [AY.ONNA]:    ['sauna', 'furo', 'mizu', 'wash', 'gaiki', 'datsui'],
   [AY.LOUNGE]:  ['ne', 'suwaru', 'sugosu', 'shitsurae'],
@@ -1450,7 +1457,7 @@ function yTopTip() {
   if (!has('locker'))return '脱衣所にロッカーを。無いと客が入れない';
   if (!has('mizu'))  return '水風呂が要る。サウナの相棒だ';
   if (!has('wash'))  return '洗い場のカランを置こう';
-  if (!has('rest'))  return 'ととのいイスを置こう。無いと整う前に帰ってしまう';
+  if (!has('rest'))  return 'ととのいイスを置こう。無いとととのう前に帰ってしまう';
   return '';
 }
 
@@ -1623,7 +1630,7 @@ function yGuestBonus() {
     const d = EQ[e.id]; if (!d || e.cond <= 0) continue;
     if (d.cat === 'sauna') n += Math.round((d.cap || 1) * 0.5);   // 6人室で+3（第1章の一台目と同じ）
     else if (d.cat === 'mizu') n += 2;                            // 水風呂のある店だと分かると人が来る
-    // ととのいイス（待合の丸太ベンチは数えない＝あれは整う場所ではない）
+    // ととのいイス（待合の丸太ベンチは数えない＝あれはととのう場所ではない）
     else if (d.cat === 'rest' && d.area !== AY.FRONT) n += 0.4;
   }
   return Math.round(n);

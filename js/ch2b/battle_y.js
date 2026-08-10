@@ -72,7 +72,7 @@ function yScoreMizu() {
   const h = hot.length ? (hPow * 2.6 + Math.max(hBand - 1, 0) * 7 + Math.min(hSeat, 12) * 0.5) : 0;
   return clamp(Math.round(c + h), 0, 100);
 }
-/* 🌤ととのい ―― **裸で過ごす時間**（整いイス・外気浴・屋上）。
+/* 🌤ととのい ―― **裸で過ごす時間**（ととのいイス・外気浴・屋上）。
    客の数に対してイスが足りているかが効く＝置くだけでなく「足りているか」  */
 function yScoreTotono() {
   const list = yEquipsOn('rest', TOTONO_F_Y);            // **浴室と屋上に置いたものだけ**
@@ -812,7 +812,20 @@ const UNLOCK_TIER_Y = {
 function yUnlockScores() { return yMyScore(); }
 /* その設備の解放条件。ゲートの無い品は null（＝最初から買える） */
 function yUnlockInfo(id, def) {
-  if (!def || !def.rep) return null;
+  if (!def) return null;
+  /* 解放の鎖（サウナ・風呂・水風呂＝作者決定 8/9）。
+     カタログの左から順＝**前の設備を1台でも置くと、次が開く**。
+     部門スコア式は「スコアを上げる手段が解放待ちの設備自身」という循環で詰んでいた */
+  if (def.chain && typeof UNLOCK_CHAIN_Y !== 'undefined') {
+    const chainIds = UNLOCK_CHAIN_Y[def.chain] || [];
+    const i = chainIds.indexOf(id);
+    if (i <= 0) return null;                       // 鎖の先頭は最初から買える
+    const prev = EQ[chainIds[i - 1]] || {};
+    const ok = (G.equip || []).some(e => e.id === chainIds[i - 1]);
+    return { ok, label: '【' + prev.name + '】の次', chainPrev: chainIds[i - 1],
+             lockText: '【' + prev.name + '】を設置すると仕入れられる' };
+  }
+  if (!def.rep) return null;
   /* `dept` を持つ品は、その部門で開く（ラウンジの品＝🛋くつろぎ など）。
      同じ cat でも置く階で性格が変わるものがあるため（作者指定 8/8） */
   const dept = def.dept || UNLOCK_DEPT_Y[def.cat] || 'total';

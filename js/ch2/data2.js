@@ -369,7 +369,7 @@ const EQ2 = {
   r2_aroma:    { room:'bath', cat:'rest', tab:'gaiki', name:'アロマミストシャワー', w:1,h:1, price:180000, q:3, run:300, cap:1, outdoor:true, rep:35 },
   /* ととのいイス（作者指定）。浴室にも外気浴ゾーンにも置ける＝サウナのすぐ横で休める */
   b2_totonoi:  { room:'bath', cat:'rest', tab:'gaiki', name:'ととのいイス',   w:1,h:1, price:60000,   q:3, run:0, cap:1,
-                 desc:'これが無いと、整う前に客が浴室から出てしまう。いちばん安い決め手。' },
+                 desc:'これが無いと、ととのう前に客が浴室から出てしまう。いちばん安い決め手。' },
   b2_infinity: { room:'bath', cat:'rest', tab:'gaiki', name:'インフィニティチェア', w:1,h:2, price:180000, q:5, run:0, cap:1, rep:25,
                  desc:'背を倒すと視界から床が消える。一度座った客は、この椅子の話をしてから帰る。' },
   b2_bench:    { room:'bath', cat:'rest', tab:'gaiki', name:'ベンチ',         w:2,h:1, price:90000,   q:3, run:0, cap:2,
@@ -803,7 +803,7 @@ const EQ_NOTE2 = {
   s2_maki:'まずはこの一台から。火の番が要る', s2_mushi:'高野槙の樽にひとり。薬草9種',
   s2_finland:'木と石と柄杓だけの本式', s2_oto:'真っ赤な照明と重低音。攻めの一室',
   s2_steam:'45℃の蒸気に女性が居着く',
-  b2_totonoi:'これが無いと整う前に出て行く', b2_infinity:'座った客が必ず話題にする',
+  b2_totonoi:'これが無いとととのう前に出て行く', b2_infinity:'座った客が必ず話題にする',
   b2_bench:'風の通る場所に2人ぶん',
   b2_denki:'年配の常連が順番待ちをする', d2_shave:'男湯だけ。出勤前に寄る',
   sv2_yomogi:'女性専用の個室。ひとり¥3,500', d2_dresser:'女湯だけ。ここが弱いと二度と来ない',

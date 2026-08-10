@@ -333,6 +333,7 @@ function yShopTabRender(tab, list) {
   if (tab === 'shukyaku') {
     const pane = document.createElement('div');
     pane.id = 'sendenPane';
+    pane.className = 'senden-hstrip';   // 横スクロールの棚（作者指定 8/9・設備カタログと同じ触り心地）
     list.appendChild(pane);
     if (typeof renderAds === 'function') renderAds();
     return true;

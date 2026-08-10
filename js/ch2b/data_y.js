@@ -192,6 +192,10 @@ const CONF_Y = {
          dayChoice: true   … 毎朝の「今日は何をする？」を復活                */
   gauges: false,
   staminaOn: false,
+  /* ⚠ 体力を切ると playerTired が第1章の「営業中3つまで」（BIZ_CLEAN_MAX）に落ちて、
+     主人公が3つ拭いた後は全階の汚れを放置していた（作者報告 8/9・2Fで棒立ち）。
+     この章のバイトを雇う理由は「階ごとの管理」と「女湯に入れない」なので、枚数では縛らない */
+  bizCleanMax: 9999,
   /* ⚠ **WEEK_Y の添字**（0=月 1=火 2=水 … 6=日）。曜日の名前と1つずれるので注意 */
   weekOff: 0,        // 毎週**月曜**が定休
   startDow: 1,       // 1日目を何曜にするか（1＝火曜）＝**ゲームは火曜から始まる**
@@ -454,7 +458,7 @@ const CONF_Y = {
      食堂もラウンジもある「長居できる施設」として建てているので、
      時間制限は店の性格そのものと食い違う。第1章の銭湯とは、ここが逆になる */
   noTimeLimit: true,
-  drinkLabel: 'ドリンク',   // 日報の見出し（この章に牛乳の自販機は無い）
+  drinkLabel: 'ドリンク',   // 日報の見出し（牛乳はDRINK_VEND_LABELのy_milkが正）
   noMural: true,
   /* サウナマット・垢すりタオルは【洗い場】タブの設備として買う＝運営メニューには出さない */
   noAmenityToggle: true,
@@ -569,7 +573,7 @@ const BATTLE_CATS_Y = [
   { key: 'cospa',  icon: '💴', name: 'コスパ',    note: '安さではなく「払った額に見合ったか」' },
   { key: 'sauna',  icon: '🔥', name: 'サウナ',    note: '室の性能・温度・ロウリュ・作り分け' },
   { key: 'mizu',   icon: '💧', name: '水風呂',    note: '温度帯・水質・深さ・槽の数' },
-  { key: 'totono', icon: '🌤', name: 'ととのい',  note: '裸で過ごす時間（整いイス・外気浴・屋上）' },
+  { key: 'totono', icon: '🌤', name: 'ととのい',  note: '裸で過ごす時間（ととのいイス・外気浴・屋上）' },
   { key: 'meshi',  icon: '🍜', name: '飯',        note: '5Fを建てるまでは0点' },
   { key: 'clean',  icon: '🧼', name: '清潔',      note: '汚れの累積・スタッフの練度' },
   { key: 'kutsu',  icon: '🛋', name: 'くつろぎ',  note: '館内着で過ごす時間（休憩・マンガ・深夜・宿泊）' },
@@ -649,7 +653,7 @@ const ZOUCHIKU_Y = [
   { f: 2 /*AY.ONNA*/,    price: 15000000, days: 3, rep: 30, guests: 300,
     note: '女の客が入れるようになる。古いビルだから、ここだけ躯体の補強が要る。' },
   { f: 3 /*AY.LOUNGE*/,  price: 12000000, days: 3, rep: 45, guests: 900,
-    note: '館内着で寝ころぶ場所。整ったあと、客が帰らなくなる。' },
+    note: '館内着で寝ころぶ場所。ととのったあと、客が帰らなくなる。' },
   { f: 4 /*AY.SHOKUDO*/, price: 20000000, days: 3, rep: 55, guests: 1800,
     note: 'ととのった後はここ。湯上がりの一杯と、サ飯。' },
   { f: 5 /*AY.CAPSULE*/, price: 28000000, days: 3, rep: 65, guests: 3000,
@@ -772,7 +776,7 @@ const CATS_Y = [
        待合 … 待っているあいだに使うもの
        物販 … 売って金になるもの（既存の物販タブへ寄せた）
        集客 … チラシ・広告（外観図パネルから引っ越してきた・作者指定 8/9）      */
-  ['uketsuke', '受付'], ['machiai', '待合'], ['goods', '物販'], ['shukyaku', '集客'],
+  ['uketsuke', '受付'], ['goods', '物販'], ['shukyaku', '集客'],   // 【待合】は廃止（8/9）
 ];
 
 /* 旧IDの読み替え（この章はまだ無い） */
@@ -801,7 +805,7 @@ const EQ_Y = {
      入口にあるので階をまたがない＝大箱の受け入れ人数を、1階の1台で決められる。
 
      ・`cap` ではなく **`shoes` という別のキー**を使うこと。`cap` は「同時に使える席数」として
-       待ち行列にも規模点にも拾われるので、靴箱に入れると**客が靴箱で整い始める**
+       待ち行列にも規模点にも拾われるので、靴箱に入れると**客が靴箱でととのい始める**
      ・`cat` は 'front' のまま。**'locker' にしてはいけない**＝
        game.js はそれを「脱衣ロッカー」と見なすので、1階の靴箱の前で客が服を脱ぎ始める
      ・小中大は `fam:'shoe'` でカタログに縦並びになる（カラン・ロッカーと同じ） */
@@ -811,16 +815,21 @@ const EQ_Y = {
                fam: 'shoe', shoes: 40, desc: '40人ぶん。3マスで、倍を受けられる。' },
   y_shoe80:  { cat: 'front', tab: 'uketsuke', area: AY.FRONT, name: '大きな靴箱', w: 4, h: 1, price: 900000, q: 4, run: 0, cap: 0, rep: 55,
                fam: 'shoe', shoes: 80, desc: '80人ぶん。大箱はここから始まる。' },
-  y_sofa:    { cat: 'rest',  tab: 'machiai', area: AY.FRONT, name: '待合ソファ', w: 2, h: 1, price: 130000, q: 2, run: 0, cap: 2,
+  /* ── 【待合】タブは廃止（作者指定 8/9）。ソファ・ウォーターサーバー・傘立て・
+     丸太のベンチ・おむつ替え台は retired＝カタログから消える（置いてある店ではそのまま動く）。
+     おむつ替え台は kids 備品だが、残り4つ（ガチャ・駄菓子・絵本・キッズスペース）で
+     子供料金の上限3個は満たせる                                          */
+  y_sofa:    { retired: true, cat: 'rest',  tab: 'machiai', area: AY.FRONT, name: '待合ソファ', w: 2, h: 1, price: 130000, q: 2, run: 0, cap: 2,
                pas: { sat: 2, score: 2 }, desc: '混む時間の受け皿。無いと入口で客が滞る。' },
-  y_water:   { cat: 'front', tab: 'machiai', area: AY.FRONT, name: 'ウォーターサーバー', w: 1, h: 1, price: 150000, q: 3, run: 400, cap: 0,
+  y_water:   { retired: true, cat: 'front', tab: 'machiai', area: AY.FRONT, name: 'ウォーターサーバー', w: 1, h: 1, price: 150000, q: 3, run: 400, cap: 0,
                pas: { sat: 3, score: 3 }, desc: '入る前の一杯。地味だが「気が利く店」の印象が残る。' },
   /* **1階にも脱衣所にも置ける**（作者指定 8/5）。客が飲むのは着替えたあと＝
      1階専用にしていたせいで、**買いに来られず1本も売れていなかった**       */
   /* ⚠ `tabs`（複数タブ）で「1階の待合」と「浴室階の脱衣所」の両方に出す。
         `tab` 1つだけにしていたので、**脱衣所のタブから消えていた**（作者報告 8/8）。
         浴室階のタブ一覧に 'machiai' が無いため、上の約束が守られていなかった */
-  y_vend:    { cat: 'front', tab: 'machiai', tabs: ['machiai', 'datsui'], name: 'ドリンク自販機', w: 1, h: 1, price: 200000, q: 2, run: 500, cap: 1,
+  /* 【待合】廃止に伴い【物販】へ（作者指定 8/9） */
+  y_vend:    { cat: 'front', tab: 'goods', tabs: ['goods', 'datsui'], name: 'ドリンク自販機', w: 1, h: 1, price: 200000, q: 2, run: 500, cap: 1,
                desc: 'オロポにポカリ。湯上がりの喉が鳴る。' },
   /* **牛乳の自販機**（作者指定 8/8）。この章に無かったので足した＝風呂上がりの定番。
      ⚠ `room: 'datsui'` は**第2章では効かない。** 第1章は1部屋の中が浴室と脱衣所に
@@ -903,9 +912,11 @@ const EQ_Y = {
      ここで現物を買って浴室に置く。置いて初めて、客はマットを敷き、垢すりで体を洗う。
      ID は 'matrack' / 'akarack' から変えないこと（game.js が hasMat()/hasAkasuri() で
      この ID を探している）                                                */
-  matrack:   { cat: 'amenity', tab: 'wash', room: 'bath', name: 'サウナマット置き場', w: 1, h: 1, price: 60000, q: 2, run: 0, cap: 0,
+  /* 【ととのい】タブの木のベンチの左へ（作者指定 8/9・ord:-1 で先頭に寄せる） */
+  matrack:   { cat: 'amenity', tab: 'gaiki', ord: -1, room: 'bath', name: 'サウナマット置き場', w: 1, h: 1, price: 60000, q: 2, run: 0, cap: 0,
                desc: 'サウナに敷くマットの棚。無いと客は板の上に直に座る。' },
-  akarack:   { cat: 'amenity', tab: 'wash', room: 'bath', name: '垢すりタオル置き場', w: 1, h: 1, price: 50000, q: 2, run: 0, cap: 0,
+  /* 垢すり台の左横に並べる（作者指定 8/9・fam でひとかたまり＝置き場→台の順） */
+  akarack:   { cat: 'amenity', tab: 'wash', fam: 'akasuri', room: 'bath', name: '垢すりタオル置き場', w: 1, h: 1, price: 50000, q: 2, run: 0, cap: 0,
                desc: '体を洗う垢すりタオルのカゴ。置いてあるだけで、洗い場が丁寧に見える。' },
 
   /* **1人用のカランは置かない**（作者決定 8/5）。都市型の大箱は洗い場を連ねて作る。
@@ -924,7 +935,7 @@ const EQ_Y = {
 
   /* ── 2F ととのい（裸のまま過ごす場所＝🌤ととのい部門）── */
   y_chair:   { cat: 'rest', tab: 'gaiki', name: 'ととのいイス', w: 1, h: 1, price: 50000, q: 2, run: 0, cap: 1,
-               desc: 'サウナ→水風呂→これ。数が足りないと、整う前に帰る。' },
+               desc: 'サウナ→水風呂→これ。数が足りないと、ととのう前に帰る。' },
   y_bench:   { cat: 'rest', tab: 'gaiki', name: '木のベンチ', w: 2, h: 1, price: 40000, q: 1, run: 0, cap: 2,
                desc: '安い。2人が座れる。' },
   y_chair_inf:{ cat: 'rest', tab: 'gaiki', name: 'インフィニティチェア', w: 1, h: 1, price: 190000, q: 4, run: 0, cap: 1, rep: 35,
@@ -983,6 +994,11 @@ const EQ_Y = {
                desc: '3マスで12人ぶん。小を3つ並べるより、床が1マス浮く。' },
   y_locker24:{ cat: 'locker', tab: 'datsui', room: 'datsui', fam: 'locker', name: '大ロッカー', w: 4, h: 1, price: 720000, q: 4, run: 0, cap: 0, lock: 24, rep: 45,
                desc: '4マスで24人ぶん。同じ床で倍の客を入れられる。そのぶん高い。' },
+  /* 体重計・扇風機（作者指定 8/9）＝第1章の定番を第2章にも。置くだけで効く pas 設備 */
+  y_scale:   { portable: true, cat: 'datsui', tab: 'datsui', room: 'datsui', name: '体重計', w: 1, h: 1, price: 30000, q: 1, run: 0, cap: 0,
+               pas: { sat: 2, score: 2, likes: ['shoten'], like: 2 }, desc: '昔ながらの針の体重計。乗らずにはいられない。' },
+  y_fan:     { portable: true, cat: 'datsui', tab: 'datsui', room: 'datsui', name: '扇風機', w: 1, h: 1, price: 25000, q: 1, run: 100, cap: 0,
+               pas: { sat: 2, score: 2, likes: ['shoten'], like: 3 }, desc: '首振りの風。湯上がりの年寄りには天国。' },
   y_sink:    { cat: 'datsui', tab: 'datsui', room: 'datsui', name: '洗面所', w: 2, h: 1, price: 90000, q: 2, run: 200, cap: 0,
                desc: 'ドライヤーと化粧水はここに付く。無いと湯上がりが締まらない。' },
 
@@ -997,9 +1013,9 @@ const EQ_Y = {
      ══════════════════════════════════════════════════════════ */
 
   /* ── 1F フロント（待つ時間を、売上と印象に変える品）── */
-  y_kasa:    { cat: 'front', tab: 'machiai', area: AY.FRONT, name: '傘立て', w: 1, h: 1, price: 25000, q: 1, run: 0, cap: 0,
+  y_kasa:    { retired: true, cat: 'front', tab: 'machiai', area: AY.FRONT, name: '傘立て', w: 1, h: 1, price: 25000, q: 1, run: 0, cap: 0,
                pas: { sat: 1, score: 1 }, desc: '雨の日に濡れた傘を持ち込ませない。安いが効く。' },
-  y_maruta:  { cat: 'rest',  tab: 'machiai', area: AY.FRONT, name: '丸太のベンチ', w: 2, h: 1, price: 90000, q: 2, run: 0, cap: 2,
+  y_maruta:  { retired: true, cat: 'rest',  tab: 'machiai', area: AY.FRONT, name: '丸太のベンチ', w: 2, h: 1, price: 90000, q: 2, run: 0, cap: 2,
                pas: { sat: 2, score: 2 }, desc: '待合の空気が和らぐ。木の匂いが残っている。' },
   y_board:   { cat: 'front', tab: 'uketsuke', area: AY.FRONT, name: 'イベント黒板', w: 2, h: 1, price: 50000, q: 2, run: 0, cap: 0,
                pas: { sat: 2, score: 3 }, desc: '今日のロウリュの時間を書く。次に来る理由をここに書く。' },
@@ -1053,7 +1069,7 @@ const EQ_Y = {
                desc: '4マスで9人ぶん。壁一面が洗い場になる。大箱はこれを並べている。' },
   /* 台そのものは安い。**高いのは人のほう**（作者指定 8/8）＝
      腕のある人を持っていなければ、ただの寝台。詳しくは uriage_y.js の垢すりの節 */
-  y_akasuri: { room: 'bath', cat: 'wash', name: '垢すり台', w: 2, h: 2, price: 100000, q: 4, run: 600, cap: 1, rep: 40,
+  y_akasuri: { fam: 'akasuri', room: 'bath', cat: 'wash', name: '垢すり台', w: 2, h: 2, price: 100000, q: 4, run: 600, cap: 1, rep: 40,
                desc: '裸で受けるので浴室内に置く。ひとり60分¥6,000。【垢すり職人】がその階に立っていないと、ただの寝台。' },
 
   /* ── ととのい（**屋内のものだけ**。外気浴の品は持ち込まない）── */
@@ -1065,7 +1081,7 @@ const EQ_Y = {
   /* ── 脱衣所（**男湯だけ／女湯だけ**に置けるものが混ざる＝左右で作り分けが生まれる）── */
   y_toilet:  { cat: 'datsui', tab: 'datsui', room: 'datsui', name: 'ウォシュレット', w: 1, h: 1, price: 380000, q: 4, run: 500, cap: 0,
                pas: { sat: 4, score: 4 }, desc: '無い店は、それだけで一段下に見られる。' },
-  y_shave:   { cat: 'datsui', tab: 'datsui', room: 'datsui', name: 'ひげ剃りブース', w: 2, h: 1, price: 180000, q: 3, run: 200, cap: 1, sexOnly: 'm',
+  y_shave:   { retired: true, cat: 'datsui', tab: 'datsui', room: 'datsui', name: 'ひげ剃りブース', w: 2, h: 1, price: 180000, q: 3, run: 200, cap: 1, sexOnly: 'm',
                desc: '鏡と湯と、使い捨ての剃刀。出勤前に寄る客が、これ目当てで通う。男湯にしか置けない。' },
   y_powder:  { cat: 'datsui', tab: 'datsui', room: 'datsui', name: 'パウダールーム', w: 3, h: 1, price: 450000, q: 4, run: 400, cap: 0, rep: 25, sexOnly: 'f',
                pas: { sat: 5, score: 5 },
@@ -1118,11 +1134,11 @@ const EQ_Y = {
   y_dagashi: { cat: 'front', tab: 'goods', area: AY.FRONT, name: '駄菓子コーナー', w: 2, h: 1, price: 140000, q: 2, run: 0, cap: 0,
                kids: true, pas: { sat: 2, score: 2 },
                desc: '湯上がりの1本と、子どもの10円。家族連れが「また来る店」になる。' },
-  y_omutsu:  { cat: 'front', tab: 'machiai', area: AY.FRONT, name: 'おむつ替え台', w: 2, h: 1, price: 160000, q: 3, run: 0, cap: 0,
+  y_omutsu:  { retired: true, cat: 'front', tab: 'machiai', area: AY.FRONT, name: 'おむつ替え台', w: 2, h: 1, price: 160000, q: 3, run: 0, cap: 0,
                kids: true, pas: { sat: 2, score: 3 },
                desc: '無いと、赤ん坊のいる家族はそもそも来られない。あるだけで選ばれる。' },
   ehon:      { cat: 'rest', tab: 'sugosu', area: AY.LOUNGE, name: '絵本の棚', w: 1, h: 1, price: 70000, q: 2, run: 0, cap: 0, ext: 0.04,
-               kids: true, desc: '親が整っているあいだ、子どもはここに座って待てる。' },
+               kids: true, desc: '親がととのっているあいだ、子どもはここに座って待てる。' },
   y_kidspace:{ portable: false, cat: 'rest', tab: 'sugosu', area: AY.LOUNGE, name: 'キッズスペース', w: 3, h: 2, price: 420000, q: 4, run: 100, cap: 4, ext: 0.08, rep: 20, dept: 'kutsu',
                kids: true, pas: { sat: 4, score: 4 },
                desc: 'マットとブロック。子どもがここで遊んでいる間だけ、親は本当に休める。' },
@@ -1178,6 +1194,37 @@ const EQ_Y = {
                pas: { sat: 2, score: 2 }, desc: '下げ膳が滞らない。無いとテーブルが空かない。' },
 };
 
+/* ============ 解放の鎖（作者決定 2026-08-09）============
+   サウナ・風呂・水風呂の3タブは**カタログの左から順に解放**する。
+   「前の設備を1台でも置くと、次が開く」＝電気ストーブ→薬草→蒸気…（作者の例そのまま）。
+
+   これまでの「部門スコア30で解放」は、**そのスコアを上げる手段が
+   解放待ちの設備自身**という循環に陥っていた（薬草の蒸サウナで実際に詰んだ）。
+
+   ・順序は温度帯が交互に来るように組んである＝鎖を進めるほど
+     「温度帯の違う部屋」が自然に増えて、🔥部門も伸びる
+   ・値段はおおむね昇順＝金がそのままゲートになる（この章は資金繰りが厳しい）
+   ・鎖に入れた品の `rep`（部門スコア解放）は下で消し、`ord` に鎖の順番を入れる
+     ＝カタログの並びが鎖の順そのものになる（shopIds は rep→ord→価格で並べる）
+   ・ロッカー（小中大）やラウンジ（くつろぎ部門）は今までどおり＝鎖にしない        */
+const UNLOCK_CHAIN_Y = {
+  sauna: ['y_sauna1', 'y_sauna_kusa', 'y_sauna_steam', 'y_sauna_kobeya',
+          'y_sauna_self', 'y_sauna_ne', 'y_sauna_hot', 'y_sauna_kero',
+          'y_sauna_auto', 'y_sauna_oto'],
+  furo:  ['y_furo_nuru', 'y_furo_atsu', 'y_furo_gekiatsu',
+          'y_furo_denki', 'y_furo_jet', 'y_furo_tansan'],
+  mizu:  ['y_mizu1', 'y_mizu_chiller', 'y_mizu_ne', 'y_mizu_deep'],
+};
+for (const [chainKey, chainIds] of Object.entries(UNLOCK_CHAIN_Y)) {
+  chainIds.forEach((id, i) => {
+    const d = EQ_Y[id];
+    if (!d) { console.warn('UNLOCK_CHAIN_Y: 無いid', id); return; }
+    delete d.rep;                 // 部門スコアの解放条件は鎖に置き換え
+    d.ord = i;                    // カタログの並び＝鎖の順
+    d.chain = chainKey;           // yUnlockInfo が「前の1台があるか」で判定する
+  });
+}
+
 /* カタログの一行メモ（買う前に効きどころが分かるように） */
 const EQ_NOTE_Y = {
   y_milk: '風呂上がりの定番。脱衣所に置く',
@@ -1191,7 +1238,7 @@ const EQ_NOTE_Y = {
   y_sauna_self: '柄杓と桶を客に任せる', y_sauna_steam: '熱いのが苦手な客の逃げ場',
   y_mizu1: '16℃。これが無いと始まらない', y_mizu_chiller: '一桁℃。ライバル店にはまだ無い',
   y_mizu_deep: '肩まで沈める。4人入れる',
-  y_chair: '無いと整う前に帰る', y_chair_inf: '座った客が必ず話題にする',
+  y_chair: '無いとととのう前に帰る', y_chair_inf: '座った客が必ず話題にする',
   y_locker: '2マスで6人ぶん', y_locker12: '3マスで12人ぶん', y_locker24: '4マスで24人ぶん',
   y_sink: '湯上がりが締まる',
   /* ── 候補1から引っ張ってきた品 ── */

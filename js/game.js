@@ -345,9 +345,11 @@ let guideRects = [];                      // タップ判定用（区画ごと�
 /* いま案内図を開いているか（区画の中に居ない状態） */
 /* 飲み物の自販機と、その1本の値段。**章をまたいで1か所にまとめる**
    （id を各所に散らすと、章が変わったとき静かに売れなくなる） */
-const DRINK_VEND = { vend1: 130, vend2: 180, y_vend: 180 };
+/* y_milk＝第2章の牛乳の自販機（2026-08-09 追加）。ここに無いと**1本も売れない**
+   （設備として置けるのに、客が買いに来る機械の一覧から漏れていた） */
+const DRINK_VEND = { vend1: 130, vend2: 180, y_vend: 180, y_milk: 130 };
 // 日報に出す短い名前（台の正式名は長いので、ここで「牛乳」「ドリンク」に縮める）
-const DRINK_VEND_LABEL = { vend1: '牛乳', vend2: 'ドリンク', y_vend: 'ドリンク' };
+const DRINK_VEND_LABEL = { vend1: '牛乳', vend2: 'ドリンク', y_vend: 'ドリンク', y_milk: '牛乳' };
 function onGuide() { return G.viewF < 0; }
 /* 開店時刻。**章が営業時間を持っていれば、そちらが正**（第2章＝プレイヤーが1時間刻みで決める）。
    第1章はフックを持たないので CONF.openHour のまま＝何も変わらない */
@@ -3782,8 +3784,14 @@ function playerTired(w) {
     if (G.phase !== 'biz' && (G.prepCleaned || 0) >= prepCleanMax()) return true;
     return false;
   }
+  /* 営業中の上限は章が上書きできる（CONF.bizCleanMax）。
+     ⚠ 第2章が体力制を廃止（staminaOn:false）した日から、ここが第1章の
+     「営業中3つまで」に落ちて、**主人公が3つ拭いた後は全階の汚れを放置**していた
+     （2026-08-09 実測：2Fの持ち場に汚れ8つ・主人公は棒立ち）。
+     第2章のバイトを雇う理由は「階ごとの管理」と「女湯に入れない」で立っているので、
+     枚数の上限は持たない。フックの無い章（第1章）は従来の3つのまま               */
   return G.phase === 'biz'
-    ? (G.bizCleaned || 0) >= BIZ_CLEAN_MAX
+    ? (G.bizCleaned || 0) >= (CONF.bizCleanMax || BIZ_CLEAN_MAX)
     : (G.prepCleaned || 0) >= prepCleanMax();
 }
 /* 汚れ1つを拭き終えるまでの時間（秒）。バイトは主人公の2倍かかる（作者指定）。
@@ -6002,7 +6010,9 @@ function closeDay() {
   const vendKeys = Object.keys(t.vendN || {}).filter(k => t.vendN[k] > 0);
   if (vendKeys.length) {
     for (const k of vendKeys) {
-      const lbl = CONF.drinkLabel && k !== 'vend1' ? CONF.drinkLabel : (DRINK_VEND_LABEL[k] || 'ドリンク');
+      /* 台ごとの短い名前が正（y_milk＝牛乳）。無い台だけ章の見出しに落ちる。
+         以前の「vend1以外は章の見出し」だと、第2章の牛乳が「ドリンク」と出てしまう */
+      const lbl = DRINK_VEND_LABEL[k] || CONF.drinkLabel || 'ドリンク';
       html += chip(`${lbl} ${t.vendN[k]}本`, yen(t.vendRev[k] || 0));
     }
   } else if (t.milk) html += chip(`${CONF.drinkLabel || '牛乳'} ${t.milk}本`, yen(milkRev));
@@ -6276,6 +6286,11 @@ function enterPrep() {
   G.tiredSaid = false;             // 「もう動けない」の独り言は1晩に1回
   // 銀行融資は廃止（作者指定）。サラ金はその場で現金が出るので、振込待ちという状態はもう無い
   G.staff = [];                    // バイトは準備中いなくなる。営業開始で戻る（作者指定）
+  /* 章が「準備中も立っている人」を持っていれば置く（第2章＝妻が番台に立つ）。
+     準備中は updateStaff が回らないので、立ち姿の絵として置くだけ＝掃除も会計もしない。
+     これが無いと、**開店前の受付から妻が消えて「番台に誰も立たない」ように見えていた**
+     （作者報告 8/9・第1章はフックが無いので今までどおり誰も居ない）             */
+  for (const ex of (chHook('prepWorkers') || [])) if (ex) G.staff.push(ex);
   const careLine = careBubbleText();
   // 治療費の話は日報でなく主人公の独り言で（作者指定）。融資入金の吹き出しが出ている朝はそちらを優先
   if (careLine && !G.player.bub) bubble(G.player, careLine, 5.0);
@@ -6304,7 +6319,9 @@ function enterPrep() {
      第2章は「あと何個」を上の一行へ移したので、下は出さない場面が多い（作者指定） */
   if (hasHook('prepHint')) {
     setHint(chHook('prepHint'));
-  } else if (G.day === 1 && !G.flags.tut) {
+  } else if (G.day === 1 && !G.flags.tut && (G.chapter || 1) === 1) {
+    /* ⚠ 第1章だけ。第2章はこの文を持たない（上の帯「2階にサウナを置こう」が
+       案内役なので、同じ話を下の帯でもう一度しない・作者指定 8/9） */
     setHint('🛁 ここが夕凪湯だ。下のメニューで設備を買って配置しよう。<br>おすすめは【サウナ】＋【水風呂】＋【ととのいイス】。<br>準備ができたら「🏮 営業開始」！');
   } else if ((G.roughDays || 0) >= 1) {
     // 汚れ・行列を放置した日が続くと、客が設備を壊しに来る。壊れてから知らせても遅い
@@ -7305,6 +7322,12 @@ let toastTimer = null;
 function toast(text) {
   let el = $('toast');
   if (!el) { el = document.createElement('div'); el.id = 'toast'; $('game-ui').appendChild(el); }
+  /* 上の一行（#tip・第2章の「2階にサウナを置こう」等）が出ている間は、その下に出す。
+     CSSの定位置（topbar直下）だと帯と重なって両方読めなかった（作者報告 8/9）。
+     帯を持たない章（第1章）は tip が無い＝これまでどおり定位置 */
+  const tip = $('tip');
+  el.style.top = (tip && tip.offsetParent && tip.offsetHeight)
+    ? (tip.getBoundingClientRect().bottom + 6) + 'px' : '';
   el.textContent = shopify(text); el.style.opacity = 1;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.style.opacity = 0, 2200);
@@ -10032,6 +10055,7 @@ function shopIds(cat) {
                || slot(a) - slot(b)                                     // 一族はひとかたまりで動く
                || String(EQ[a].fam || '').localeCompare(String(EQ[b].fam || ''))
                || (EQ[a].rep || 0) - (EQ[b].rep || 0)                    // 一族の中では 小 → 中 → 大
+               || (EQ[a].ord || 0) - (EQ[b].ord || 0)                    // 章が並びを指で直したい時だけ（第2章のマット置き場）
                || EQ[a].price - EQ[b].price);
 }
 // 「評判で解放されたのに、まだ見ていない」設備があるか
@@ -10142,7 +10166,8 @@ function renderShop(markSeen) {
           : yenShort(price) + (discounted ? '<br><span style="font-size:10px;color:#37a">玲奈割15%引き</span>' : '')}</div>`;
     div.onclick = () => {
       if (locked) {
-        toast(id === DUEL_ONLY_EQ ? 'これは、まだ手が届く代物じゃない…' : `${unl.label}になったら仕入れられる`);
+        // 章が言い回しごと持っていればそれを使う（第2章の解放の鎖＝「【◯◯】を設置すると…」）
+        toast(id === DUEL_ONLY_EQ ? 'これは、まだ手が届く代物じゃない…' : (unl.lockText || `${unl.label}になったら仕入れられる`));
         return;
       }
       if (G.cash < price) { toast('資金が足りない…（融資も検討しよう）'); return; }

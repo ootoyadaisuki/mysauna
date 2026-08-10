@@ -1297,7 +1297,8 @@ const EQ_ART_ALIAS_Y = {
 };
 /* id はそのまま、**cat だけ読み替える**品。第1章では脱衣所の設備だったものを、
    第2章では1階（front）とラウンジ（rest）に置いているため                     */
-const EQ_ART_CAT_Y = { gacha: 'datsui', ehon: 'datsui' };
+const EQ_ART_CAT_Y = { gacha: 'datsui', ehon: 'datsui',
+  y_milk: 'datsui' };   // 牛乳の自販機＝第1章の絵は cat 'datsui' の分岐にある
 
 /* ============ 音サウナ（作者指摘 8/5＝赤系）============
    候補1（js/ch2/art_eq2.js の s2_oto）の「真っ赤な照明と重低音」を、
@@ -1528,7 +1529,13 @@ function yEquipArt(c2, it, def, x, y, w, h, rt, broken) {
      読み替えた id は第2章の絵を持たないので、ここへは戻ってこない＝無限には回らない */
   const alias = EQ_ART_ALIAS_Y[it.id];
   if (alias) {
-    drawEquipArt(c2, Object.assign({}, it, { id: alias }), def, x, y, w, h, rt, broken);
+    /* ⚠ id だけ読み替えても、第1章の絵は **cat で分岐している**ものがある。
+       牛乳の自販機（vend1）は第1章の `case 'datsui'` の中＝y_milk の cat 'front' の
+       ままでは届かず、名前札のまま置かれていた（作者報告 8/9）。
+       EQ_ART_CAT_Y に読み替え先があれば、cat も一緒に差し替える           */
+    const catFix = EQ_ART_CAT_Y[it.id];
+    drawEquipArt(c2, Object.assign({}, it, { id: alias }),
+      catFix ? Object.assign({}, def, { cat: catFix, __yArt: true }) : def, x, y, w, h, rt, broken);
     return true;
   }
   /* **id は第1章と同じなのに、cat だけ第2章で変えた品**（ガチャガチャ・絵本の棚）。

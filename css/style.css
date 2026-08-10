@@ -24,6 +24,11 @@ body {
   /* ノッチ・ホームバーを避ける（iPhone実機。SEなど無い端末では 0 になる） */
   padding-top:calc(16px + var(--sat));
   padding-bottom:calc(16px + var(--sab));
+  /* 中身が画面より高い時の逃げ道（作者報告 8/9・モバイルでデータ/運営が
+     スクロールできない）。flexの中央寄せは、はみ出すと**上下が画面外に切れて届かない**。
+     外側に auto を持たせ、.modal の margin:auto で「収まる時は中央・
+     はみ出す時はスクロール」の両立にする */
+  overflow-y:auto; -webkit-overflow-scrolling:touch;
 }
 /* 妻の関門は、ほかの画面（資金繰り・運営）の**上に**かぶせる。
    HTMLの並び順では資金繰りのほうが後ろにあるので、ここで上へ持ち上げておく */
@@ -32,6 +37,7 @@ body {
   background:#3a2f28; border:3px solid #c9a86a; border-radius:10px;
   padding:20px; width:100%; max-width:400px; text-align:center;
   box-shadow:0 8px 0 rgba(0,0,0,.4);
+  margin:auto;   /* 収まる時は中央、はみ出す時は .overlay のスクロールで全体が読める */
 }
 .modal h2 { color:#ffd98a; margin-bottom:10px; font-size:20px; }
 .modal-note { font-size:13px; color:#d8c6a8; margin-bottom:14px; line-height:1.6; }
@@ -502,6 +508,18 @@ body {
 .kuroda-off { color:#ff6a5a; font-weight:bold; }
 .price-was  { color:#9a9088; text-decoration:line-through; }
 .senden-item .shop-price { margin-left:auto; }
+/* 【集客】タブ（1F設備メニュー）＝横スクロールの棚（作者指定 8/9） */
+#sendenPane.senden-hstrip { display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; }
+#sendenPane.senden-hstrip .senden-item {
+  flex:0 0 148px; flex-direction:column; align-items:flex-start; gap:4px;
+  margin:0; padding:8px; font-size:12px;
+}
+#sendenPane.senden-hstrip .senden-item > span:first-child { font-size:22px; line-height:1; }
+#sendenPane.senden-hstrip .senden-item > div { width:100%; }
+#sendenPane.senden-hstrip .senden-item b { font-size:12px; display:block; line-height:1.3; }
+#sendenPane.senden-hstrip .senden-item .shop-desc { font-size:10.5px; line-height:1.35; }
+#sendenPane.senden-hstrip .senden-item .shop-price { margin-left:0; font-size:12px; }
+
 /* 熱波太郎のアドバイス（外観図パネル。旧【集客】タブの跡地） */
 .advice-card { display:flex; align-items:flex-start; gap:8px; padding:9px;
   background:#54402f; border:2px solid #a68656; border-radius:8px; }
@@ -528,7 +546,7 @@ body {
 }
 
 /* 運営メニュー */
-.manage { text-align:left; max-height:calc(84dvh - var(--safe-v)); overflow-y:auto; }
+.manage { text-align:left; max-height:calc(84vh - var(--safe-v)); max-height:calc(84dvh - var(--safe-v)); overflow-y:auto; }
 .manage h2 { text-align:center; }
 .opt-sec { font-size:13px; color:#ffd98a; font-weight:bold; margin:12px 0 4px; border-bottom:1px solid #6b5b44; padding-bottom:3px; }
 .opt-row { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:13px; padding:6px 2px; }
@@ -572,7 +590,7 @@ body {
 .temp-band { font-size:11px; color:#9fd0ff; }
 
 /* ===== 第2章の開業準備 ===== */
-.modal.kaigyo { max-width:440px; max-height:calc(88dvh - var(--safe-v)); overflow-y:auto; text-align:left; }
+.modal.kaigyo { max-width:440px; max-height:calc(88vh - var(--safe-v)); max-height:calc(88dvh - var(--safe-v)); overflow-y:auto; text-align:left; }
 .kg-step { border:2px solid #6b533c; border-radius:8px; padding:10px 12px; margin-bottom:10px; background:#33291f; }
 .kg-step.done { border-color:#6a8a5a; opacity:.85; }
 .kg-step > b { color:#ffd98a; font-size:15px; }
@@ -620,7 +638,7 @@ body {
 .msn-note { font-size:11px; color:#9a8a72; margin:3px 0 0; line-height:1.6; clear:both; }
 
 /* ===== 第2章：バイト管理ページ ===== */
-.modal.wide { max-width:460px; max-height:calc(86dvh - var(--safe-v)); overflow-y:auto; text-align:left; }
+.modal.wide { max-width:460px; max-height:calc(86vh - var(--safe-v)); max-height:calc(86dvh - var(--safe-v)); overflow-y:auto; text-align:left; }
 .sm-area { margin:8px 0; border:1px solid #6b533c; border-radius:6px; padding:7px 8px; background:#2b231b; }
 .sm-area.closed { border-color:#8a3030; background:#332020; }
 .sm-area-h { display:flex; justify-content:space-between; align-items:baseline; font-size:14px; color:#fff8ea; }
