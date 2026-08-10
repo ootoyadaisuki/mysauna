@@ -10147,7 +10147,8 @@ function renderShop(markSeen) {
       ? !duelEqReady()                                   // 決戦仕様は投票対決を受けて立つまで並ばない
       : (!!unl && !unl.ok && !isDemandedEquip(id));
     const isNew = isNewItem(id);
-    const capTxt = CAP_CATS.includes(def.cat) && def.cap > 0 ? ` <span class="cap-chip">収容${def.cap}人</span>` : '';
+    // 収容チップを出さない章（第2章＝作者指定 8/9「設備カードに収容人数は不要」）
+    const capTxt = !CONF.noCapChip && CAP_CATS.includes(def.cat) && def.cap > 0 ? ` <span class="cap-chip">収容${def.cap}人</span>` : '';
     // ⭐（店の格への貢献）は廃止した（作者指定）。名前・収容・値段・鍵だけを1行に置く
     const div = document.createElement('div');
     div.className = 'shop-item' + (locked ? ' locked' : '') + (isNew ? ' is-new' : '');
@@ -10158,7 +10159,7 @@ function renderShop(markSeen) {
     const noteTxt = hasHook('placeInfo') ? '' : (EQ_NOTE[id] || '');
     const note = noteTxt ? `<div class="shop-note">${noteTxt.replace('{店名}', G.name)}</div>` : '';
     div.innerHTML = `<img class="shop-icon" src="${iconFor(id)}">
-      <div class="shop-body"><div class="shop-name">${isNew ? '<b class="new-tag">NEW</b> ' : ''}${def.name}${capTxt}${locked ? (id === DUEL_ONLY_EQ ? ' <span class="lock-chip">🔒決戦仕様</span>' : ` <span class="lock-chip">🔒${unl.label}</span>`) : ''}</div>${note}</div>
+      <div class="shop-body"><div class="shop-name">${isNew ? '<b class="new-tag">NEW</b> ' : ''}${def.name}${capTxt}${locked ? (id === DUEL_ONLY_EQ ? ' <span class="lock-chip">🔒決戦仕様</span>' : ` <span class="lock-chip">🔒${CONF.noUnlockLabel ? '' : unl.label}</span>`) : ''}</div>${note}</div>
       <div class="shop-price">${
         // 黒田割引中は「定価を消して、赤で割引後の額」。定価のほうを赤で出すと、どちらを払うのか分からなくなる
         kurodaDiscountId() === id

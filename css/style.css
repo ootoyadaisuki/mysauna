@@ -132,7 +132,7 @@ body {
 #game-ui { display:flex; flex-direction:column; height:100%; }
 #topbar {
   display:flex; justify-content:space-between; align-items:center;
-  padding:8px 10px; background:#3a2f28; border-bottom:3px solid #c9a86a;
+  padding:5px 10px; background:#3a2f28; border-bottom:3px solid #c9a86a;   /* 8px→5px（縦詰め 8/9） */
   /* 画面が狭い端末（iPhone SEなど幅320px）だと、日付・所持金・評判・☰ が横に入りきらず
      ☰ が画面の外へ押し出される。狭いほど文字を詰める＝どの端末でも1行に収まる */
   font-size:clamp(11px, 3.4vw, 13px); gap:6px;
@@ -184,7 +184,12 @@ body {
 #uiRep { color:#ffb3c8; }
 
 #canvasWrap { position:relative; background:#17110d; line-height:0; }
-#game { width:100%; image-rendering:pixelated; display:block; }
+/* フロア画面のキャンバス。**幅いっぱい・ただし縦は「メニューが全部見える残り」まで**
+   （作者指定 8/9＝縦スクロールを無くす）。max-height が効く短い画面では等比で縮む。
+   タップ座標は表示サイズの比で割っている（canvasPos）ので、縮んでもズレない */
+#game { max-width:100%; width:auto; height:auto; margin:0 auto;
+  max-height:calc(100dvh - 278px - var(--safe-v));
+  image-rendering:pixelated; display:block; }
 /* 第2章の館内案内図。ゲーム画面と同じ枠に重ねて出す */
 #guide { width:100%; image-rendering:pixelated; display:block; cursor:pointer; }
 /* 区画にいる間だけ出る帯（← 館内案内図／いまどの部屋か） */
@@ -264,19 +269,19 @@ body {
 #bizStats { font-size:13px; color:#e8d8b8; margin-bottom:6px; }
 /* 運営・データ・一時停止/再開・速度は、準備中と同じく横一列に並べる（折り返さない） */
 .biz-actions { display:flex; gap:6px; align-items:stretch; }
-.biz-actions .sm-btn { flex:1; font-size:11px; padding:6px 1px; white-space:nowrap; }
+.biz-actions .sm-btn { flex:1; font-size:11px; padding:4px 1px; white-space:nowrap; }
 /* 営業中はログ＋カタログを両方出すので、ログ側をコンパクトに */
 #bizPanel:not(.hidden) ~ #shopPanel { margin-top:8px; border-top:1px dashed #6b5b44; padding-top:8px; }
 #bizPanel:not(.hidden) + #shopPanel #shopList { max-height:34dvh; overflow-y:auto; }
 
 /* 準備中 */
-.prep-actions { display:flex; gap:6px; margin-bottom:8px; align-items:stretch; }
+.prep-actions { display:flex; gap:6px; margin-bottom:4px; align-items:stretch; }   /* 8px→4px（縦詰め 8/9） */
 /* 「🏮 営業開始」は1行に収める（折り返すと2行になって高さが揃わない） */
-.prep-actions .open-btn { flex:1.6; margin:0; padding:8px 4px; font-size:14px; white-space:nowrap; }
-.prep-actions .sm-btn { flex:1; font-size:11px; padding:6px 1px; white-space:nowrap; }
+.prep-actions .open-btn { flex:1.6; margin:0; padding:5px 4px; font-size:14px; white-space:nowrap; }
+.prep-actions .sm-btn { flex:1; font-size:11px; padding:4px 1px; white-space:nowrap; }
 /* 設備カタログのタブ。**外観・増築（#shopTabsG）も同じ見た目にする。**
    ここを #shopTabs だけにしていたので、外観・増築のタブだけ素のボタンで出ていた */
-#shopTabs, #shopTabsG { display:flex; gap:4px; margin-bottom:6px; flex-wrap:wrap; }
+#shopTabs, #shopTabsG { display:flex; gap:4px; margin-bottom:4px; flex-wrap:wrap; }
 #shopTabs .tab, #shopTabsG .tab {
   font-family:inherit; font-size:12px; padding:6px 9px; border-radius:6px 6px 0 0;
   background:#3a2f28; color:#c9b494; border:2px solid #6b5b44; border-bottom:none; cursor:pointer;
@@ -614,7 +619,7 @@ body {
    下のヒント帯は長くなりがちで、画面を食うわりに毎回同じことを言う。
    「あと何個か」だけは常に見えていてほしいので、上に一行だけ置く（作者指定） */
 #tip {
-  padding:6px 10px; font-size:13px; line-height:1.5; text-align:center;
+  padding:4px 10px; font-size:13px; line-height:1.4; text-align:center;   /* 6px→4px（縦詰め 8/9） */
   color:#ffe6a8; background:#3a2d20; border-bottom:2px solid #6b533c;
 }
 #tip b { color:#fff8ea; }
