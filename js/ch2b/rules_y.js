@@ -2037,7 +2037,7 @@ const Y_INTRO_Y = [
     { narr: true, text: '温浴メーカーの営業。' },
     { narr: true, text: '日本中の温泉やサウナに、足を運んだ。' },
     { narr: true, text: '三年目の春、転勤の辞令が出た。' },
-    { narr: true, text: '行き先は、ととのい市。' },
+    { narr: true, text: '行き先は、サウナ県ととのい市。' },
     { sp: '俺', text: 'ととのい市か。' },
     { narr: true, text: 'ととのい市といえば、サウナバトル。' },
     { narr: true, text: '全国のサウナーが注目する、まさに「サウナ界の王者」を決める大会だ。' },
