@@ -184,12 +184,9 @@ body {
 #uiRep { color:#ffb3c8; }
 
 #canvasWrap { position:relative; background:#17110d; line-height:0; }
-/* フロア画面のキャンバス。**幅いっぱい・ただし縦は「メニューが全部見える残り」まで**
-   （作者指定 8/9＝縦スクロールを無くす）。max-height が効く短い画面では等比で縮む。
-   タップ座標は表示サイズの比で割っている（canvasPos）ので、縮んでもズレない */
-#game { max-width:100%; width:auto; height:auto; margin:0 auto;
-  max-height:calc(100dvh - 264px - var(--safe-v));   /* 🔒左上化でカードが縮んだぶん床へ返した（8/9） */
-  image-rendering:pixelated; display:block; }
+/* フロア画面のキャンバスは**縮めない**（作者指定 8/9・幅いっぱいの等比のまま）。
+   縦の帳尻は上の帯（#tip）の廃止で合わせた＝帯の文言は熱波太郎の一言へ移動 */
+#game { width:100%; image-rendering:pixelated; display:block; }
 /* 第2章の館内案内図。ゲーム画面と同じ枠に重ねて出す */
 #guide { width:100%; image-rendering:pixelated; display:block; cursor:pointer; }
 /* 区画にいる間だけ出る帯（← 館内案内図／いまどの部屋か） */

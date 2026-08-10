@@ -1280,16 +1280,21 @@ function yTodayAdvice() {
   }
   return picked;
 }
-/* 熱波太郎の一言（外観図パネル）を描く */
+/* 熱波太郎の一言（外観図パネル）を描く。
+   ⚠ **必須アイテムのリマインド（旧・上の帯 yTopTip）が最優先**（作者指定 8/9）。
+     「2階にサウナを置こう。まだ営業できない」等＝置くまで毎回出るし、
+     置いたら次の不足に**1日に何度でも**差し替わる（日替わりのキャッシュを通さない）。
+     不足が無い日だけ、いつもの日替わり1本になる                             */
 function yRenderAdvice(box) {
-  const a = yTodayAdvice();
+  const urgent = (typeof yTopTip === 'function') ? yTopTip() : '';
+  const a = urgent ? null : yTodayAdvice();
   const card = document.createElement('div');
   card.className = 'advice-card';
   card.innerHTML =
     '<img class="advice-face" src="assets/char/nappa_taro_256.webp" alt="熱波太郎">'
     + '<div class="advice-body">'
     + '<div class="advice-name">熱波太郎の一言</div>'
-    + '<div class="advice-text">' + (a ? a.text : '今日はもう言うことがねえよ。腕を磨いとけ') + '</div>'
+    + '<div class="advice-text">' + (urgent || (a ? a.text : '今日はもう言うことがねえよ。腕を磨いとけ')) + '</div>'
     + '</div>';
   box.appendChild(card);
 }
@@ -1481,7 +1486,9 @@ registerChapter2Hooks({
   guestAdjust: yGuestAdjust,
   renderGaikan: yRenderGaikan,
   onNewGame: yOnNewGame,
-  topTip: yTopTip,
+  /* ⚠ topTip は登録をやめた（作者指定 8/9）＝上の帯そのものを廃止。
+     yTopTip の中身（必須アイテムのリマインド）は熱波太郎の一言の最優先枠に移した。
+     帯の28pxが返ってきたぶん、フロア画面のキャンバスは縮めない */
 });
 
 /* ============================================================
