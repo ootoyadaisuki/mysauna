@@ -11215,7 +11215,13 @@ function initUI() {
   const onDevServer = location.protocol === 'http:'
     && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
     && location.port !== '';
-  if ((onDevServer || location.search.indexOf('ch2') >= 0) && CHAPTERS[2]) {
+  /* **配信アプリ（App Store / Google Play のビルド）だけロックのまま**（作者指定 8/10）。
+     ブラウザで遊ぶ版（GitHub Pages）は第2章を押せるようにする＝
+     作者が実機で試すのに、URL に ?ch2 を足す必要がなくなる。
+     包んだアプリの見分け方は「capacitor:// か file:// か、ポートの無い localhost」  */
+  const inPackagedApp = location.protocol === 'capacitor:' || location.protocol === 'file:'
+    || (location.hostname === 'localhost' && location.port === '');
+  if ((onDevServer || !inPackagedApp || location.search.indexOf('ch2') >= 0) && CHAPTERS[2]) {
     const b = $('btnChapter2');
     b.classList.remove('locked');
     b.innerHTML = ch2Name + '<span class="soon">（制作中）</span>';

@@ -1530,4 +1530,8 @@ registerChapter2({
   FEE_BASE: FEE_BASE_Y, SAUNA_FEE_BASE: SAUNA_FEE_BASE_Y, FEE_STEP: 100, FEE_CEIL: FEE_CEIL_Y,
   DRYER_FEES, LOTION_FEES, AMENITY_PRICES, TEBURA_PRICES, KID_FEES: KID_FEES_Y,
   AREAS: CONF_Y.areas, RIVALS: RIVALS_Y, BATTLE_CATS: BATTLE_CATS_Y,
-}, { name: 'ととのい市編', saveKey: 'orenoSauna_ch2y_v1' });
+/* ⚠ **表に出す名前は「独立開業編」**（作者指定 8/10）。中身はこの ch2b＝ととのい市編だが、
+   タイトル画面のボタンは index.html にベタ書きの「独立開業編」で通す＝
+   ここを 'ととのい市編' にすると、ボタンだけ古い名前で中の見出しだけ変わって食い違う。
+   セーブキーは変えない（orenoSauna_ch2y_v1）＝いまの店はそのまま続けられる */
+}, { name: '独立開業編', saveKey: 'orenoSauna_ch2y_v1' });
