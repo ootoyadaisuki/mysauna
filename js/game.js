@@ -1229,7 +1229,7 @@ function hasNewToilet() { return toiletNewIds().some(hasWorking); }
    （第2章は `y_vend` の1台＝脱衣所の点も、出る不満も、その1台ぶんになる） */
 const VEND_IDS = ['vend1', 'vend2'];
 function vendIds() { return (CONF.roleIds && CONF.roleIds.vend) || VEND_IDS; }
-/* 小綺麗に見せる緑。第1章は `plant1`、第2章は4Fラウンジの `y_x_plant`。
+/* 小綺麗に見せる緑。第1章は `plant1`、第2章は `y_x_plant`（どの階にも置ける）。
    ここを直書きしていたので、第2章は**清潔度が8点で頭打ちのまま**、
    1株ごとの満足度（最大+6）も一度も入っていなかった                       */
 function plantIds() { return roleIds('plant', 'plant1'); }
@@ -2647,7 +2647,10 @@ function repAdvice(key) {
         : `濃い汚れが${d.thick}つ。拭けるのはバイトだけ`;
       if (d.thin >= CONF.dirtThinN) return `薄い汚れが${d.thin}つ。濃くなる前に拭く`;
       // 満点には観葉植物が要る（作者指定）＝床が綺麗なだけでは10点にならない
-      if (!G.equip.some(e => plantIds().includes(e.id) && e.cond > 0 && usable(e))) return '観葉植物が無いと8点止まり';
+      /* 章が「どこで買えるか」を言えるなら、そちらを出す（作者報告 8/12）＝
+         第2章の緑は4Fラウンジの【設え】タブにしかなく、脱衣所のタブを探しても無い */
+      if (!G.equip.some(e => plantIds().includes(e.id) && e.cond > 0 && usable(e)))
+        return chHook('plantHint') || '観葉植物が無いと8点止まり';
       /* 掃除の人手が客数に足りていないと、点そのものが大きく削られる（バイト0なら1.5点どまり）。
          目安は客25人につき1人だが、**雇えるのは CONF.maxStaff 人まで**（作者指定 8/7）＝
          上限を超えた数を「あと◯人」と言わない。以前は客150人で「あと5人」と、
@@ -10291,6 +10294,9 @@ function selectEquip(it) {
   $('zanchiActions').style.display = 'none';
   $('selPanel').querySelector('.sel-actions').style.display = 'flex';
   const condPct = (CONF.wearPerDay[def.cat] ?? 0) > 0 ? Math.round(it.cond) : null;
+  /* 売れるものか（アメニティ置き場は運営メニューで外す・`fixed` は建物の一部）。
+     ボタンと同じ判定をここで持つ＝**売れない設備に「売却額 ¥0」と出さない** */
+  const sellable = it.id !== 'bandai' && def.cat !== 'amenity' && !def.fixed;
   // 温度を弄れるのはドライサウナだけ。浴槽・水風呂・ミスト・塩は設備ごとに固定（表示はする）
   const canTemp = canSetTemp(def);
   const showTemp = def.temp != null && (canTemp || def.cat === 'furo' || def.cat === 'mizu' || def.cat === 'sauna');
@@ -10311,8 +10317,8 @@ function selectEquip(it) {
       : `🔧 ${it.fault === 'major' ? '大がかりな修理が要る' : '不調（部品交換で直る）'}（下の【修理】で業者を呼ぶ）`}</b><br>` : '') +
     // 修理費・売却額はボタンに入れると幅が足りず「¥2…」と切れるので、ここに1行で出す
     (fixable(it) ? `修理費: ${yen(fixFee(it))}　` : '') +
-    (it.id !== 'bandai' && def.cat !== 'amenity' ? `売却額: ${yen(sellValue(it))}` : '') +
-    (fixable(it) || (it.id !== 'bandai' && def.cat !== 'amenity') ? '<br>' : '') +
+    (sellable ? `売却額: ${yen(sellValue(it))}` : '') +
+    (fixable(it) || sellable ? '<br>' : '') +
     (heatCost(it) ? `光熱費: ${yen(Math.round(heatCost(it) * CONF.utilRunRate))}/日（固定）<br>` : '') +
     (waterCost(it) ? `水道代: ${yen(Math.round(waterCost(it) * CONF.waterStandby))}/日＋従量<br>` : '') +
     equipDesc(def, condPct) +
@@ -10327,11 +10333,18 @@ function selectEquip(it) {
     $('tempDown').onclick = () => setT(-10);
     $('tempUp').onclick = () => setT(10);
   }
-  // アメニティ置き場は運営メニューのOFFで撤去する（売り物ではない）
-  const sellable = it.id !== 'bandai' && def.cat !== 'amenity';
   // 営業中でも移動・売却できる（使用中の客は追い出して作業する）。表示内容は準備中とまったく同じ
-  $('btnMove').style.display = '';
+  /* `fixed` ＝**建物の一部**（第2章のエレベーター）。動かすことも売ることもできない。
+     data_y.js にそう書いてあったのに、どこも見ていなかった＝
+     パネルを出せるようにした日に、エレベーターを売れてしまうところだった */
+  $('btnMove').style.display = def.fixed ? 'none' : '';
   $('btnSell').style.display = sellable ? '' : 'none';
+  /* 章がその設備に持たせた一手（第2章＝エレベーターに【🛗 乗る】）。
+     押すだけで階が変わる設備は、押すと説明も修理も出せなくなる＝
+     パネルの側に「乗る」を置いて、タップは説明・修理に戻す（作者報告 8/12） */
+  const act = chHook('equipAct', it);
+  $('btnUse').style.display = act ? '' : 'none';
+  if (act) { $('btnUse').textContent = act.label; $('btnUse').onclick = act.run; }
   /* 修理は「傷んでいて、まだ業者が手をつけていない設備」にだけ出す。
      準備中でも呼べる＝夜のうちに直しておけば、客に迷惑をかけずに済む */
   // ボタンは一列に収める＝金額はボタンに入れない（selInfoの「修理費/売却額」の行で見せる）

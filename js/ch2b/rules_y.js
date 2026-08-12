@@ -231,20 +231,41 @@ function yRideTime(from, to) {
    **上がもう建っていなければ1階へ戻る**＝押していれば全部の階を一周する。
    ・エレベーターが壊れている階では、当然どこへも行けない（ビルが止まる、を体で分かる）
    ・工事中の階はまだ CONF.areas に入っていない＝そこへは上がらない       */
-function yEquipTap(it) {
-  if (!it || it.id !== 'y_elev') return false;
-  const cur = (G.viewF >= 0 ? G.viewF : G.actF) | 0;
-  if (!yElevOK(cur)) { toast('エレベーターは止まっている…（修理を頼もう）'); return true; }
+/* 実際に一つ上へ上げる（タップからも、パネルの【🛗 乗る】からも呼ぶ） */
+function yElevRide(cur) {
+  if (!yElevOK(cur)) { toast('エレベーターは止まっている…（修理を頼もう）'); return; }
   let next = cur + 1;
   if (!yBuilt(next)) next = AY.FRONT;                       // 上がまだ無ければ、1階へ戻る
-  if (next === cur) return true;                            // 上も下も無い＝1階だけの店
+  if (next === cur) return;                                 // 上も下も無い＝1階だけの店
   Sfx.play('ui');
   enterAreaScreen(next);
   const a = (CONF.areas || [])[next] || {};
   toast('🛗 ' + (a.lvl ? a.lvl + 'F ' : '') + (a.short || a.name || ''));
+}
+/* ここまで傷んだら、タップで**先に説明・修理のパネル**を出す（作者報告 8/12）。
+   毎日7ずつ傷むので、6日ほど直さずにいると出る＝
+   「直したいのに、押すと階が変わるだけで修理画面が出てこない」を無くす。
+   健康なうちは今までどおり、押すたびに一つ上へ上がる（押して回ればビルを一周する） */
+const Y_ELEV_PANEL_COND = 60;
+function yEquipTap(it) {
+  if (!it || it.id !== 'y_elev') return false;
+  const cur = (G.viewF >= 0 ? G.viewF : G.actF) | 0;
+  // 壊れている／点検が要るほど傷んでいる＝選ばせる（パネルに【🔧 修理】が出る）
+  if (it.cond <= 0 || (it.cond < Y_ELEV_PANEL_COND && fixable(it))) return false;
+  yElevRide(cur);
   return true;
 }
-registerChapter2Hooks({ equipTap: yEquipTap });
+/* 選んだ設備がエレベーターなら、パネルに【🛗 乗る】を出す＝
+   修理画面を開いたあとでも、そのまま上の階へ行ける（止まっている間は出さない） */
+function yEquipAct(it) {
+  if (!it || it.id !== 'y_elev') return null;
+  const cur = (it.f != null ? it.f : (G.viewF >= 0 ? G.viewF : G.actF)) | 0;
+  if (!yElevOK(cur)) return null;
+  const a = (CONF.areas || [])[cur + 1];
+  const to = (yBuilt(cur + 1) && a) ? ((a.lvl ? a.lvl + 'F' : '') + (a.short || a.name || '')) : '1F受付';
+  return { label: '🛗 ' + to + 'へ', run: () => { deselect(); yElevRide(cur); } };
+}
+registerChapter2Hooks({ equipTap: yEquipTap, equipAct: yEquipAct });
 
 /* 移動を始める（客でもバイトでも使える）。扉の前まで歩かせる */
 function yStartTransit(e, goal) {
@@ -2735,4 +2756,16 @@ function ySegWantParts(key) {
   return { got, max };
 }
 
-registerChapter2Hooks({ segWant: ySegWant, repPenalties: yRepPenalties });
+/* 🧹清潔の「次にやること」に出す一行（game.js の repAdvice）。
+   「観葉植物が無いと8点止まり」だけでは**どこで買えるのか分からない**（作者報告 8/12）。
+   緑はどの階にも置けるようにしたので、**いま見ている階のタブを名指しする**＝
+   その場で買いに行ける一行になる（タブ名は CATS の見出しから引く） */
+function yPlantHint() {
+  const f = (G.viewF >= 0 ? G.viewF : G.actF) | 0;
+  const keys = Y_TABS_OF_AREA[f] || [];
+  const tab = (EQ.y_x_plant.tabs || []).find(t => keys.includes(t));
+  const label = tab && (CATS.find(c => c[0] === tab) || [])[1];
+  return label ? `【${label}】タブの観葉植物を置くと満点` : '観葉植物を置くと満点（どの階でもいい）';
+}
+
+registerChapter2Hooks({ segWant: ySegWant, repPenalties: yRepPenalties, plantHint: yPlantHint });
