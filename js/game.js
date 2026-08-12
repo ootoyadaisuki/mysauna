@@ -6558,10 +6558,18 @@ const AUTO_REPAIR_COND = 5;   // オート修理が発動する耐久(%)
    PCのブラウザ版には出ない。決済は js/iap.js（StoreKit / Google Play Billing）*/
 const PREMIUM_SALE = true;
 /* 開発中か（localhost で開いているか）。製品版では常に false＝下の開発用スイッチは出ない */
-function devBuild() {
-  return location.protocol === 'http:'
-    && (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+/* 配信アプリ（App Store / Google Play のビルド）の中で動いているか。
+   Capacitor で包むと capacitor:// か file://、Android は**ポートの無い** localhost を名乗る。
+   ここが true の場所には、開発用のボタンも第2章も出さない＝製品版の画面には一切さわらない */
+function packagedApp() {
+  return location.protocol === 'capacitor:' || location.protocol === 'file:'
+    || (location.hostname === 'localhost' && location.port === '');
 }
+/* 作者が試す場所＝**開発サーバーと、ブラウザで遊ぶ版（GitHub Pages）**（作者指定 8/10）。
+   以前は localhost だけだったので、Pages で実機確認するときにオート修理を切り替えられず、
+   6階ぶんの故障を毎朝タップして回ることになっていた。
+   ⚠ 配信アプリでは false のまま＝売り場（課金）のふるまいは1ミリも変わらない */
+function devBuild() { return !packagedApp(); }
 function autoRepairEnabled() {
   // 開発用スイッチ（買っていなくても効く。第1章では効かせない＝章の見張りを狂わせない）
   if (devBuild() && G.chapter !== 1 && G.premium && G.premium.devAutoRepair) return true;
@@ -11212,16 +11220,11 @@ function initUI() {
      Capacitor で包んだアプリも中身は localhost を名乗るが、
      ポート番号は付かない（iOS は capacitor:// スキーム）ので、ここには入らない。
      URL に ?ch2 を付ける昔のやり方も、そのまま残してある                        */
-  const onDevServer = location.protocol === 'http:'
-    && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-    && location.port !== '';
   /* **配信アプリ（App Store / Google Play のビルド）だけロックのまま**（作者指定 8/10）。
-     ブラウザで遊ぶ版（GitHub Pages）は第2章を押せるようにする＝
+     開発サーバーと、ブラウザで遊ぶ版（GitHub Pages）は第2章を押せるようにする＝
      作者が実機で試すのに、URL に ?ch2 を足す必要がなくなる。
-     包んだアプリの見分け方は「capacitor:// か file:// か、ポートの無い localhost」  */
-  const inPackagedApp = location.protocol === 'capacitor:' || location.protocol === 'file:'
-    || (location.hostname === 'localhost' && location.port === '');
-  if ((onDevServer || !inPackagedApp || location.search.indexOf('ch2') >= 0) && CHAPTERS[2]) {
+     見分け方は packagedApp()（capacitor:// / file:// / ポートの無い localhost） */
+  if ((devBuild() || location.search.indexOf('ch2') >= 0) && CHAPTERS[2]) {
     const b = $('btnChapter2');
     b.classList.remove('locked');
     b.innerHTML = ch2Name + '<span class="soon">（制作中）</span>';
