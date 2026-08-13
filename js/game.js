@@ -2174,10 +2174,17 @@ function finishUse(c) {
   c.use = null;
 }
 
-// そのカテゴリの設備が「存在する」か（故障中も含む）
-function catExists(cat) {
+/* そのカテゴリの設備が「存在する」か（故障中も含む）。
+   `c` を渡すと**その人のいる階だけ**を見る（区画のある章）。
+   渡さなければ建物ぜんぶ＝「うちにカプセルはあるか」のような店全体の話に使う */
+function catExists(cat, c) {
   const match = catMatch(cat);
-  return G.equip.some(e => match(e) && EQ[e.id].cap > 0 && usable(e));
+  return G.equip.some(e => sameFloorAs(e, c) && match(e) && EQ[e.id].cap > 0 && usable(e));
+}
+/* その設備は、その人と同じ階にあるか。区画がひとつの章（第1章）と、
+   相手を渡さなかった時は、いつでも true＝これまでとまったく同じ判定になる */
+function sameFloorAs(e, c) {
+  return areaCount() <= 1 || !c || (e.f | 0) === (c.f | 0);
 }
 
 /* 満員 or 故障で使えない → その設備の前まで歩いて行って並ぶ */
@@ -2185,7 +2192,11 @@ function goWaitFor(c, cat, dur) {
   c.plan.unshift([cat, dur]);
   c.state = 'waitEquip'; c.waitT = 0; c.waitNag = 0;
   const matchW = catMatch(cat);
-  const items = G.equip.filter(e => matchW(e) && EQ[e.id].cap > 0 && usable(e));
+  /* ⚠ **並ぶ相手も、同じ階の台から選ぶ**（プレイヤー報告 2026-08-13）。
+     ここだけ建物ぜんぶを見ていたので、**女湯にカランを1台も置いていない店で、
+     女性客が男湯のカランの座標に立って「混んでて入れない」と言い続けていた。**
+     風呂もととのいイスも同じ（空いている台が無い→ここへ来る、が全部の入口） */
+  const items = G.equip.filter(e => sameFloorAs(e, c) && matchW(e) && EQ[e.id].cap > 0 && usable(e));
   if (!items.length) return;
   const it = pick(items);
   c.waitItem = it;
@@ -2212,7 +2223,8 @@ function rackIdOf(kind) { return kind === 'mat' ? 'matrack' : 'akarack'; }
 
 /* 置き場まで歩かせる。dir='get'で手に取り、'back'で返す */
 function goRack(c, kind, dir) {
-  const rack = G.equip.find(e => e.id === rackIdOf(kind));
+  // 置き場も**同じ階のもの**だけ（別の階の置き場へ歩き出すと、着かないまま固まる）
+  const rack = G.equip.find(e => sameFloorAs(e, c) && e.id === rackIdOf(kind));
   if (!rack) return false;
   const ap = pathToEquip(c, rack);
   if (!ap) { stuckAt(c, EQ[rack.id].name); return false; }
@@ -2302,7 +2314,8 @@ function pasLineFor(kind) {
 function goPasUse(c, kind, next) {
   const p = PAS_USE[kind];
   const ids = pasIds(kind);
-  const items = G.equip.filter(e => ids.includes(e.id) && e.cond > 0 && !e.pasBy && usable(e));
+  // 冷水機・扇風機・洗面所も、いる階のものだけ（別の階の台に場所取りをしない）
+  const items = G.equip.filter(e => sameFloorAs(e, c) && ids.includes(e.id) && e.cond > 0 && !e.pasBy && usable(e));
   if (!items.length) return false;
   const it = pick(items);
   const ap = pathToEquip(c, it);
@@ -2338,8 +2351,10 @@ function nextPlan(c) {
     const item = findFreeEquip(cat, c);
     // 空いているのに startUse が失敗する＝その台まで歩いて行く道が無い
     if (item) { if (startUse(c, item, dur)) return; stuckAt(c, EQ[item.id].name); continue; }
-    // 設備はあるのに使えない（満員・故障）→ 前で並んで不満を言う
-    if (catExists(cat)) { goWaitFor(c, cat, dur); return; }
+    /* 設備はあるのに使えない（満員・故障）→ 前で並んで不満を言う。
+       **いる階に1台も無いなら、並ばずに次の予定へ**（女湯にカランが無い店で、
+       男湯のカランに並びに行っていた。プレイヤー報告 8/13） */
+    if (catExists(cat, c)) { goWaitFor(c, cat, dur); return; }
   }
   // やることを終えた → 借りたものを返してから、湯上がりに風に当たって着替えて帰る
   if (c.amen) { if (goRack(c, c.carry || 'mat', 'back')) return; c.amen = false; c.carry = null; }
@@ -11175,6 +11190,11 @@ function loadGame() {
     /* 章が「間取りを変えた」ときの引っ越し。**セーブの座標は前の間取りのまま**なので、
        盤面の広さや仕切りの位置を動かした章は、ここで自分のセーブを移し替える。
        フックを持たない章（第1章）は素通り＝1マスも動かない */
+    /* 章が「セーブから間取りを組み立て直す」ならここで（第2章＝増築した階を建て直す）。
+       ⚠ **必ず migrateEquip と fixEquipOverlap より前に呼ぶ。** 階の数が足りないまま
+          重なりの判定を回すと、上の階の設備を1階の盤面で見てしまい、
+          動かされたり売られたりする */
+    chHook('restoreAreas');
     chHook('migrateEquip');
     fixEquipOverlap();
     return true;

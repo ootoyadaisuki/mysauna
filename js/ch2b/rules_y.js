@@ -1596,6 +1596,29 @@ function yOrderZou() {
   if (typeof updateTopbar === 'function') updateTopbar();
   if (typeof saveGame === 'function') saveGame();
 }
+/* ============ 増築した階を、セーブから建て直す（プレイヤー報告 2026-08-13）============
+   **増築は、その場で `CONF.areas` を伸ばすだけだった。**
+   `CONF.areas` は章のデータに書いてある「開業時の2階ぶん」から始まるので、
+   ページを読み込み直すと（＝アプリを開き直す・つづきから、のたび）**2階に戻る**＝
+   **建てたはずの3F女湯が、まるごと消える。**設備は f:2 のまま残るが、
+   その階が存在しない扱いになるので、二度と入れない（作者報告「女湯が消失した」）。
+
+   建っている数は G.ch2.floors に控える（新しい店は開業時の2）。
+   古いセーブには控えが無いので、**置いてある設備のいちばん上の階**から数える＝
+   すでに女湯が消えてしまったセーブも、ここで建て直る                       */
+function yRestoreAreas() {
+  const c = G.ch2; if (!c) return;
+  let need = Math.max(Y_START_AREAS, c.floors | 0);
+  for (const e of (G.equip || [])) need = Math.max(need, (e.f | 0) + 1);
+  need = Math.min(need, AREAS_Y.length);
+  const b = buildFloorsY(need);
+  CONF.areas = b.list; CONF.guideRow = b.rows;
+  c.floors = need;
+  // 女湯が建っている店には、女性客が来る（この札もセーブに入らないので毎回立て直す）
+  if (need > AY.ONNA) CONF.menOnly = false;
+}
+registerChapter2Hooks({ restoreAreas: yRestoreAreas });
+
 /* 毎朝の見まわり。工期が明けていたら、その階を生やす */
 function yCheckKouji() {
   const k = yKouji(); if (!k) return;
@@ -1605,6 +1628,7 @@ function yCheckKouji() {
      すでに置いてある設備やセーブとの対応はそのまま                       */
   const b = buildFloorsY(k.f + 1);
   CONF.areas = b.list; CONF.guideRow = b.rows;
+  G.ch2.floors = k.f + 1;         // 建った数を控える（次に読み込んだとき、ここから建て直す）
   const a = AREAS_Y[k.f] || {};
   // 新しい階にもエレベーターが要る（無いと誰も上がれない）
   if (a.elev) {
