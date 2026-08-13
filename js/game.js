@@ -11366,6 +11366,10 @@ function initUI() {
     /* 定休日は店を開けない＝その一日をどう使うかを決める画面へ（第2章）。
        ボタンの文字も【🚪 今日は定休日】に変えてあるので、押し間違いにはならない */
     if (chHook('offDay')) return;
+    /* 章ごとの「今日は開けられない理由」（第2章＝エレベーターが止まっている）。
+       壊れた日はそのまま最後まで営業できるが、直すまで**翌日は開けられない**（作者決定 8/13） */
+    const openWhy = chHook('openBlock');
+    if (openWhy) { toast(openWhy); return; }
     if (!G.equip.some(e => EQ[e.id].cat === 'locker' && e.cond > 0)) { toast('使えるロッカーがないと開店できない！'); return; }
     if (!(hasCat('furo') || hasCat('sauna'))) { toast('風呂もサウナもない…これでは銭湯じゃない！'); return; }
     deselect(); endPlacing(); G.placing = null;

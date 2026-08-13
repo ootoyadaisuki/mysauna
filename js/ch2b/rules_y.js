@@ -274,7 +274,23 @@ function yEquipAct(it) {
   const to = (yBuilt(cur + 1) && a) ? ((a.lvl ? a.lvl + 'F' : '') + (a.short || a.name || '')) : '1F受付';
   return { label: '🛗 ' + to + 'へ', run: () => { deselect(); yElevRide(cur); } };
 }
-registerChapter2Hooks({ equipTap: yEquipTap, equipAct: yEquipAct });
+registerChapter2Hooks({ equipTap: yEquipTap, equipAct: yEquipAct, openBlock: yOpenBlock });
+
+/* ============ 止まったエレベーターと、翌日の開店 ============
+   **壊れた日は、そのまま最後まで営業できる**（客はもう館内にいる）。
+   けれど直さないかぎり、**次の日は開けられない**（作者決定 2026-08-13）＝
+   1基しかない箱が止まったビルに、客を上げることはできない。
+
+   エレベーターは日々の傷みで**閉店時に壊れる**ので、気づくのは翌朝になる。
+   直せるのは営業時間外だけ（yEquipTap）＝閉店中にタップ →【🔧 修理】で業者を呼ぶ。
+   返り値＝開けられない理由（開けられるときは null）                        */
+function yOpenBlock() {
+  const dead = (G.equip || []).filter(e => e.id === 'y_elev' && !(e.cond > 0));
+  if (!dead.length) return null;
+  const a = (CONF.areas || [])[dead[0].f | 0] || {};
+  const where = (a.lvl ? a.lvl + 'F' : '') + (a.short || a.name || '');
+  return `🛗 ${where}のエレベーターが止まっている。タップして直すまで開けられない`;
+}
 
 /* 移動を始める（客でもバイトでも使える）。扉の前まで歩かせる */
 function yStartTransit(e, goal) {
@@ -1503,6 +1519,9 @@ function yRenderZou(box) {
    最初は**サウナと水風呂を置くこと**だけを言う。 */
 function yTopTip() {
   const has = cat => G.equip.some(e => EQ[e.id] && EQ[e.id].cat === cat && (e.cond > 0 || EQ[e.id].cap === 0));
+  // 止まったエレベーターは、何よりも先に言う（直すまで開けられない）
+  const elev = yOpenBlock();
+  if (elev) return elev;
   /* **何が足りなくて開けられないか**をそのまま言う（作者指摘 8/5）。
      「部門は、ここから始まる」では、まだ大会を知らない主人公には意味が通らない */
   if (!has('sauna')) return '2階にサウナを置こう。まだ営業できない';
