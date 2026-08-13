@@ -214,6 +214,9 @@ body {
 /* 【家へ】と体力は、案内図ボタンのすぐ隣に詰める（作者指定）。余白は右端にまとめる */
 #areaBar #areaLabel { font-size:10px; color:#e8d9bd; flex:1; min-width:0; order:9; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #areaBar #btnHome { flex:none; }
+/* 設備を置いている間だけ、帯を触れなくする（薄く残して「いま押せない」を見せる）。
+   帯はマス目の上に乗っているので、これが無いと左上の隅に物を置けない */
+#areaBar.ghost { pointer-events:none; opacity:.35; }
 #hint {
   position:absolute; left:8px; right:8px; bottom:8px; line-height:1.5;
   background:rgba(20,14,10,.88); border:2px solid #c9a86a; border-radius:8px;

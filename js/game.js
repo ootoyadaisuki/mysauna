@@ -1087,9 +1087,13 @@ function placeCheck(id, gx, gy, moving, rot) {
   if (gy < CONF.divideY && gy + h > CONF.divideY) return { ok: false, why: null };
   // 置ける部屋の指定（浴室だけ／脱衣所だけ）
   if (!roomOK(id, gy, h)) return { ok: false, why: null };
-  // 営業中は客が立っているマスに置けない
+  /* 営業中は客が立っているマスに置けない。
+     ⚠ **その階にいる客だけ**を見る（プレイヤー報告 8/13）。区画のある章では、
+     男湯の同じ座標に客が立っているだけで女湯に物が置けなくなっていた＝
+     開けたばかりの空っぽの階なのに「ここには置けない」が出る、の正体 */
   if (G.phase === 'biz') {
     for (const c of G.customers) {
+      if (!inArea(c)) continue;
       const t = tileOf(c);
       if (t.x >= gx && t.x < gx + w && t.y >= gy && t.y < gy + h) return { ok: false, why: null };
     }
@@ -1480,40 +1484,59 @@ function makeEntity(x, y, spd, f) {
   return { px: x * T + T / 2, py: y * T + T / 2, path: null, spd, moving: false, bub: null,
            wob: Math.random() * 9, f: (f === undefined ? (G.actF | 0) : f) };
 }
+/* 1回の呼び出しで進めるのは、**この呼び出しぶんの距離（spd×dt）** のはず。
+   ところが元の作りは「次のマスに着いたらそこで打ち切り」だったので、
+   **1回につき1マスしか進めない**＝進めるはずの距離を捨てていた。
+
+   ふだんは1フレームで1マスも進まないので誰も困らないが、**速度MAX**（8倍）では
+   1フレームぶんの距離が3〜6マスに伸びる＝そのほとんどが捨てられ、
+   **時計だけが8倍で進み、人はほぼ元の速さで歩く**ことになる。
+   ＝**開店したのに場内に人が入ってこない**（外の列と受付で詰まる）のに、
+   券売機は並んでいる人から代金を受け取るので、客数と売上だけはいつもどおり増える
+   （プレイヤー報告 2026-08-13）。
+
+   `CONF.stepMulti` を立てた章だけ、残った距離で次のマスへ進み続ける。
+   ⚠ **第1章では立てないこと**（walkExact と同じ理由＝歩数が変わると売上が動く）。 */
 function stepMove(e, dt) {
   e.moving = false;
   if (!e.path || !e.path.length) return true;
-  // ox/oy＝マスの中央からのずれ（サウナの座布団のように、1マスに複数人を座らせるために使う）
-  const n = e.path[0], tx = n.x * T + T / 2 + (n.ox || 0), ty = n.y * T + T / 2 + (n.oy || 0);
-  const dx = tx - e.px, dy = ty - e.py, dist = Math.hypot(dx, dy), step = e.spd * dt;
-  e.moving = true;
-  /* 歩かされた距離＝導線の悪さの目安（客の不満の判定に使う）。
-     章が「ここは数えない」と言えば数えない＝第2章はエレベーターで階を上下するぶんを外し、
-     **浴室の階で歩いたぶんだけ**を見る（そうしないと配置と無関係に基準を超える）。
+  let step = e.spd * dt;
+  for (;;) {
+    // ox/oy＝マスの中央からのずれ（サウナの座布団のように、1マスに複数人を座らせるために使う）
+    const n = e.path[0], tx = n.x * T + T / 2 + (n.ox || 0), ty = n.y * T + T / 2 + (n.oy || 0);
+    const dx = tx - e.px, dy = ty - e.py, dist = Math.hypot(dx, dy);
+    e.moving = true;
+    /* 歩かされた距離＝導線の悪さの目安（客の不満の判定に使う）。
+       章が「ここは数えない」と言えば数えない＝第2章はエレベーターで階を上下するぶんを外し、
+       **浴室の階で歩いたぶんだけ**を見る（そうしないと配置と無関係に基準を超える）。
 
-     ⚠ **数え方が2つある**（第1章セッションの指摘 8/9）。
-       もとの数え方は「到着しなかったとき」だけ足していたので、次のマスにその1フレームで
-       着いてしまうと歩数が丸ごと落ちる＝**フレームの粗さで距離が変わる。**
-       実測（同じ店・同じ日）：dt を変えると中央値が 0／4／24／21 と動く。
-       重い端末ほど文句が減る、という形で出る。
+       ⚠ **数え方が2つある**（第1章セッションの指摘 8/9）。
+         もとの数え方は「到着しなかったとき」だけ足していたので、次のマスにその1フレームで
+         着いてしまうと歩数が丸ごと落ちる＝**フレームの粗さで距離が変わる。**
+         実測（同じ店・同じ日）：dt を変えると中央値が 0／4／24／21 と動く。
+         重い端末ほど文句が減る、という形で出る。
 
-       `CONF.walkExact` を立てた章だけ、**到着したぶんも足す**＝実際に動いた距離になる。
-       ⚠ **第1章では立てないこと。** 直したほうが正しいのだが、歩数が変わると満足度と
-         売上が動く（`guardAll` で 売上 29,700 → 30,300 のズレを実測）。
-         第1章は基準95に一度も届かない（実測：最長51マス）ので、直す実利も無い    */
-  if (!chHook('noWalkCount', e)) {
-    const moved = dist <= step ? (CONF.walkExact ? dist : 0) : step;
-    if (moved) e.walkPx = (e.walkPx || 0) + moved;
-  }
-  if (dist <= step) {
-    e.px = tx; e.py = ty; e.path.shift();
-    // 最後の1マスに着いた瞬間に「歩いている」を降ろす。ここを立てたままにしていたので、
-    // 目的地に着いても歩行中の扱いが残り、番台についた判定（＝突っ伏して寝る絵）が出なかった
-    if (!e.path.length) { e.moving = false; return true; }
+         `CONF.walkExact` を立てた章だけ、**到着したぶんも足す**＝実際に動いた距離になる。
+         ⚠ **第1章では立てないこと。** 直したほうが正しいのだが、歩数が変わると満足度と
+           売上が動く（`guardAll` で 売上 29,700 → 30,300 のズレを実測）。
+           第1章は基準95に一度も届かない（実測：最長51マス）ので、直す実利も無い    */
+    if (!chHook('noWalkCount', e)) {
+      const moved = dist <= step ? (CONF.walkExact ? dist : 0) : step;
+      if (moved) e.walkPx = (e.walkPx || 0) + moved;
+    }
+    if (dist <= step) {
+      e.px = tx; e.py = ty; e.path.shift();
+      // 最後の1マスに着いた瞬間に「歩いている」を降ろす。ここを立てたままにしていたので、
+      // 目的地に着いても歩行中の扱いが残り、番台についた判定（＝突っ伏して寝る絵）が出なかった
+      if (!e.path.length) { e.moving = false; return true; }
+      if (!CONF.stepMulti) return false;      // 第1章＝これまでどおり1回に1マスまで
+      step -= dist;                           // 残った距離で、次のマスへ進み続ける
+      if (step <= 0.0001) return false;
+      continue;
+    }
+    e.px += dx / dist * step; e.py += dy / dist * step;
     return false;
   }
-  e.px += dx / dist * step; e.py += dy / dist * step;
-  return false;
 }
 /* その客が「今なにをしているか」の指紋。これが変わったら吹き出しは場違いになるので消す。
    （番台で「やってる？」と言った客が、そのまま浴槽やサウナまで持ち歩いてしまうのを防ぐ） */
@@ -5739,6 +5762,12 @@ function applyDailyWear() {
 /* 治療費は「玲奈編が終わるまで」の重石（作者指定）。玲奈の一件が片付いたら、
    母からの電話も病院での支払いも起きない＝終盤は自由営業に金を回せる */
 function careOn() {
+  /* **第1章の話を流さない章では、治療費もまるごと無い**（プレイヤー報告 8/13）。
+     第2章は `noLegacyStory` で母の電話も病院の場面も止めてあるのに、ここだけ素通りしていた＝
+     請求日だけが立ち（日報にも独り言にも出る）、払う場面が一度も来ない。
+     しかも手持ちが15万を切った夜は、居ないはずの親父の治療費で
+     灰田に頭を下げる分岐（＝ゲームオーバー）まで開くところだった */
+  if (CONF.noLegacyStory) return false;
   if (G.flags && G.flags.ended) return false;
   if (G.solved && G.solved.reina) return false;
   return !(G.reina && G.reina.resolved);
@@ -6558,8 +6587,14 @@ function finishFix(n) {
 const AUTO_REPAIR_COND = 5;   // オート修理が発動する耐久(%)
 /* 課金の売り場を出すか＝手元の非常スイッチ。false にすれば売り場ごと消える。
    実際に画面に出るかどうかは、これに加えて「ストアにつながっているか」（IAP.available()）で決まる＝
-   PCのブラウザ版には出ない。決済は js/iap.js（StoreKit / Google Play Billing）*/
-const PREMIUM_SALE = true;
+   PCのブラウザ版には出ない。決済は js/iap.js（StoreKit / Google Play Billing）
+
+   ⚠ いまは false。有料App契約（Paid Applications Agreement）がまだ結べていない＝
+   Appleが商品を配信できる状態にないため、オート修理は審査に出していない。
+   商品を出していない回に売り場だけ残すと、審査で「購入できない購入ボタン」に見える
+   （1.1(4) は逆に「商品を出したのに売り場が見つからない」で却下＝Guideline 2.1(b)）。
+   契約が通り、オート修理が「配信可能」になったら true に戻して、商品と一緒に提出する */
+const PREMIUM_SALE = false;
 /* 開発中か（localhost で開いているか）。製品版では常に false＝下の開発用スイッチは出ない */
 /* 配信アプリ（App Store / Google Play のビルド）の中で動いているか。
    Capacitor で包むと capacitor:// か file://、Android は**ポートの無い** localhost を名乗る。
@@ -10237,6 +10272,10 @@ function startPlacing(id, moving, opts) {
      持たない章（第1章）は class が付かない＝これまでどおりの並びのまま */
   $('confirmBar').classList.toggle('stick', !!CONF.stickyPlaceBar);
   $('confirmBar').classList.remove('hidden');
+  /* 置いている間は、左上の帯（【← 外に出る】【🏠 家へ】）を触れなくする（プレイヤー報告 8/13）。
+     帯はマス目の上に重ねてあるので、**左上の隅へ物を動かそうとすると帯を押してしまい、
+     置くつもりが部屋の外へ出てしまう。** 置くのをやめれば、また押せるようになる */
+  $('areaBar').classList.add('ghost');
   $('btnRotate').style.display = canRotate(id) ? '' : 'none';
   const rl = roomLabel(id);
   // 設置開始時の説明は「名前＋置ける部屋」だけのシンプル表記（作者指定）
@@ -10251,6 +10290,7 @@ function endPlacing() {
   G.placing = null;
   $('confirmBar').classList.add('hidden');
   $('placeInfo').classList.add('hidden');
+  $('areaBar').classList.remove('ghost');    // 帯をまた押せるようにする
   if (G.phase === 'prep') $('prepPanel').classList.remove('hidden');
   if (!onGuide() && !onHome()) $('shopPanel').classList.remove('hidden');
   // 置き終わった直後に案内を引き直す＝第2章の「あと何が足りないか」がその場で減る
@@ -11015,6 +11055,24 @@ function saveGame() {
   };
   try { localStorage.setItem(saveKey(), JSON.stringify(data)); } catch (e) {}
 }
+/* アプリが裏に回ったら、準備画面のときだけ保存する（作者指定 8/13）。
+
+   App Store に「開店準備画面で1分経過すると勝手にセーブしてタイトルに戻される」という
+   報告が来たが、**そんなタイマーは無い**（60秒を計る処理はコード全体に無く、
+   実機で1分43秒放置しても何も起きないことを実測）。正体は別々の2つが重なって見えたもの：
+     ・「勝手にセーブ」… 準備画面に入るときの自動保存（enterPrep の呼び出し元）＝以前からの仕様
+     ・「タイトルに戻された」… iOS がバックグラウンドのアプリを終了させ、次に開いたとき起動画面から始まった
+
+   そのとき本当に失われていたのは**その準備画面でやった買い物**のほう。
+   設備を買う処理（renderShop のタップ）に saveGame() は無く、
+   保存は準備画面に入った瞬間の1回きりだった＝アプリが終了させられると、
+   買った設備も動かした位置も丸ごと消えていた。
+
+   ⚠ 営業中は保存しない。saveGame は G.today も客も保存しないので、
+      営業中に保存すると**その日の売上を持ったまま、その日の朝に戻せてしまう**（資金が増える）。 */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && G.phase === 'prep') saveGame();
+});
 function loadGame() {
   try {
     const d = JSON.parse(localStorage.getItem(saveKey()));
@@ -11222,7 +11280,10 @@ function initUI() {
   };
   /* 第2章のボタン。名前は「いま読み込まれている第2章」から取る（index.html の束を入れ替えれば追従する）。
      第2章の束を1つも読み込んでいないときは CHAPTERS[2] が無い＝ロックしたまま、押しても案内を出すだけ */
-  const ch2Name = CHAPTERS[2] ? CHAPTERS[2].name : '第2章';
+  /* 第2章を積んでいない配信アプリでは CHAPTERS[2] が無い。そのときも、押したときの案内は
+     ボタンに書いてある名前（index.html の「独立開業編」）と同じ言葉で返す＝
+     ボタンは「独立開業編」なのに案内だけ「第2章」になる、というちぐはぐを作らない */
+  const ch2Name = CHAPTERS[2] ? CHAPTERS[2].name : '独立開業編';
   $('btnChapter2').onclick = () => toast('「' + ch2Name + '」は近日公開！　いまは第1章をどうぞ');
   /* 【制作中の第2章を見るための入口】
      開発機（このMacの開発サーバー）で開いたときだけ、第2章が押せるようになる。
@@ -11758,7 +11819,11 @@ function renderManage() {
   const tabBar = `<div class="opt-tabs${tabs.length > 2 ? ' many' : ''}">` + tabs.map(([k, l]) =>
     `<button class="tab ${manageTab === k ? 'on' : ''}" data-mtab="${k}">${l}</button>`).join('') + `</div>`;
   const feePane = `
-    <div class="opt-row"><span>入浴料<br><span class="opt-sub">目安 ¥${worthFee()}。高すぎると客が減る</span></span><span>${feeBtns}</span></div>
+    <div class="opt-row"><span>入浴料${
+      /* サウナ料を取らない章（第2章）は、**入浴料にサウナ代が入っている**と言い切る（作者指定 8/13）。
+         料金の行にサウナが1つも出てこないので、「サウナはいくら取るんだ」と探させないため */
+      CONF.noSaunaFee ? '（サウナ代込み）' : ''
+      }<br><span class="opt-sub">目安 ¥${worthFee()}。高すぎると客が減る</span></span><span>${feeBtns}</span></div>
     ${o.feeCustom ? feeSlider('fee', o.fee) : ''}
     ${kidFeeRow}
     ${saunaFeeRow}
@@ -11976,9 +12041,12 @@ function renderData() {
       k += row('水道光熱費', `${yen(uAvg)}/日<br><span class="opt-sub">直近${uh.length}日の平均・売上の${pct}%（目安は30%まで）</span>`,
         pct > 40 ? 'minus' : '');
     } else k += row('水道光熱費', 'まだ営業していない');
-    k += row('入浴料', `¥${G.opts.fee}` + (hasCat('sauna') ? `（＋サウナ ¥${G.opts.saunaFee}）` : ''));
+    /* サウナ料を取らない章（第2章）は「サウナ代込み」と書く。
+       `（＋サウナ ¥0）` と出ていて、取っているのか取っていないのか分からなかった */
+    k += row('入浴料', `¥${G.opts.fee}` + (CONF.noSaunaFee ? '（サウナ代込み）'
+      : hasCat('sauna') ? `（＋サウナ ¥${G.opts.saunaFee}）` : ''));
     k += row('客が受け入れる入浴料', `〜¥${worthFee()}`, G.opts.fee > worthFee() ? 'minus' : '');
-    if (hasCat('sauna')) k += row('客が受け入れるサウナ料', `〜¥${worthSaunaFee()}`, G.opts.saunaFee > worthSaunaFee() ? 'minus' : '');
+    if (hasCat('sauna') && !CONF.noSaunaFee) k += row('客が受け入れるサウナ料', `〜¥${worthSaunaFee()}`, G.opts.saunaFee > worthSaunaFee() ? 'minus' : '');
     k += row('受入人数（ロッカー）', `${lockerCapacity()}人（${G.equip.filter(e => EQ[e.id].cat === 'locker' && e.cond > 0).length}台）`);
     return k;
   };

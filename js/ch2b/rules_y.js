@@ -233,7 +233,12 @@ function yRideTime(from, to) {
    ・工事中の階はまだ CONF.areas に入っていない＝そこへは上がらない       */
 /* 実際に一つ上へ上げる（タップからも、パネルの【🛗 乗る】からも呼ぶ） */
 function yElevRide(cur) {
-  if (!yElevOK(cur)) { toast('エレベーターは止まっている…（修理を頼もう）'); return; }
+  if (!yElevOK(cur)) {
+    // 営業中は直せない＝「今夜直せ」と言い切る（閉店後にタップすれば修理パネルが出る）
+    toast(G.phase === 'biz' ? 'エレベーターは止まっている…（営業が終わったら直そう）'
+                            : 'エレベーターは止まっている…（タップして修理を頼もう）');
+    return;
+  }
   let next = cur + 1;
   if (!yBuilt(next)) next = AY.FRONT;                       // 上がまだ無ければ、1階へ戻る
   if (next === cur) return;                                 // 上も下も無い＝1階だけの店
@@ -250,8 +255,12 @@ const Y_ELEV_PANEL_COND = 60;
 function yEquipTap(it) {
   if (!it || it.id !== 'y_elev') return false;
   const cur = (G.viewF >= 0 ? G.viewF : G.actF) | 0;
-  // 壊れている／点検が要るほど傷んでいる＝選ばせる（パネルに【🔧 修理】が出る）
-  if (it.cond <= 0 || (it.cond < Y_ELEV_PANEL_COND && fixable(it))) return false;
+  /* **直せるのは営業時間外だけ**（作者決定 2026-08-13）。
+     客を乗せている最中に業者を入れて箱を止めるわけにはいかない＝
+     営業中のタップは、これまでどおり「乗る」だけ（熱波太郎の一言 #45 で先に伝える）。
+     壊れている／点検が要るほど傷んでいるエレベーターは、準備中にタップすると
+     説明・修理のパネルが出る（乗るのはパネルの【🛗】から）             */
+  if (G.phase !== 'biz' && (it.cond <= 0 || (it.cond < Y_ELEV_PANEL_COND && fixable(it)))) return false;
   yElevRide(cur);
   return true;
 }
@@ -1289,6 +1298,9 @@ const NAPPA_ADVICE_Y = [
   { id: 43, cat: 'chara', text: 'サウナってハゲんのかな...' },
   /* 解放の鎖の案内（作者指定 8/9・カタログには条件を書かない＝ここで一度だけ言う） */
   { id: 44, cat: 'unlock', text: '新しい設備を置くと、次の設備が開放される' },
+  /* エレベーターの直し方（作者指定 8/13）。営業中のタップは「乗る」だけなので、
+     直せる時間帯を先に言っておかないと、止まった日に打つ手が無いように見える */
+  { id: 45, cat: 'service', text: 'エレベーターは営業時間外にしか直せん。開ける前にタップして、傷み具合を見ておけ' },
 ];
 /* 今日のアドバイスを選ぶ（同じ日は選び直さない＝キャッシュ）。
    ・直近10本（advSeen）は出さない

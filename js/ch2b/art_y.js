@@ -1357,7 +1357,12 @@ const EQ_ART_ALIAS_Y = {
    第2章では1階（front）とラウンジ（rest）に置いているため                     */
 const EQ_ART_CAT_Y = { gacha: 'datsui', ehon: 'datsui',
   y_milk: 'datsui',     // 牛乳の自販機＝第1章の絵は cat 'datsui' の分岐にある
-  y_scale: 'datsui', y_fan: 'datsui' };   // 体重計・扇風機も同じ分岐の中にある
+  y_scale: 'datsui',    // 体重計も同じ分岐の中にある
+  /* ⚠ **扇風機だけは `case 'etc'` の中**（第1章の fan_bath は cat:'etc'。
+     体重計と並んでいるように見えて、絵の置き場所が違う）。
+     ここを 'datsui' にしていたので、どの分岐にも当たらず**絵が出ないまま
+     名前札だけ置かれていた**（プレイヤー報告 2026-08-13） */
+  y_fan: 'etc' };
 
 /* ============ 音サウナ（作者指摘 8/5＝赤系）============
    候補1（js/ch2/art_eq2.js の s2_oto）の「真っ赤な照明と重低音」を、
