@@ -203,6 +203,26 @@ function yEndingScenes(type) {
     ];
   }
 
+  /* ── 屋上が建った夜（作者指定 2026-08-13・※台詞は叩き台。作者が書き直す前提）──
+     エンディングではない。**増築の完成そのものがご褒美**なので、優勝しなくても必ず見られる。
+     外気ベイの向こうに花火（絵＝rival_art_y.js の y_roof_hanabi） */
+  if (type === 'roof') {
+    return [
+      { art: 'y_roof_hanabi', lines: [
+        N('最後の階が、載った。'),
+        N('工事の幕が外れた夜、二人で上がってみた。'),
+        N('手すりの向こう、外気ベイの観覧車が回っている。'),
+        S(WIFE, '……あ'),
+        N('湾の上に、花火が上がった。'),
+        S(WIFE, '今日、花火の日だったんだ'),
+        N('風が抜ける。湯上がりでもないのに、少しだけ、ととのった気がした。'),
+        S('俺', 'ここ、いい店だな'),
+        S(WIFE, '……うちの店だよ'),
+        N('もう一発、上がった。二人とも、しばらく黙って見ていた——。'),
+      ] },
+    ];
+  }
+
   /* haigyo（このままタイトルへ。「つづける」は出さない）
      絵の靴箱＝40枠にひと枠だけ空＝「最後の札が還る枠」（S級審査済の仕込み） */
   return [
@@ -251,7 +271,14 @@ function yNightStory() {
     return true;
   }
 
-  /* ② 大会の結末（そのシーズンの結末。店は明日も開く） */
+  /* ② 屋上が建った夜の一幕（一度だけ。増築のご褒美＝優勝しなくても見られる） */
+  if (G.ch2 && G.ch2.roofNight) {
+    G.ch2.roofNight = false;
+    Story.play(yEndingScenes('roof'), () => { if (typeof saveGame === 'function') saveGame(); });
+    return false;                                        // 翌朝は、いつもどおり来る
+  }
+
+  /* ③ 大会の結末（そのシーズンの結末。店は明日も開く） */
   const b = (typeof yBattleState === 'function') ? yBattleState() : null;
   if (!b || !b.final) return;
   if (b.ending && b.ending.played) return;

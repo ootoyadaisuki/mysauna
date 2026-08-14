@@ -1653,6 +1653,9 @@ function yCheckKouji() {
   }
   // 女湯が建った日から、女性客が来るようになる
   if (a.sex === 'f') CONF.menOnly = false;
+  /* 屋上が載った日は、その夜に一幕が入る（外気ベイの花火／ending_y.js）。
+     朝のうちは印を立てるだけ＝**夜の場面は、夜に流す** */
+  if (k.f === AY.ROOF) G.ch2.roofNight = true;
   log('🎉 ' + (a.lvl || '') + '階（' + (a.short || '') + '）が完成した！');
   toast((a.lvl || '') + '階が完成した！');
   if (typeof saveGame === 'function') saveGame();

@@ -7870,6 +7870,147 @@ function y_living(ctx) {
     P(ctx, 0, 194, 360, 6, '#22252c');
   }
 
+  /* ============================================================
+     y_roof_hanabi ── 屋上が建った夜（作者指定 2026-08-13）
+     ------------------------------------------------------------
+     **1,000万かけて最後に載せた階の、最初の夜。**
+     手すりの向こうは外気ベイ（観覧車と湾）。その上に花火が上がる。
+     手前は二人の後ろ姿＝夫婦が並んで、同じ方を見ている（顔は見せない）。
+     ・花火は3発を時間差で。開いて→広がって→落ちる、を繰り返す
+     ・観覧車はゆっくり回り、湾の水面に灯りが伸びる
+     ============================================================ */
+  function y_roof_hanabi(ctx) {
+    const t = T();
+
+    /* 夜空（上ほど濃い） */
+    const sky = ctx.createLinearGradient(0, 0, 0, 150);
+    sky.addColorStop(0, '#0b1024'); sky.addColorStop(1, '#1d2a46');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, 360, 200);
+    for (let i = 0; i < 26; i++) {                                   // 星
+      const h = Math.sin(i * 12.9898) * 43758.5453, h2 = Math.sin(i * 78.233) * 12345.678;
+      P(ctx, Math.floor((h - Math.floor(h)) * 360), Math.floor((h2 - Math.floor(h2)) * 60), 1, 1,
+        `rgba(255,244,224,${(0.16 + 0.24 * Math.abs(Math.sin(t * 0.6 + i))).toFixed(2)})`);
+    }
+
+    /* ── 花火（3発。開いて広がって落ちる）── */
+    const hana = (cx, cy, col, col2, phase, span) => {
+      const k = ((t + phase) % span) / span;                         // 0→1
+      if (k > 0.72) return;                                          // 消えている間
+      const r = 4 + k * 34, a = k < 0.1 ? k / 0.1 : (1 - (k - 0.1) / 0.62);
+      for (let i = 0; i < 18; i++) {
+        const ang = (i / 18) * Math.PI * 2 + phase;
+        const rr = r * (0.82 + 0.18 * Math.sin(i * 3.1));
+        const px = cx + Math.cos(ang) * rr, py = cy + Math.sin(ang) * rr * 0.82 + k * k * 10;
+        P(ctx, Math.round(px), Math.round(py), 2, 2, `rgba(${i % 3 ? col : col2},${(a * 0.95).toFixed(2)})`);
+        if (k > 0.25)                                                // 尾を引く粒
+          P(ctx, Math.round(cx + Math.cos(ang) * rr * 0.72), Math.round(cy + Math.sin(ang) * rr * 0.6 + k * k * 6),
+            1, 1, `rgba(${col2},${(a * 0.5).toFixed(2)})`);
+      }
+      P(ctx, Math.round(cx), Math.round(cy), 2, 2, `rgba(255,255,255,${(a * 0.7).toFixed(2)})`);
+      ctx.fillStyle = `rgba(${col},${(a * 0.05).toFixed(3)})`;       // ぼんやりした光の膜
+      ctx.beginPath(); ctx.arc(cx, cy, r * 1.5, 0, Math.PI * 2); ctx.fill();
+    };
+    hana(88,  44, '255,190,90',  '255,240,200', 0.0, 3.4);
+    hana(180, 30, '120,220,255', '235,250,255', 1.3, 4.1);
+    hana(316, 50, '255,140,170', '255,225,235', 2.6, 3.7);
+
+    /* ── 対岸：外気ベイの街並みと観覧車 ── */
+    P(ctx, 0, 108, 360, 14, '#101728');                              // 対岸の陸
+    for (let i = 0; i < 22; i++) {                                   // ビル群
+      const h = Math.sin(i * 34.789) * 43758.5453;
+      const bx = i * 17 + Math.floor((h - Math.floor(h)) * 6);
+      if (bx > 236 && bx < 300) continue;                            // 観覧車の抜け
+      const bh = 12 + ((i * 41) % 30);
+      P(ctx, bx, 108 - bh, 14, bh, i % 2 ? '#141d33' : '#18223c');
+      for (let r = 0; r < 3; r++)
+        if (((i * 7 + r * 5) % 5) < 2)
+          P(ctx, bx + 3 + (r % 2) * 7, 108 - bh + 4 + r * 8, 2, 2, `rgba(255,214,150,${(0.35 + 0.25 * Math.sin(t + i + r)).toFixed(2)})`);
+    }
+    /* 観覧車（ゆっくり回る。輪の灯が色を変える）。
+       ⚠ **輪だけだと空に浮いて見える**ので、支柱を太くして対岸に立たせ、
+         足元に台座と、水面へ落ちる光を置く（目視 8/13） */
+    const WX = 268, WY = 90, WR = 20;
+    ctx.strokeStyle = 'rgba(150,180,230,.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(WX, WY, WR, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(120,150,200,.28)'; ctx.lineWidth = 1;    // スポーク
+    for (let i = 0; i < 8; i++) {
+      const a = t * 0.22 + (i / 8) * Math.PI;
+      ctx.beginPath();
+      ctx.moveTo(WX + Math.cos(a) * WR, WY + Math.sin(a) * WR);
+      ctx.lineTo(WX - Math.cos(a) * WR, WY - Math.sin(a) * WR); ctx.stroke();
+    }
+    P(ctx, WX - 2, WY, 4, 20, '#1a2440');                            // 支柱（太く）
+    P(ctx, WX - 9, WY + 16, 18, 4, '#141d33');                       // 台座
+    P(ctx, WX - 12, WY + 20, 24, 2, '#0f1626');
+    for (let i = 0; i < 16; i++) {
+      const ang = t * 0.22 + (i / 16) * Math.PI * 2;
+      const px = WX + Math.cos(ang) * WR, py = WY + Math.sin(ang) * WR;
+      const hue = (t * 30 + i * 22) % 360;
+      P(ctx, Math.round(px) - 1, Math.round(py) - 1, 3, 3, `hsla(${hue.toFixed(0)},85%,68%,.9)`);
+    }
+
+    /* ── 湾（対岸の灯りが縦に伸びる）── */
+    const sea = ctx.createLinearGradient(0, 122, 0, 158);
+    sea.addColorStop(0, '#0d1730'); sea.addColorStop(1, '#0a1226');
+    ctx.fillStyle = sea; ctx.fillRect(0, 122, 360, 36);
+    for (let i = 0; i < 30; i++) {                                   // 水面に落ちた灯り
+      const h = Math.sin(i * 91.17) * 43758.5453;
+      const lx = Math.floor((h - Math.floor(h)) * 360);
+      const len = 6 + ((i * 13) % 14) + Math.sin(t * 2 + i) * 2;
+      P(ctx, lx, 122, 1, len, `rgba(255,214,150,${(0.10 + 0.10 * Math.abs(Math.sin(t + i))).toFixed(2)})`);
+    }
+    for (let i = 0; i < 5; i++) ripple(ctx, 20 + i * 70, 132 + (i % 3) * 7, 46, 'rgba(180,210,255,.16)');
+    /* 観覧車の灯が、水面にいちばん長く落ちる（対岸の主役だと分かる） */
+    for (let i = 0; i < 10; i++)
+      P(ctx, WX - 5 + i, 122, 1, 20 + Math.sin(t * 1.6 + i) * 4,
+        `rgba(200,170,255,${(0.16 - Math.abs(i - 5) * 0.02).toFixed(2)})`);
+    /* 対岸と海のあいだに、うっすら光の帯（地平を締める） */
+    ctx.fillStyle = 'rgba(255,214,150,.06)'; ctx.fillRect(0, 118, 360, 6);
+
+    /* ── 屋上の床（手すりの手前）── */
+    P(ctx, 0, 158, 360, 42, '#2a2f38');
+    P(ctx, 0, 158, 360, 3, '#3a4049');
+    for (let i = 0; i < 9; i++) P(ctx, i * 40, 161, 38, 1, 'rgba(0,0,0,.22)');   // デッキの板目
+
+    /* ── 手すり（横棒2本＋支柱）── */
+    P(ctx, 0, 140, 360, 2, '#5b6672');
+    P(ctx, 0, 150, 360, 2, '#4a545e');
+    for (let i = 0; i < 10; i++) P(ctx, 8 + i * 38, 140, 2, 20, '#4a545e');
+
+    /* ── ととのいイス2脚（空。二人は立って見ている）── */
+    const chair = (cx) => {
+      P(ctx, cx, 176, 22, 4, '#c9cfd4');
+      P(ctx, cx + 2, 168, 18, 8, '#dfe4e8');
+      P(ctx, cx + 1, 180, 3, 6, '#9aa4ac'); P(ctx, cx + 18, 180, 3, 6, '#9aa4ac');
+    };
+    chair(28); chair(306);
+
+    /* ── 二人の後ろ姿（手すりに寄って、同じ方を見ている）── */
+    const GY = 178, sway = Math.sin(t * 0.8) * 0.6;
+    ctx.fillStyle = 'rgba(8,10,16,.45)';
+    ctx.beginPath(); ctx.ellipse(180, GY + 3, 22, 4, 0, 0, Math.PI * 2); ctx.fill();
+    // 妻（左・館内着）
+    const WFX = 166;
+    P(ctx, WFX + 1, GY - 6, 3, 6, '#4a3a44'); P(ctx, WFX + 6, GY - 6, 3, 6, '#4a3a44');
+    P(ctx, WFX, GY - 21, 11, 15, '#8a4a56');
+    P(ctx, WFX - 2, GY - 16, 2, 7, '#8a4a56');                       // 手すりに置いた腕
+    P(ctx, WFX + 2, GY - 27 + Math.round(sway), 8, 6, '#3b2d24');    // 後ろ髪
+    P(ctx, WFX + 3, GY - 22, 5, 2, '#e8c39a');                       // うなじ
+    // 夫（右・少しだけ後ろ）
+    const HX = 186;
+    P(ctx, HX + 1, GY - 7, 3, 7, '#2e3644'); P(ctx, HX + 6, GY - 7, 3, 7, '#2e3644');
+    P(ctx, HX, GY - 23, 11, 16, '#5a6b8a');
+    P(ctx, HX + 11, GY - 17, 2, 7, '#5a6b8a');
+    P(ctx, HX + 2, GY - 29 + Math.round(sway), 8, 6, '#3b2d24');
+    P(ctx, HX + 3, GY - 24, 5, 2, '#e8c39a');
+    /* 二人の間の瓶（乾杯のあと。手すりの上に並べて置いてある） */
+    P(ctx, 176, GY - 30, 3, 7, '#c9a86a'); P(ctx, 181, GY - 30, 3, 7, '#7a9a6a');
+
+    /* 花火の光が、屋上にも一瞬だけ差す */
+    const flash = Math.max(0, Math.sin(t * 1.85)) * 0.05;
+    if (flash > 0.004) { ctx.fillStyle = `rgba(255,220,170,${flash.toFixed(3)})`; ctx.fillRect(0, 138, 360, 62); }
+  }
+
   /* ── 登録（story.js の StoryArt に足す）──
      方針転換（作者決定 2026-08-09）：**五名館の絵はコードのドット絵で完結させる。**
      横浜編時代の生成画像（assets/story/*.webp）も、横浜編時代のコード絵
@@ -7896,6 +8037,8 @@ function y_living(ctx) {
     y_noge1, y_noge2, y_noge3, y_noge4, y_hospital, y_living,
     // ── エンディング4枚（描き下ろし済み・CODE_FINAL）──
     y_bandai_night, y_my_bath_night, y_my_front_morning, y_night_road,
+    // ── 屋上の花火（作者指定 8/13）──
+    y_roof_hanabi,
   };
   /* コードの絵が完成した施設のキー。webp を張らない */
   const CODE_FINAL = new Set([
@@ -7914,6 +8057,8 @@ function y_living(ctx) {
     'y_noge2', 'y_noge3', 'y_noge4', 'y_hospital', 'y_living',
     // ── エンディング4枚 ──
     'y_bandai_night', 'y_my_bath_night', 'y_my_front_morning', 'y_night_road',
+    // ── 屋上の花火 ──
+    'y_roof_hanabi',
   ]);
   if (typeof StoryArt !== 'undefined') Object.assign(StoryArt, AREA_ARTS);
   // 湯気・水面・月・送風機を動かす（動く一枚絵）
