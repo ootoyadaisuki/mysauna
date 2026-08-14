@@ -5734,6 +5734,10 @@ function renderMenu(confirming) {
   $('menuInfo').textContent = `${G.name}／${G.day}日目（${dayLabel()}）・${G.phase === 'biz' ? '営業中' : '準備中'}`
     + (G.phase === 'biz' ? '（保存すると、この日は準備中からやり直しになる）' : '');
   box.appendChild(menuBtn('💾 いまの状態を保存', '', () => { saveGame(); toast(`${G.day}日目の状態を保存した`); closeMenu(); }));
+  /* 【外に出る】の逃げ道（区画のある章＝第2章）。帯のボタンは設備に譲ることがあるので、
+     どんな置き方をしても必ず部屋から出られる道を、ここにも用意しておく */
+  if (areaCount() > 1 && !onGuide() && !onHome() && G.phase !== 'title')
+    box.appendChild(menuBtn('🏢 外に出る（館内図へ）', '', () => { closeMenu(); openGuide(); }));
   box.appendChild(menuBtn(Sfx.on ? '🔊 効果音 ON' : '🔇 効果音 OFF', '', () => { Sfx.toggle(); renderMenu(false); }));
   box.appendChild(menuBtn(Sfx.music ? '🎵 BGM ON' : '🎵 BGM OFF', '', () => { Sfx.toggleMusic(); renderMenu(false); }));
   /* オート修理＝課金コンテンツ（作者指定）。耐久5%で自動で修理業者が来る。修理費は手動と同じ。
@@ -10530,6 +10534,37 @@ function canvasTile(ev) {
   const y = (ev.clientY - r.top) / r.height * CONF.H * T;
   return { x: clamp((x / T) | 0, 0, CONF.W - 1), y: clamp((y / T) | 0, 0, CONF.H - 1) };
 }
+/* ============ 帯（【← 外に出る】【🏠 家へ】）と、その下の設備 ============
+   帯はマス目の上に**重ねて**置いてある（そのぶん床の縦を広く使うため）。
+   だから左上の隅に物を置くと、**その設備をタップしたつもりが帯を押してしまい、
+   部屋の外に出てしまう**（プレイヤー報告 2026-08-13。修理したいのに触れない）。
+
+   置いている最中は帯を触れなくしてある（`#areaBar.ghost`）が、
+   置き終わったあとの「直したい・売りたい」でまた同じことが起きる。
+
+   ここでは**譲り合い**にする：帯を押した指の下に設備があるなら、帯ではなく
+   その設備を選ぶ（帯の下に何も無いところを押せば、これまでどおり部屋を出る）。
+   ＝**帯に隠れて触れない設備が無くなる。**
+   逃げ道として、☰メニューにも【外に出る】を置いてある（帯が設備で埋まっても出られる） */
+function areaBarYield(ev) {
+  const bar = $('areaBar');
+  if (!bar || bar.classList.contains('hidden') || bar.classList.contains('ghost')) return false;
+  if (G.placing || onGuide() || onHome()) return false;
+  if (G.phase !== 'prep' && G.phase !== 'biz') return false;
+  const r = cv.getBoundingClientRect();
+  if (!r.width || !r.height) return false;
+  const tx = clamp((((ev.clientX - r.left) / r.width * CONF.W) | 0), 0, CONF.W - 1);
+  const ty = clamp((((ev.clientY - r.top) / r.height * CONF.H) | 0), 0, CONF.H - 1);
+  if (!equipAt(tx, ty)) return false;                 // 下に設備が無い＝帯のボタンとして押させる
+  ev.preventDefault(); ev.stopPropagation();
+  // 同じ場所を、ゲーム画面が受け取ったものとして流し直す（選択も修理パネルもいつもどおり）
+  cv.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: ev.clientX, clientY: ev.clientY }));
+  return true;
+}
+for (const type of ['pointerdown', 'click']) {
+  $('areaBar').addEventListener(type, ev => { areaBarYield(ev); }, true);
+}
+
 /* 館内案内図：区画をタップするとその部屋へ入る（第2章だけ） */
 let guideTapAt = 0;
 $('guide').addEventListener('pointerup', ev => {

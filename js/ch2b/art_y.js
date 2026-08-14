@@ -1679,14 +1679,21 @@ function yFrontArt(c2, it, def, x, y, w, h, rt, broken) {
       R(5 + c * 7, 17 + r * 6, 5, 4, dim(r === 0 ? '#ffd98a' : '#cfd8e2'));
     R(w - 10, h - 12, 6, 2, dim('#111'));                  // 硬貨の投入口
   };
-  F.y_shoe = () => {                         // 靴箱：木の扉が横に並ぶ
+  /* 靴箱：木の扉が横に並ぶ。**3つの大きさで同じ絵を使う**（小・中・大）。
+     扉の数は幅に合わせて増える＝大きい靴箱ほど、実際に扉が多く見える。
+     ⚠ ここが `y_shoe` だけだったので、**【靴箱（中）】と【大きな靴箱】は
+       絵が無く、灰色の名前札のまま置かれていた**（プレイヤー報告 2026-08-13） */
+  F.y_shoe = () => {
     base('#a9743f', true);
-    for (let r = 0; r < 2; r++) for (let c = 0; c < 8; c++) {
-      const dx = 4 + c * ((w - 8) / 8), dy = 5 + r * ((h - 10) / 2);
-      R(dx, dy, (w - 8) / 8 - 2, (h - 10) / 2 - 2, dim('#c08a52'));
-      R(dx + (w - 8) / 8 - 6, dy + 2, 2, 3, dim('#6b4522'));   // 木札の鍵
+    const cols = Math.max(4, Math.round((w - 8) / 8));       // 1枚およそ8px
+    for (let r = 0; r < 2; r++) for (let c = 0; c < cols; c++) {
+      const dw = (w - 8) / cols;
+      const dx = 4 + c * dw, dy = 5 + r * ((h - 10) / 2);
+      R(dx, dy, dw - 2, (h - 10) / 2 - 2, dim('#c08a52'));
+      R(dx + dw - 6, dy + 2, 2, 3, dim('#6b4522'));          // 木札の鍵
     }
   };
+  F.y_shoe40 = F.y_shoe80 = F.y_shoe;
   F.y_water = () => {                        // ウォーターサーバー：上に水のボトル
     base('#e8ecef', true);
     c2.fillStyle = dim('#5aa8d8');
