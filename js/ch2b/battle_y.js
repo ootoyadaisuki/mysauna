@@ -64,7 +64,10 @@ function yBathHalves(fn) {
 }
 function yScoreSauna() { return yBathHalves(ySaunaOn); }
 function ySaunaOn(f) {
-  const list = yEquipsOn('sauna', [f]);
+  /* **その浴室のサウナ＋屋上のテントサウナ**（作者決定 2026-08-13）。
+     屋上は男女共用なので、置いた1張りは男湯の客も女湯の客も使う＝
+     ととのいイス（yTotonoOn）と同じ数え方に揃える */
+  const list = yEquipsOn('sauna', [f, AY.ROOF]);
   if (!list.length) return 0;
   const power = list.reduce((s, e) => s + yPower(e), 0);         // 質×傷み
   const bands = new Set(list.map(e => {
@@ -82,7 +85,8 @@ function ySaunaOn(f) {
    **同じ「水まわり」としてひとつに束ねた**（作者指定 8/8）                */
 function yScoreMizu() { return yBathHalves(yMizuOn); }
 function yMizuOn(f) {
-  const cold = yEquipsOn('mizu', [f]), hot = yEquipsOn('furo', [f]);
+  /* 水風呂は**その浴室＋屋上のかけ流し**（湯船は浴室だけ＝屋上に湯は張らない） */
+  const cold = yEquipsOn('mizu', [f, AY.ROOF]), hot = yEquipsOn('furo', [f]);
   if (!cold.length && !hot.length) return 0;
   const band = (list, f) => new Set(list.map(f)).size;
   /* 水風呂が主（65点ぶん）。サウナ専門店なので、ここが本丸 */

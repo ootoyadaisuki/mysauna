@@ -1588,6 +1588,7 @@ function yEquipArt(c2, it, def, x, y, w, h, rt, broken) {
   if (yCapsuleArt(c2, it, def, x, y, w, h, rt, broken)) return true;
   if (yFrontArt(c2, it, def, x, y, w, h, rt, broken)) return true;
   if (yShokudoArt(c2, it, def, x, y, w, h, rt, broken)) return true;
+  if (yRoofArt(c2, it, def, x, y, w, h, rt, broken)) return true;
   if (yWash5Art(c2, it, def, x, y, w, h, rt, broken)) return true;
   if (yOtoSaunaArt(c2, it, def, x, y, w, h, rt, broken)) return true;
   /* 第1章と同じ物は、第1章の絵で描く（id を読み替えて描き直させる）。
@@ -1646,6 +1647,88 @@ function yEquipArt(c2, it, def, x, y, w, h, rt, broken) {
     c2.fillStyle = 'rgba(240,246,250,.85)'; c2.font = 'bold 8px "DotGothic16",sans-serif'; c2.textAlign = 'center';
     c2.fillText('EV', x + w / 2 + 4, y + h / 2 + 3);
   }
+  return true;
+}
+
+/* ============================================================
+   屋上の3点セット（作者決定 2026-08-13）
+   ------------------------------------------------------------
+   屋上だけで「サウナ → 水風呂 → 外気浴」が完結する3品。
+   描き方は他と同じ＝**見下ろした絵。上の面が主役、厚みは下辺の帯**。
+   ここは屋外なので、影を少し長く落として「外に置いてある」感じを出す。
+   ============================================================ */
+function yRoofArt(c2, it, def, x, y, w, h, rt, broken) {
+  const F = {};
+  const dim = c => (broken ? '#8a8078' : c);
+  const R = (px, py, pw, ph, c) => { c2.fillStyle = c; c2.fillRect(x + px, y + py, pw, ph); };
+  const C = (cx, cy, r, c) => { c2.fillStyle = c; c2.beginPath(); c2.arc(x + cx, y + cy, r, 0, 7); c2.fill(); };
+  const shade = () => { c2.fillStyle = 'rgba(0,0,0,.26)'; c2.fillRect(x + 3, y + 4, w - 3, h - 3); };
+
+  /* ── テントサウナ（2×2）＝三角のテント。煙突から煙、入口の合わせ目 ── */
+  F.y_roof_tent = () => {
+    /* テントは三角なので、**影も四角く敷かない**（四角い影は「灰色の板」に見える）。
+       足元に楕円の影だけ落とす */
+    c2.fillStyle = 'rgba(0,0,0,.28)';
+    c2.beginPath(); c2.ellipse(x + w / 2 + 2, y + h - 5, w * 0.42, 4, 0, 0, Math.PI * 2); c2.fill();
+    const cx = w / 2;
+    c2.fillStyle = broken ? '#6a5f55' : '#4a5f4a';                 // 幕（濃い緑）
+    c2.beginPath();
+    c2.moveTo(x + cx, y + 3); c2.lineTo(x + w - 3, y + h - 5);
+    c2.lineTo(x + 3, y + h - 5); c2.closePath(); c2.fill();
+    c2.fillStyle = broken ? '#7a6f63' : '#5e7a5c';                 // 右半分に光
+    c2.beginPath();
+    c2.moveTo(x + cx, y + 3); c2.lineTo(x + w - 3, y + h - 5); c2.lineTo(x + cx, y + h - 5); c2.closePath(); c2.fill();
+    R(cx - 4, h - 16, 8, 11, dim('#2e3a2e'));                      // 入口（開いた合わせ目）
+    if (!broken) R(cx - 2, h - 13, 4, 8, '#c9702e');               // 中の熱の色
+    R(3, h - 6, w - 6, 3, dim('#3a4438'));                         // 裾のペグ打ち
+    // 煙突と煙
+    R(cx + 6, 6, 3, 10, dim('#5b6672'));
+    if (!broken) {
+      const t = rt || 0;
+      for (let i = 0; i < 3; i++) {
+        const rise = (t * 8 + i * 5) % 14;
+        c2.fillStyle = `rgba(230,235,240,${(0.28 * (1 - rise / 14)).toFixed(2)})`;
+        c2.fillRect(x + cx + 6 + Math.sin(t * 2 + i) * 2, y + 6 - rise, 3, 4);
+      }
+    }
+  };
+
+  /* ── 屋上の水風呂・かけ流し（2×2）＝木枠の槽。水が縁から溢れている ── */
+  F.y_roof_mizu = () => {
+    shade();
+    R(1, 1, w - 2, h - 2, dim('#8a5a3a'));                         // 木枠
+    R(3, 3, w - 6, h - 6, dim('#6b432a'));
+    const t = rt || 0;
+    c2.fillStyle = broken ? '#9a9a92' : '#3f7fa8';                 // 水
+    c2.fillRect(x + 5, y + 5, w - 10, h - 10);
+    if (!broken) {
+      c2.fillStyle = 'rgba(255,255,255,.16)';                      // さざ波
+      for (let i = 0; i < 3; i++)
+        c2.fillRect(x + 6, y + 8 + i * 7 + Math.round(Math.sin(t * 2 + i) * 1.5), w - 12, 1);
+      // かけ流しの筧（左上から落ちる水）
+      R(2, 6, 7, 3, dim('#4a3a2a'));
+      c2.fillStyle = 'rgba(200,235,255,.75)';
+      c2.fillRect(x + 8, y + 9, 2, 5 + Math.round(Math.sin(t * 6) * 1.5));
+      // 溢れて縁を伝う水
+      c2.fillStyle = 'rgba(200,235,255,.35)';
+      c2.fillRect(x + 5, y + h - 6, w - 10, 2);
+    }
+  };
+
+  /* ── 外気浴ベッド（1×2）＝空を向いた寝台。頭側が少し起きている ── */
+  F.y_roof_bed = () => {
+    shade();
+    R(2, 2, w - 4, h - 4, dim('#c9cfd4'));                         // マット
+    R(3, 3, w - 6, 8, dim('#e4e9ec'));                             // 起こした頭側
+    R(4, 4, w - 8, 4, dim('#f4f7f8'));                             // 枕
+    for (let i = 1; i < 4; i++) R(4, 12 + i * 6, w - 8, 1, 'rgba(0,0,0,.10)');   // マットの縫い目
+    R(1, h - 5, w - 2, 3, dim('#8a949c'));                         // 木の台
+    R(0, h - 3, 3, 3, dim('#6b7278')); R(w - 3, h - 3, 3, 3, dim('#6b7278'));    // 脚
+  };
+
+  const f = F[it.id];
+  if (!f) return false;
+  f();
   return true;
 }
 
