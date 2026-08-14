@@ -569,9 +569,14 @@ function yBattleDaily() {
     const qFrom = yYosenFrom(q0);
     if (b.qnote[q0.no] || b.qual.some(x => x.no === q0.no)) continue;
     if (G.day < qFrom - 2 || G.day >= qFrom) continue;
-    /* 明日が営業日なら、予告は明日の夜に譲る（＝なるべく前日に出す） */
+    /* 明日が営業日なら、予告は明日の夜に譲る（＝なるべく前日に出す）。
+       ⚠ **休みかどうかは `yClosedToday` に聞くこと。**以前ここは `yWeek()`（＝
+         【営業】画面で選ぶ曜日の表・既定は火曜が休み）を見ていたが、実際の定休は
+         `CONF.weekOff`＝**月曜**。前日が月曜の第4予選【接客】は
+         「明日は営業日だから譲ろう」と誤判定→その明日は定休で日報が無く、
+         **前ぶれが一度も出ないまま予選が始まっていた**（実測 8/14）           */
     if (G.day === qFrom - 2
-        && (typeof yWeek === 'function' ? (yWeek()[yDayOfWeek(qFrom - 1)] !== false) : true)) continue;
+        && (typeof yClosedToday === 'function' ? !yClosedToday(qFrom - 1) : true)) continue;
     b.qnote[q0.no] = true;
     const when0 = (G.day === qFrom - 1) ? '明日' : 'あさって';
     const def0 = (typeof RIVALS_Y !== 'undefined' ? RIVALS_Y : []).find(x => x.id === q0.rival);
