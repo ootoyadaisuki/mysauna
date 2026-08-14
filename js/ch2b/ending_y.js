@@ -231,6 +231,20 @@ function yNightStory() {
 /* ---- 「つづきから」（btnContinue から chHook('continueLoaded')）----
    ・廃業セーブ＝タイトル残留（再開抑止）
    ・旧セーブ（b.final済み・ED未再生）＝画面を出してから再判定して再生   */
+/* ---- タイトルに出す一言（game.js の syncTitleStart から、セーブの中身を渡される）----
+   廃業で終わったセーブは【つづきから】を出さない。
+   **押しても何も起きないボタンは、故障にしか見えない**（プレイヤー報告 2026-08-13＝
+   「つづきからを押しても反応しない。もしやゲームオーバー？」）。
+   もとは toast で伝えていたが、**toast は #game-ui の中にある**＝
+   タイトルでは器ごと隠れていて、一度も表示されていなかった。
+   結末のあとに出していた「五つある」の一行も、同じ理由で誰にも見えていない       */
+function ySaveNote(d) {
+  if (!d || !d.flags || d.flags.ended !== 'haigyo') return null;
+  return 'この店の百二十日は、終わった。<br>'
+       + '——【はじめから】で、次の店を。<br>'
+       + '<span class="ended-hint">📖 この街の結末は、全部で五つある——</span>';
+}
+
 function yContinueLoaded() {
   if (G.flags && G.flags.ended === 'haigyo') {
     if (typeof toast === 'function') toast('この店の百二十日は、終わった。——【はじめから】で、次の店を');
@@ -248,5 +262,5 @@ function yContinueLoaded() {
 }
 
 if (typeof registerChapter2Hooks === 'function') {
-  registerChapter2Hooks({ nightStory: yNightStory, continueLoaded: yContinueLoaded });
+  registerChapter2Hooks({ nightStory: yNightStory, continueLoaded: yContinueLoaded, saveNote: ySaveNote });
 }

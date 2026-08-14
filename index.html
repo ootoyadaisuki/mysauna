@@ -40,6 +40,9 @@
         <p class="title-sub" id="titleSub">― 夕凪湯 再建記 ―</p>
         <button id="btnNewGame" class="big-btn">はじめから</button>
         <button id="btnContinue" class="big-btn hidden">つづきから</button>
+        <!-- そのセーブがもう終わっている時（第2章の廃業エンド）に出す一言。
+             【つづきから】は出さない＝押しても何も起きないボタンを置かない -->
+        <p class="title-sub hidden" id="titleEnded"></p>
         <!-- セーブがある章でだけ出す注意書き（押す前に気づけるように） -->
         <p class="title-sub hidden" id="newGameWarn">※「はじめから」を選ぶと、いまのセーブデータは消えます</p>
         <button id="btnChapterBack" class="sm-btn">← 章を選ぶ</button>

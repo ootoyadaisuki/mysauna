@@ -5672,11 +5672,30 @@ function returnToTitle() {
   ['reinaModal', 'reportModal', 'manageModal', 'dataModal', 'yamiModal', 'menuModal', 'sendenModal', 'loanModal']
     .forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   $('game-ui').classList.add('hidden');
-  if (localStorage.getItem(saveKey())) $('btnContinue').classList.remove('hidden');
-  // タイトルに戻ったら、まず章の選択からやり直す
-  $('titleStart').classList.add('hidden');
-  $('titleChapters').classList.remove('hidden');
+  const ended = syncTitleStart();
+  /* タイトルに戻ったら、まず章の選択からやり直す。
+     ただし**その店が終わった直後だけは、章の中の画面のまま**にする（作者報告 8/13）＝
+     結末を見せた足で章の一覧に放り出すと、何が起きたのか分からない。
+     「この店は終わった／【はじめから】で次の店を」を、その場で読ませる */
+  $('titleStart').classList.toggle('hidden', !ended);
+  $('titleChapters').classList.toggle('hidden', !!ended);
   $('title').classList.remove('hidden');
+}
+/* タイトルの【つづきから】まわりを、いまのセーブに合わせる。
+   章が「このセーブはもう終わっている」と言えば（第2章の廃業エンド）、
+   **ボタンは出さずに、その一言をタイトルに出す**＝
+   押しても何も起きないボタンを置かない（押した人には故障にしか見えない）。
+   返り値＝終わっているセーブなら、その一言 */
+function syncTitleStart() {
+  const raw = localStorage.getItem(saveKey());
+  let d = null;
+  try { d = raw ? JSON.parse(raw) : null; } catch (e) { d = null; }
+  const note = d ? (chHook('saveNote', d) || null) : null;
+  $('btnContinue').classList.toggle('hidden', !raw || !!note);
+  $('newGameWarn').classList.toggle('hidden', !raw || !!note);
+  const el = $('titleEnded');
+  if (el) { el.innerHTML = note || ''; el.classList.toggle('hidden', !note); }
+  return note;
 }
 
 /* ============ ☰ メニュー（保存・トップ画面へ・ウェブサイト） ============ */
@@ -11287,13 +11306,11 @@ function initUI() {
   /* タイトル：章の選択 → 章を選ぶと「はじめから／つづきから」を出す。
      セーブがある章では、その下に「はじめからだと消える」という注意書きも出す（作者指定 8/7） */
   const showTitleStart = () => {
-    const has = !!localStorage.getItem(saveKey());
-    $('btnContinue').classList.toggle('hidden', !has);
-    $('newGameWarn').classList.toggle('hidden', !has);
+    syncTitleStart();
     $('titleChapters').classList.add('hidden');
     $('titleStart').classList.remove('hidden');
   };
-  if (localStorage.getItem(saveKey())) $('btnContinue').classList.remove('hidden');
+  syncTitleStart();
   $('btnChapter1').onclick = () => {
     applyChapter(1);
     showTitleStart();   // その章のセーブがあるときだけ「つづきから」と注意書きを出す（章ごとに別のセーブ）

@@ -86,6 +86,10 @@ body {
   text-shadow:0 4px 0 #6b3a1f, 0 8px 12px rgba(0,0,0,.6); margin:6px 0;
 }
 .title-sub { color:#c9b494; margin-bottom:16px; font-size:15px; }
+/* 終わった店のタイトルに出す一言（廃業エンドのあと）。
+   【つづきから】の代わりにここが出るので、行間はゆったり取る */
+#titleEnded { line-height:1.8; margin-top:8px; }
+#titleEnded .ended-hint { color:#8e7f6a; font-size:13px; }
 .title-note { color:#7a6a55; font-size:11px; margin-top:22px; }
 /* 章の選択メニュー */
 #titleChapters { margin-top:18px; }
