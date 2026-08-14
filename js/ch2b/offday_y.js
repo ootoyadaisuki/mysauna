@@ -272,6 +272,7 @@ function yMorning() {
   if (c.lastMorning === G.day) return;
   c.lastMorning = G.day;
 
+  if (typeof yAskJoin === 'function') yAskJoin();       // 大会に出るか（2回目のシーズンから・14日前の朝）
   if (typeof yCheckAway === 'function') yCheckAway();   // 今日ひとが抜けるかを先に決める
   if (typeof yCheckKouji === 'function') yCheckKouji();
   if (typeof yCheckKouko === 'function') yCheckKouko();

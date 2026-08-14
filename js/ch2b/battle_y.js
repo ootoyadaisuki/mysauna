@@ -225,8 +225,8 @@ function yGapToBoss() {
      ② 他の店は自分の得意な部門をゆっくり伸ばす（穴は埋めない＝店の性格は変わらない） */
 function yRivalStrikeBack() {
   const st = G.ch2; if (!st || !st.rivals) return null;
-  const bday = CONF.battleDayY || 120;
-  if (G.day >= bday - 14) return null;                          // 凍結。以降スコアは動かない
+  const bday = yBattleDay();
+  if (yJoining() && G.day >= bday - 14) return null;            // 凍結。以降スコアは動かない
   const sk = st.strike || (st.strike = { lead: {}, done: {}, pending: null });
   const rows = yRanking();
   const me = rows.find(r => r.mine); if (!me) return null;
@@ -319,6 +319,59 @@ function yBattleState() {
   });
 }
 
+/* ============ シーズン（作者決定 2026-08-13）============
+   **大会は「その年の区切り」であって、ゲームの終わりではない。**
+   120日目に結果が出て結末の一幕が流れ、**翌朝は普通に来る**＝店はいつまでも続く。
+   次の大会はその120日後。2回目からは【出る／今回は見送る】を選べる＝
+   のんびり5階まで作り込む遊び方が、そのまま成立する。
+
+   数え方：`b.base` ＝ そのシーズンが始まった日。開催日も予選の週も、
+   ぜんぶ base からの相対で決める（1シーズン目は base=0＝これまでと同じ日付）。 */
+function yBattleBase() { const b = yBattleState(); return (b && b.base) | 0; }
+function yBattleDay()  { return yBattleBase() + (CONF.battleDayY || 120); }
+function ySeason()     { const b = yBattleState(); return Math.max(1, (b && b.season) | 0 || 1); }
+/* 予選の週を、いまのシーズンの日付に直す */
+function yYosenFrom(q) { return yBattleBase() + q.from; }
+function yYosenTo(q)   { return yBattleBase() + q.to; }
+/* このシーズンに出るか。1シーズン目は必ず出る（物語）。2回目からは開催14日前に聞く */
+function yJoining() {
+  const b = yBattleState(); if (!b) return true;
+  if (ySeason() <= 1) return true;
+  return b.join !== false;
+}
+/* 次のシーズンへ。ライバルは少しずつ伸びる（作者決定＝見送るほど優勝は遠くなる） */
+function yNextSeason() {
+  const b = yBattleState(); if (!b) return;
+  b.base = yBattleDay();
+  b.season = ySeason() + 1;
+  b.final = null; b.notice = null; b.scoreSnap = null;
+  b.qual = []; b.week = null; b.qnote = {};
+  b.judgeCame = null; b.debtSnap = null; b.result = null; b.ending = null;
+  b.join = null;                       // 出るかどうかは、また開催14日前に聞く
+  b.asked = false;
+  if (G.ch2 && G.ch2.strike) G.ch2.strike = { lead: {}, done: {}, pending: null };  // 反撃も仕切り直し
+  yRivalsGrow();
+  b.news = b.news || [];
+  b.news.push('🗓 <b>次のととのい市サウナバトルは' + yBattleDay() + '日目。</b>'
+            + '五名館も、この百二十日で腕を上げてくる');
+}
+/* シーズンが変わるたび、ライバルの番付が少しずつ伸びる。
+   **弱い部門から埋めてくる**＝こちらが伸ばした部門で殴り合う形にはしない */
+function yRivalsGrow() {
+  const st = G.ch2; if (!st || !st.rivals) return;
+  const up = 6 + ySeason();                                   // 1シーズンごとに合計これだけ伸びる
+  for (const r of st.rivals) {
+    let left = up;
+    const keys = BATTLE_CATS_Y.map(c => c.key).sort((a, b2) => (r.score[a] || 0) - (r.score[b2] || 0));
+    for (const k of keys) {
+      if (left <= 0) break;
+      const room = 100 - (r.score[k] || 0);
+      const add = Math.min(left, Math.max(0, Math.min(4, room)));
+      r.score[k] = (r.score[k] || 0) + add; left -= add;
+    }
+  }
+}
+
 /* ============ 予選4戦（docs/SAUNA_BATTLE.md）============
    各予選は7日間の「テーマ週」。期間中は通常営業に条件が加わり（清潔週＝汚れが速い／
    混雑週＝来客1.5倍）、週の終わりに**テーマ指標の期間平均**と**相手の基準値**を比べて
@@ -329,7 +382,10 @@ const YOSEN_Y = [
   { no: 3, from: 65, to: 71, rival: 'hama',    theme: 'kosei',   name: '個性',     icon: '✨' },
   { no: 4, from: 85, to: 91, rival: 'lumina',  theme: 'service', name: '接客',     icon: '🌙' },
 ];
-function yYosenNow() { return YOSEN_Y.find(q => G.day >= q.from && G.day <= q.to) || null; }
+function yYosenNow() {
+  if (!yJoining()) return null;                                // 見送ったシーズンは予選も無い
+  return YOSEN_Y.find(q => G.day >= yYosenFrom(q) && G.day <= yYosenTo(q)) || null;
+}
 
 /* その日のテーマ指標（0〜100）。部門があるテーマは自分の部門点、
    混雑＝捌けた率（会計 ÷ (会計＋待ちきれず＋入れず)）、接客＝評判「おもてなし」×10 */
@@ -493,8 +549,8 @@ function yBattleDaily() {
   b.revenue += (G.today && G.today.revenue) || 0;
   /* 開催14日前の純借金を一度だけ写す。以降に増えた借金は二重に数える（使い捨て攻略対策）。
      古いセーブで通り過ぎていたら、気づいた日に写す（遅れても無いよりまし） */
-  const bday = CONF.battleDayY || 120;
-  if (b.debtSnap == null && G.day >= bday - 14) {
+  const bday = yBattleDay();
+  if (b.debtSnap == null && yJoining() && G.day >= bday - 14) {
     b.debtSnap = Math.max(0, ((G.debt || 0) + ((G.yami && G.yami.debt) || 0)) - (G.cash || 0));
   }
   /* 予選週の集計。週が明けた最初の営業日に前の週を判定する */
@@ -505,13 +561,15 @@ function yBattleDaily() {
      あさって告知に回った日は「明日」が嘘になるので、言葉だけ日に合わせる） */
   if (!b.qnote) b.qnote = {};
   for (const q0 of YOSEN_Y) {
+    if (!yJoining()) break;                                  // 見送ったシーズンは予告も出さない
+    const qFrom = yYosenFrom(q0);
     if (b.qnote[q0.no] || b.qual.some(x => x.no === q0.no)) continue;
-    if (G.day < q0.from - 2 || G.day >= q0.from) continue;
+    if (G.day < qFrom - 2 || G.day >= qFrom) continue;
     /* 明日が営業日なら、予告は明日の夜に譲る（＝なるべく前日に出す） */
-    if (G.day === q0.from - 2
-        && (typeof yWeek === 'function' ? (yWeek()[yDayOfWeek(q0.from - 1)] !== false) : true)) continue;
+    if (G.day === qFrom - 2
+        && (typeof yWeek === 'function' ? (yWeek()[yDayOfWeek(qFrom - 1)] !== false) : true)) continue;
     b.qnote[q0.no] = true;
-    const when0 = (G.day === q0.from - 1) ? '明日' : 'あさって';
+    const when0 = (G.day === qFrom - 1) ? '明日' : 'あさって';
     const def0 = (typeof RIVALS_Y !== 'undefined' ? RIVALS_Y : []).find(x => x.id === q0.rival);
     let t0 = '🗞 ' + when0 + 'から<b>第' + q0.no + '予選【' + q0.icon + q0.name + '】</b>。'
            + '相手は' + (def0 ? def0.name : 'ライバル') + '。七日間の期間平均で採点される';
@@ -525,7 +583,7 @@ function yBattleDaily() {
       b.week = { no: q.no, sum: 0, n: 0 };
       const def = (typeof RIVALS_Y !== 'undefined' ? RIVALS_Y : []).find(x => x.id === q.rival);
       b.news.push('🏁 第' + q.no + '予選【' + q.icon + q.name + '】が始まった。相手は'
-                + (def ? def.name : 'ライバル') + '。' + q.to + '日目まで');
+                + (def ? def.name : 'ライバル') + '。' + yYosenTo(q) + '日目まで');
     }
     b.week.sum += yYosenMetric(q); b.week.n++;
   }
@@ -534,7 +592,7 @@ function yBattleDaily() {
      G.day===bday-1 の判定は一度も発火しない。実質118日の夜＝壁打ち3回目）。
      予告時の総合点を b.scoreSnap に写し、**廃業/傘下の判定はこの値で行う**
      ＝「予告に出た点で審査される」がプレイヤーへの約束（ENDINGS.md §5） */
-  if (!b.notice && !b.final && G.day >= bday - 2 && G.day < bday) {
+  if (yJoining() && !b.notice && !b.final && G.day >= bday - 2 && G.day < bday) {
     b.notice = true;
     b.scoreSnap = yBattleScore100().total;
     const when = (G.day === bday - 1) ? '明日' : 'あさって';
@@ -544,7 +602,14 @@ function yBattleDaily() {
     const gap = Math.abs(Math.round(yYosouLine() - b.scoreSnap));
     b.news.push('📺 実況席から——神代「現在、' + gap + '点差。まだ誤差ではありません」');
   }
-  if (G.day >= bday && !b.final) yFinalJudge(b);
+  /* 開催日。出るなら採点、見送ったならそのまま次のシーズンへ（店は続く） */
+  if (G.day >= bday) {
+    if (!yJoining()) {
+      b.news.push('🏁 ととのい市サウナバトルが終わった。今年は見送った＝'
+                + '<b>うちの名前は番付に載らない</b>。次は' + (yBattleDay() + (CONF.battleDayY || 120)) + '日目');
+      yNextSeason();
+    } else if (!b.final) yFinalJudge(b);
+  }
 }
 
 /* 通期実績30 ＝ 地力24 ＋ 収支6 */
@@ -901,8 +966,36 @@ function yTopRep() {
   try {
     const t = yTotal(yMyScore());
     /* 呼称はUIの「ととのい番付」に統一（INTRO_SCRIPT.md 壁打ち3回目） */
-    return '番付 ' + (Number.isFinite(t) ? t : 0) + '/800';
+    /* **大会までの日数を、番付の隣に常に出す**（プレイヤー報告 2026-08-13）＝
+       「バトルのことをあまり考えていなかった。データ画面の下に小さく書いてあるだけで
+       気づかなかった」。この作品の目的は大会なので、目的は上のバーに置く。
+       見送ったシーズンは日数を出さない（急かす相手がいない） */
+    const rank = '番付 ' + (Number.isFinite(t) ? t : 0) + '/800';
+    const left = yBattleDay() - G.day;
+    if (!yJoining()) return rank + '　🏆 見送り中';
+    return rank + (left >= 0 ? '　🏆 あと' + left + '日' : '');
   } catch (e) { return '番付 —'; }
+}
+
+/* ============ 大会に出るか（2回目のシーズンから・作者決定 2026-08-13）============
+   開催14日前＝ライバルのスコアが凍結する日に、一度だけ聞く。
+   見送れば予選も最終戦も無く、店づくりだけの百二十日になる。
+   1シーズン目は聞かない（そこは物語＝出るところから始まる）              */
+function yAskJoin() {
+  const b = yBattleState(); if (!b) return;
+  if (ySeason() <= 1 || b.asked || b.join != null) return;
+  if (G.day < yBattleDay() - 14 || G.day >= yBattleDay()) return;
+  b.asked = true;
+  if (typeof yAskChoice !== 'function') { b.join = true; return; }
+  yAskChoice('ととのい市サウナバトル',
+    '第' + ySeason() + '回の申し込みが来た。開催は<b>' + yBattleDay() + '日目</b>。<br>'
+    + '<span class="opt-sub">出れば予選4戦と最終戦。見送れば、その百二十日は'
+    + '店づくりに使える（順位も結末もつかない）。次の回でまた申し込める</span>',
+    '出る', '今回は見送る', go => {
+      b.join = !!go;
+      if (typeof toast === 'function') toast(go ? '🏆 エントリーした' : '🏆 今回は見送った');
+      if (typeof saveGame === 'function') saveGame();
+    });
 }
 
 registerChapter2Hooks({
@@ -925,7 +1018,8 @@ const JUDGE_SLOTS_Y = [
   { name: '夜の部', dept: '🛋 くつろぎ・接客 担当', cap: '#6a4a7a' },
 ];
 function yJudgeArrive(c) {
-  const bday = CONF.battleDayY || 120;
+  if (!yJoining()) return;                                     // 見送ったシーズンに審査員は来ない
+  const bday = yBattleDay();
   if (G.day < bday) return;
   const b = yBattleState(); if (!b || b.final) return;      // 採点が済んだら出ない
   const came = b.judgeCame || (b.judgeCame = [false, false, false]);

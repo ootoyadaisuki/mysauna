@@ -36,10 +36,13 @@ function yEndingType(b) {
   const yami  = (G.yami && G.yami.debt) || 0;
   const score = (b.scoreSnap != null) ? b.scoreSnap : yBattleScore100().total;
 
-  /* 廃業＝払えなかった。billMissed は「実際に落とした月がある」印＝数字の傷は消えない */
-  if (G.ch2 && G.ch2.billMissed) return 'haigyo';
-  if (p28 <= 0 && (G.cash || 0) < bill) return 'haigyo';   // 赤字続きで、次の支払いに届かない
-  if (yami > 0 && p28 <= 0) return 'haigyo';               // ヤミ金を抱えたまま赤字
+  /* ⚠ **廃業は、もう大会の評価では出さない**（作者決定 2026-08-13）。
+     ここで判定していたころは、30日目に一度支払いを落としただけで
+     （`billMissed` は永久に消えない印だった）、そのあと90日どれだけ立て直しても
+     120日目の結末が廃業で確定していた＝**潰れた店ではなく、つまずいた記録が残った店**が
+     「あなたの店は終わりました」と言われていた（プレイヤー報告 8/13）。
+     いまの廃業は yBankrupt()＝**本当に現金が尽きて、灰田の枠も尽きた夜**だけ。
+     支払いを落としたことは、信用金庫の門が閉じるという形でちゃんと効いている。   */
 
   /* 傘下＝開業時より借金が増えている（借り増した）うえで、買う価値のある数字がある */
   const borrowed = (G.debt || 0) + yami - (CONF.startDebt || 0);
@@ -161,6 +164,32 @@ function yEndingScenes(type) {
     ];
   }
 
+  /* 買収に判を捺した夜（【売る】を選んだときだけ流す。ここで店は人手に渡る） */
+  if (type === 'sanka_sold') {
+    return [
+      { art: 'y_bandai_night', lines: [
+        N('判を捺した夜。雨は、まだ降っていた。'),
+        N('妻が番台の台を拭いている。'),
+        S(WIFE, '明日も、ここに座っていい？'),
+        N('番台の灯は——消さなかった。'),
+      ] },
+    ];
+  }
+
+  /* 断ったとき（作者決定 8/13・※台詞は叩き台。作者が書き直す前提） */
+  if (type === 'sanka_kept') {
+    return [
+      { art: 'y_bandai_night', lines: [
+        N('傘を開いて帰る背中に、返事をした。'),
+        S('俺', 'うちは、売らない'),
+        N('神代は振り返らなかった。傘の下で、一度だけ頷いたように見えた。'),
+        S(WIFE, '……言っちゃったね'),
+        S(WIFE, 'じゃあ、来年も勝ちにいかなきゃ'),
+        N('番台の灯を落とす。明日も、この店は開く——。'),
+      ] },
+    ];
+  }
+
   if (type === 'sanka') {
     return [
       { art: 'y_tenku_out', lines: [
@@ -170,12 +199,6 @@ function yEndingScenes(type) {
         S('神代', 'サインは急ぎません。数字は、待っても同じです'),
         S('神代', '番台は、そのままで構いません。数字に影響しませんので'),
         N('こちらが答える前に、神代は傘を開いて帰った。'),
-      ] },
-      { art: 'y_bandai_night', lines: [
-        N('判を捺した夜。雨は、まだ降っていた。'),
-        N('妻が番台の台を拭いている。'),
-        S(WIFE, '明日も、ここに座っていい？'),
-        N('番台の灯は——消さなかった。'),
       ] },
     ];
   }
@@ -203,29 +226,91 @@ function yEndingScenes(type) {
   ];
 }
 
+/* ---- 廃業（作者決定 2026-08-13）----
+   **本当に手が無くなった夜だけ、店は終わる。**
+   1日の締めで、地代も返済も生活費も払い、灰田の枠（上限100万）まで自動で借りて、
+   それでも現金がマイナス＝もう明日を開けられない。
+   大会の順位も、支払いを落とした過去も、ここには関係しない            */
+function yBankrupt() {
+  return (G.cash || 0) < 0 && !(G.flags && G.flags.ended);
+}
+
 /* ---- 発火（nightStory フック）----
-   ・b.ending.played と（廃業の）G.flags.ended は Story.play の**前**に同期で立てる
-     ＝非廃業は直後の enterPrepPhase→saveGame が拾い、廃業はここで saveGame() を明示
-   ・truthy を返すと game.js は enterPrepPhase を呼ばない（廃業＝翌朝を作らない）  */
+   ・その夜に流すものを、ここで決める：①廃業 ②大会（シーズン）の結末
+   ・truthy を返すと game.js は enterPrepPhase を呼ばない（＝翌朝を作らない）
+     ⇒ 返すのは**廃業のときだけ**。大会の結末は「その年の区切り」なので、
+       翌朝はいつもどおり来る（作者決定 8/13）                                 */
 function yNightStory() {
+  /* ① 廃業。大会より先に見る（払えない夜に順位の話をしても仕方がない） */
+  if (yBankrupt()) {
+    G.flags.ended = 'haigyo';
+    if (typeof saveGame === 'function') saveGame();       // prepへ進まないため、ここで保存
+    Story.play(yEndingScenes('haigyo'), () => {
+      if (typeof returnToTitle === 'function') returnToTitle();
+    });
+    return true;
+  }
+
+  /* ② 大会の結末（そのシーズンの結末。店は明日も開く） */
   const b = (typeof yBattleState === 'function') ? yBattleState() : null;
   if (!b || !b.final) return;
   if (b.ending && b.ending.played) return;
   if (!b.ending) b.ending = { type: yEndingType(b) };     // 旧セーブ＝現在値で再判定（甘め許容）
   b.ending.played = true;
   const type = b.ending.type;
-  const haigyo = (type === 'haigyo');
-  if (haigyo) {
-    G.flags.ended = 'haigyo';
-    if (typeof saveGame === 'function') saveGame();       // prepへ進まないため、ここで保存
-  }
   Story.play(yEndingScenes(type), () => {
     /* 5周前提の救済（作者決定 8/9）＝匂わせの一行だけ。
        ギャラリーも条件開示もしない——偶然たどり着いた結末は、その人のもの */
     if (typeof toast === 'function') toast('📖 この街の結末は、全部で五つある——');
-    if (haigyo && typeof returnToTitle === 'function') returnToTitle();
+    /* 傘下＝神代の申し出。**売るか、断るか**をここで聞く（作者決定 8/13）。
+       売れば、その結末で店は人手に渡って終わる。断れば、店は続く              */
+    if (type === 'sanka') { yAskKamishiro(); return; }
+    if (typeof yNextSeason === 'function') yNextSeason();
   });
-  return haigyo;
+  return false;                                          // 翌朝は、いつもどおり来る
+}
+
+/* ---- 神代の申し出（買収）に答える ---- */
+function yAskKamishiro() {
+  yAskChoice('神代', '「看板は残します。名前は、変わりますが」<br>'
+    + '<span class="opt-sub">売れば、この店は神代のものになる（ここで物語は終わる）。'
+    + '断れば、店はこのまま続く</span>',
+    '判を捺す（売る）', '断る', sold => {
+      if (sold) {
+        G.flags.ended = 'sanka';
+        if (typeof saveGame === 'function') saveGame();
+        Story.play(yEndingScenes('sanka_sold'), () => {
+          if (typeof returnToTitle === 'function') returnToTitle();
+        });
+        return;
+      }
+      Story.play(yEndingScenes('sanka_kept'), () => {
+        if (typeof yNextSeason === 'function') yNextSeason();
+      });
+    });
+}
+
+/* ---- 2択を聞く小さな器（妻のモーダルを借りる）----
+   専用の画面を増やさない。答えは rules_y.js の yWifeAnswer が、
+   この待ち行列を先に見て呼び返してくれる                                    */
+let Y_CHOICE = null;
+function yAskChoice(title, html, yes, no, cb) {
+  Y_CHOICE = cb;
+  document.getElementById('wifeName').textContent = title;
+  document.getElementById('wifeLine').innerHTML = html;
+  document.getElementById('btnWifeGo').textContent = yes;
+  document.getElementById('btnWifeNo').textContent = no;
+  document.getElementById('wifeModal').classList.remove('hidden');
+}
+/* 答えが来た（yWifeAnswer から）。器を元の妻の文言に戻す */
+function yChoiceAnswer(go) {
+  const cb = Y_CHOICE; if (!cb) return false;
+  Y_CHOICE = null;
+  document.getElementById('wifeModal').classList.add('hidden');
+  document.getElementById('btnWifeGo').textContent = 'それでも、やる';
+  document.getElementById('btnWifeNo').textContent = '……やめておく';
+  cb(!!go);
+  return true;
 }
 
 /* ---- 「つづきから」（btnContinue から chHook('continueLoaded')）----
@@ -239,9 +324,12 @@ function yNightStory() {
    タイトルでは器ごと隠れていて、一度も表示されていなかった。
    結末のあとに出していた「五つある」の一行も、同じ理由で誰にも見えていない       */
 function ySaveNote(d) {
-  if (!d || !d.flags || d.flags.ended !== 'haigyo') return null;
-  return 'この店の百二十日は、終わった。<br>'
-       + '——【はじめから】で、次の店を。<br>'
+  const end = d && d.flags && d.flags.ended;
+  if (!end) return null;
+  const head = end === 'sanka'
+    ? 'この店は、神代のものになった。'
+    : 'この店は、灯を落とした。';
+  return head + '<br>——【はじめから】で、次の店を。<br>'
        + '<span class="ended-hint">📖 この街の結末は、全部で五つある——</span>';
 }
 

@@ -1529,6 +1529,21 @@ function yTopTip() {
   if (!has('mizu'))  return '水風呂が要る。サウナの相棒だ';
   if (!has('wash'))  return '洗い場のカランを置こう';
   if (!has('rest'))  return 'ととのいイスを置こう。無いとととのう前に帰ってしまう';
+  /* 開ける支度が済んだら、**この店の目的**を出す（プレイヤー報告 2026-08-13）＝
+     「バトルのことをあまり考えていなかった。設備の点ばかり見て風呂場を作っていた」。
+     いちばん目に入る一行に、大会までの日数と、いまの点と優勝ラインを並べる */
+  if (typeof yBattleDay === 'function' && typeof yJoining === 'function') {
+    if (!yJoining()) return '🏆 今回の大会は見送り中。いまは店づくりに専念できる';
+    const left = yBattleDay() - G.day;
+    if (left >= 0) {
+      let line = '🏆 ととのい市サウナバトルまで あと' + left + '日';
+      try {
+        const my = yBattleScore100().total, line0 = yYosouLine();
+        line += '（いま ' + my + '点／優勝ライン ' + line0 + '点前後）';
+      } catch (e) { /* 採点できない日は日数だけ */ }
+      return line;
+    }
+  }
   return '';
 }
 
@@ -2375,6 +2390,9 @@ function yAskWife(kind, amount, id) {
 }
 /* 「それでも、やる」／「やめておく」 */
 function yWifeAnswer(go) {
+  /* 妻のモーダルは、章のほかの2択にも貸している（神代の買収・大会に出るか）。
+     待っている答えがあれば、そちらが先（ending_y.js / battle_y.js） */
+  if (typeof yChoiceAnswer === 'function' && yChoiceAnswer(go)) return;
   document.getElementById('wifeModal').classList.add('hidden');
   const a = Y_WIFE_ASK; Y_WIFE_ASK = null;
   if (!a) return;
