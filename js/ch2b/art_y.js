@@ -1587,6 +1587,7 @@ function yCapsuleArt(c2, it, def, x, y, w, h, rt, broken) {
 function yEquipArt(c2, it, def, x, y, w, h, rt, broken) {
   if (yCapsuleArt(c2, it, def, x, y, w, h, rt, broken)) return true;
   if (yFrontArt(c2, it, def, x, y, w, h, rt, broken)) return true;
+  if (yShokudoArt(c2, it, def, x, y, w, h, rt, broken)) return true;
   if (yWash5Art(c2, it, def, x, y, w, h, rt, broken)) return true;
   if (yOtoSaunaArt(c2, it, def, x, y, w, h, rt, broken)) return true;
   /* 第1章と同じ物は、第1章の絵で描く（id を読み替えて描き直させる）。
@@ -1645,6 +1646,170 @@ function yEquipArt(c2, it, def, x, y, w, h, rt, broken) {
     c2.fillStyle = 'rgba(240,246,250,.85)'; c2.font = 'bold 8px "DotGothic16",sans-serif'; c2.textAlign = 'center';
     c2.fillText('EV', x + w / 2 + 4, y + h / 2 + 3);
   }
+  return true;
+}
+
+/* ============================================================
+   5F食堂の品もの（プレイヤー報告 2026-08-13）
+   ------------------------------------------------------------
+   **食堂を建てた瞬間、10品ぜんぶが灰色の名前札だった。**
+   増築費を700万に下げて誰でも建てられるようにした以上、ここは埋めておく。
+   描き方は1階フロント（yFrontArt）と同じ＝**見下ろした絵。上の面が主役で、
+   厚みは下辺の濃い帯だけで出す**。broken のときは色を落とす。
+   ============================================================ */
+function yShokudoArt(c2, it, def, x, y, w, h, rt, broken) {
+  const F = {};
+  const dim = c => (broken ? '#8a8078' : c);
+  const R = (px, py, pw, ph, c) => { c2.fillStyle = c; c2.fillRect(x + px, y + py, pw, ph); };
+  const C = (cx, cy, r, c) => { c2.fillStyle = c; c2.beginPath(); c2.arc(x + cx, y + cy, r, 0, 7); c2.fill(); };
+  const base = (fill, top) => {
+    c2.fillStyle = 'rgba(0,0,0,.28)'; c2.fillRect(x + 2, y + 3, w - 2, h - 2);
+    c2.fillStyle = broken ? '#6a5f55' : fill;
+    c2.fillRect(x + 1, y + 1, w - 2, h - 2);
+    if (top) { c2.fillStyle = 'rgba(255,255,255,.14)'; c2.fillRect(x + 1, y + 1, w - 2, 3); }
+    c2.fillStyle = 'rgba(0,0,0,.30)'; c2.fillRect(x + 1, y + h - 4, w - 2, 3);
+    c2.strokeStyle = 'rgba(0,0,0,.40)'; c2.lineWidth = 1;
+    c2.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
+  };
+  /* 木の天板（席もの共通）。木目を2本入れると、板に見える */
+  const ita = (fill) => {
+    base(fill, true);
+    c2.fillStyle = 'rgba(0,0,0,.10)';
+    c2.fillRect(x + 4, y + h * 0.38, w - 8, 1);
+    c2.fillRect(x + 4, y + h * 0.66, w - 8, 1);
+  };
+  // 丸椅子（座面＋影）
+  const stool = (cx, cy, r) => { C(cx + 1, cy + 1, r, 'rgba(0,0,0,.30)'); C(cx, cy, r, dim('#8a5a3a')); C(cx, cy - r * 0.3, r * 0.55, dim('#a9743f')); };
+
+  /* ── 厨房（4×2）＝コンロ・寸胴・炊飯器・冷蔵庫。手前が受け渡しカウンター ── */
+  F.y_k_kitchen = () => {
+    base('#8e979e', true);                                   // ステンレスの島
+    R(3, 3, w - 6, h * 0.52, dim('#aab4bb'));                // 調理台の面
+    // コンロ2口（火が入っている）
+    for (let i = 0; i < 2; i++) {
+      const cx = 12 + i * 17, cy = 3 + h * 0.26;
+      C(cx, cy, 6, dim('#3a4148'));
+      if (!broken) { C(cx, cy, 3.5, '#ff9a3c'); C(cx, cy, 1.8, '#ffd98a'); }
+    }
+    R(34, 5, 13, 13, dim('#7b858c')); R(36, 3, 9, 3, dim('#c9d2d8'));      // 寸胴（湯気の出る鍋）
+    if (!broken) { c2.fillStyle = 'rgba(255,255,255,.30)'; c2.fillRect(x + 39, y + 1, 2, 3); }
+    R(52, 5, 12, 13, dim('#e2e6e9')); R(54, 8, 8, 3, dim('#b3402e'));      // 炊飯器
+    R(w - 26, 4, 22, h * 0.52 - 2, dim('#cfd6da'));                        // 冷蔵庫（両開き）
+    R(w / 2 + 12, 6, 1, h * 0.42, dim('#8e979e'));
+    R(w - 16, 10, 2, 5, dim('#8e979e')); R(w - 12, 10, 2, 5, dim('#8e979e'));
+    // 手前＝受け渡しカウンター。出来た皿が並ぶ
+    R(3, h * 0.62, w - 6, h * 0.3, dim('#a9743f'));
+    R(3, h * 0.62, w - 6, 2, dim('#c08a52'));
+    for (let i = 0; i < 4; i++) { C(14 + i * 22, h * 0.77, 4.5, dim('#f2f4f5')); C(14 + i * 22, h * 0.77, 2.2, dim('#e0c07a')); }
+  };
+
+  /* ── カウンター席（2×1・2席）＝細い天板＋丸椅子2 ── */
+  F.y_k_counter = () => {
+    ita('#a9743f');
+    R(3, 3, w - 6, h * 0.42, dim('#c08a52'));                // 天板の面
+    stool(w * 0.3, h * 0.74, 5); stool(w * 0.7, h * 0.74, 5);
+  };
+
+  /* ── テーブル席（2×2・4席）＝四角い卓に椅子4 ── */
+  F.y_k_table = () => {
+    c2.fillStyle = 'rgba(0,0,0,.26)'; c2.fillRect(x + 8, y + 9, w - 12, h - 12);
+    R(6, 6, w - 12, h - 12, dim('#a9743f'));                 // 卓
+    R(8, 8, w - 16, h - 16, dim('#c08a52'));
+    R(w / 2 - 5, h / 2 - 5, 10, 10, dim('#e8e2d2'));         // 卓上の紙ナプキン立て
+    stool(w / 2, 4, 4.5); stool(w / 2, h - 4, 4.5);          // 椅子4（上下左右）
+    stool(4, h / 2, 4.5); stool(w - 4, h / 2, 4.5);
+  };
+
+  /* ── 立ち飲みカウンター（3×1・3人）＝椅子が無い。天板とジョッキだけ ── */
+  F.y_k_bar = () => {
+    ita('#8a5a3a');
+    R(3, 4, w - 6, h * 0.5, dim('#a9743f'));
+    for (let i = 0; i < 3; i++) {                            // 置かれたジョッキ
+      const cx = w * (0.2 + i * 0.3);
+      C(cx, h * 0.52, 4, dim('#e8b23c')); C(cx, h * 0.44, 4, dim('#f2f4f5'));
+    }
+  };
+
+  /* ── 座敷席（3×2・6席）＝畳に座卓、座布団が6枚 ── */
+  F.y_k_zaseki = () => {
+    base('#c8b98a', true);                                   // 畳
+    c2.strokeStyle = 'rgba(0,0,0,.16)'; c2.lineWidth = 1;
+    for (let i = 1; i < 3; i++) { c2.beginPath(); c2.moveTo(x + i * w / 3, y + 2); c2.lineTo(x + i * w / 3, y + h - 2); c2.stroke(); }
+    R(2, 2, w - 4, 2, dim('#2e6b4f'));                        // 畳の縁
+    R(2, h - 4, w - 4, 2, dim('#2e6b4f'));
+    R(w * 0.22, h * 0.3, w * 0.56, h * 0.4, dim('#6b432a'));  // 座卓
+    R(w * 0.24, h * 0.32, w * 0.52, h * 0.34, dim('#8a5a3a'));
+    for (let i = 0; i < 3; i++) {                            // 座布団（上3・下3）
+      R(w * (0.16 + i * 0.28), 5, 12, 8, dim('#b3402e'));
+      R(w * (0.16 + i * 0.28), h - 13, 12, 8, dim('#b3402e'));
+    }
+  };
+
+  /* ── 窓際のカウンター（3×1・3人）＝上辺が窓。夜景が見えている ── */
+  F.y_k_mado = () => {
+    R(1, 1, w - 2, h * 0.42, dim('#1d2733'));                // 窓の外（夜）
+    if (!broken) {                                           // 熱波銀座の灯り
+      for (let i = 0; i < 7; i++) R(5 + i * ((w - 10) / 7), 4 + (i % 3) * 3, 3, 3, ['#ffd98a', '#7de0c8', '#ff9a3c'][i % 3]);
+    }
+    R(1, h * 0.42, w - 2, 2, dim('#5b6672'));                // サッシ
+    c2.fillStyle = 'rgba(0,0,0,.28)'; c2.fillRect(x + 2, y + h * 0.5 + 3, w - 2, h * 0.46);
+    R(1, h * 0.5, w - 2, h * 0.42, dim('#c08a52'));          // 天板
+    R(1, h * 0.5, w - 2, 2, dim('#d8a56a'));
+    for (let i = 0; i < 3; i++) stool(w * (0.2 + i * 0.3), h - 4, 4.5);
+  };
+
+  /* ── 生ビールサーバー（1×1）＝銀の筐体にタップ、横にジョッキ ── */
+  F.y_k_beer = () => {
+    base('#8e979e', true);
+    R(3, 3, w - 6, h * 0.5, dim('#aab4bb'));                 // 本体（上面）
+    R(5, 5, 7, 4, dim('#1d2530'));                           // 温度計の窓
+    R(4, h * 0.55, 6, 9, dim('#2a3138'));                    // タップの柱（太く・濃く）
+    R(3, h * 0.55, 8, 3, dim('#c9a86a'));                    // 金色のレバー
+    C(w - 10, h - 8, 5.5, dim('#e8b23c'));                   // ジョッキ（黄金色）
+    C(w - 10, h - 12, 5, dim('#fbf7ee'));                    // 泡（白を厚く）
+    R(w - 5, h - 12, 3, 8, dim('#cfd6da'));                  // 取っ手
+  };
+
+  /* ── ソフトクリーム機（1×1）＝白い筐体、下にコーン ── */
+  F.y_k_soft = () => {
+    base('#cfd6da', true);
+    R(3, 3, w - 6, h * 0.46, dim('#f2f4f5'));                // 白い筐体
+    R(5, 5, w - 10, 4, dim('#7de0c8'));                      // 操作パネル
+    R(w / 2 - 3, h * 0.5, 6, 4, dim('#8e979e'));             // ノズル
+    if (!broken) {                                           // 巻かれたクリーム（3段＋コーン）
+      C(w / 2, h * 0.66, 4.5, '#fff3d8');
+      C(w / 2, h * 0.78, 5.5, '#fff3d8');
+      c2.fillStyle = dim('#c9a86a');                         // コーン（三角）
+      c2.beginPath();
+      c2.moveTo(x + w / 2 - 5.5, y + h * 0.82); c2.lineTo(x + w / 2 + 5.5, y + h * 0.82);
+      c2.lineTo(x + w / 2, y + h - 2); c2.closePath(); c2.fill();
+    }
+  };
+
+  /* ── コーヒーマシン（1×1）＝黒い筐体、抽出口の下にカップ ── */
+  F.y_k_coffee = () => {
+    base('#3a3630', true);
+    R(4, 3, w - 8, h - 13, dim('#4a453e'));
+    R(6, 5, w - 12, 4, dim('#ff9a3c'));                      // ランプ
+    R(w / 2 - 3, h - 12, 6, 3, dim('#2a262a'));              // 抽出口
+    C(w / 2, h - 6, 4, dim('#f2f4f5'));                      // カップ
+    C(w / 2, h - 6, 2.4, dim('#6b432a'));                    // 中身
+  };
+
+  /* ── 食器返却棚（2×1）＝3段の棚に、下げた皿が積んである ── */
+  F.y_k_sara = () => {
+    base('#8e979e', true);
+    for (let r = 0; r < 3; r++) R(3, 4 + r * ((h - 8) / 3), w - 6, 2, dim('#aab4bb'));   // 棚板
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {                            // 積まれた皿
+      const cx = 9 + c * ((w - 14) / 3), cy = 3 + r * ((h - 8) / 3);
+      C(cx, cy, 3.6, dim('#f2f4f5')); C(cx, cy, 1.8, dim('#cfd6da'));
+    }
+    R(3, h - 6, w - 6, 3, dim('#7b858c'));                                               // 下の受け
+  };
+
+  const f = F[it.id];
+  if (!f) return false;
+  f();
   return true;
 }
 
