@@ -272,6 +272,9 @@ function yMorning() {
   if (c.lastMorning === G.day) return;
   c.lastMorning = G.day;
 
+  /* 昨日の2択が、答えを待ったまま消えていたら捨てる（＝妻の関門が効かなくなるのを防ぐ）。
+     捨てられた大会の申し込みは、この下の yAskJoin がもう一度聞く              */
+  if (typeof yChoiceStale === 'function') yChoiceStale();
   if (typeof yAskJoin === 'function') yAskJoin();       // 大会に出るか（2回目のシーズンから・14日前の朝）
   if (typeof yCheckAway === 'function') yCheckAway();   // 今日ひとが抜けるかを先に決める
   if (typeof yCheckKouji === 'function') yCheckKouji();

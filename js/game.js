@@ -10323,8 +10323,48 @@ function startPlacing(id, moving, opts) {
     ? (rl ? `${rl}のみ` : '場所をタップ')
     : EQ[id].name + (rl ? `（${rl}のみ）` : '');
 }
+/* ============ 設備の下に埋まった汚れを、無かったことにする ============
+   （プレイヤー報告 2026-08-14）
+   「汚れがある上にアイテムを置いても、汚れがまだあると認識される。
+     画面上に汚れはないのに『汚れのところまで行けない』と言い、ゴキブリも出る」
+
+   汚れは**設備より先に描く**ので、上に物を置くと絵は完全に隠れる。
+   一方、掃除は `findPath` でそのマスまで歩いて行く作りなので、
+   設備で塞がったマスへは永久にたどり着けない＝
+     ・バイトが「汚れの所まで行けない…」と言い続ける
+     ・ゴキブリの数には入り続ける（5つで湧く）
+     ・清潔度が下がったまま戻らない
+   しかも**プレイヤーからは何も見えない**ので、直しようがない。
+
+   **見えない汚れは、無い。** 物の下に入った汚れはその場で消す
+   （拭いたのではなく、物で覆った＝もう誰の目にも触れない）。
+
+   ⚠ 汚れは元々「歩いて行けるマス」にしか落ちない（dirtSpot / reachableSet）ので、
+     ここが消すのは**あとから物を置いて埋めたぶんだけ**。
+     マスの判定は区画ごとの地図で変わるので、必ず forEachArea の中で見る
+
+   ⚠ **第1章では立てないこと**（`CONF.clearBuriedDirt`）。
+     第1章は開幕から決まった位置に汚れが3つ置いてあり、そこへ設備を据える遊び方が
+     ふつうにある＝この掃除を入れると**汚れの数が変わって売上と清潔度が動く**。
+     実測で chapterGuard(1) が「準備中／準備中・設備あり／営業中の見た目が変わっている」
+     の3件で落ちた。第1章は審査に出したまま凍結する（第2章だけ直す）           */
+function clearBuriedDirt() {
+  if (!CONF.clearBuriedDirt) return 0;
+  if (!G.dirts || !G.dirts.length) return 0;
+  let gone = 0;
+  forEachArea(f => {
+    G.dirts = G.dirts.filter(d => {
+      if ((d.f | 0) !== f) return true;
+      if (walkable(d.x, d.y)) return true;
+      gone++;
+      return false;
+    });
+  });
+  return gone;
+}
 function endPlacing() {
   if (G.placing && G.placing.onCancel && !G.placing.placedN) G.placing.onCancel();
+  clearBuriedDirt();            // 置いた／動かした物の下に汚れが入っていたら、その場で消す
   G.placing = null;
   $('confirmBar').classList.add('hidden');
   $('placeInfo').classList.add('hidden');
@@ -11288,6 +11328,9 @@ function fixEquipOverlap() {
   if (moved.length || sold.length) G.equip = placed;
   if (moved.length) log(`🔧 ${[...new Set(moved)].join('・')}の置き場所を直した（大きさが変わったため）`);
   if (sold.length)  log(`📦 ${[...new Set(sold)].join('・')}は置けなくなったので撤去し、代金を返した`);
+  /* 続きから始めたセーブにも、設備の下に埋まったままの汚れが残っている。
+     ここで一度そうじしておく＝古いセーブの「見えないのに消えない汚れ」も解ける */
+  clearBuriedDirt();
 }
 
 /* ============ ゲーム開始 ============ */

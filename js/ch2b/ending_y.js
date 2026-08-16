@@ -332,13 +332,36 @@ function yAskChoice(title, html, yes, no, cb) {
   document.getElementById('btnWifeNo').textContent = no;
   document.getElementById('wifeModal').classList.remove('hidden');
 }
+/* 器を妻の文言に戻す（2択が終わったとき・答えずに消えたとき、どちらからも通る） */
+function yChoiceReset() {
+  document.getElementById('btnWifeGo').textContent = 'それでも、やる';
+  document.getElementById('btnWifeNo').textContent = '……やめておく';
+}
+/* ============ 答えを待ったまま画面が消えていないか ============
+   **答えないまま器（wifeModal）が閉じると、その2択は永久に待ち続ける。**
+   待っているあいだ `yWifeAnswer` は必ずこちらへ先に流すので、
+   そのあとの妻の関門（融資・増築・設備）は**押しても何も起こらない**
+   ＝プレイヤー報告 2026-08-14「融資のボタンを押したけど、何も起こらない」。
+   実測でも再現した（古い問いの答えが今ごろ実行され、融資は素通り）。
+
+   画面が閉じている＝その問いは流れた、とみなして捨てる。
+   捨てた側（大会に出るか等）は `asked` を下ろして**翌朝もう一度聞く**       */
+function yChoiceStale() {
+  if (!Y_CHOICE) return false;
+  const m = document.getElementById('wifeModal');
+  if (m && !m.classList.contains('hidden')) return false;   // ちゃんと出ている＝待って良い
+  Y_CHOICE = null;
+  yChoiceReset();
+  const b = (typeof yBattleState === 'function') ? yBattleState() : null;
+  if (b && b.asked && b.join == null) b.asked = false;      // 大会の申し込みは聞き直す
+  return true;
+}
 /* 答えが来た（yWifeAnswer から）。器を元の妻の文言に戻す */
 function yChoiceAnswer(go) {
   const cb = Y_CHOICE; if (!cb) return false;
   Y_CHOICE = null;
   document.getElementById('wifeModal').classList.add('hidden');
-  document.getElementById('btnWifeGo').textContent = 'それでも、やる';
-  document.getElementById('btnWifeNo').textContent = '……やめておく';
+  yChoiceReset();
   cb(!!go);
   return true;
 }

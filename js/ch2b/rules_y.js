@@ -2379,6 +2379,10 @@ function yWifeEquipLine(amount, id) {
 let Y_WIFE_ASK = null;
 function yAskWife(kind, amount, id) {
   if (!G.ch2) return false;
+  /* **器を借りている2択が、答えを待ったまま消えていないか。**
+     残っていると、この下で開く妻の確認の「やる」がそちらに吸われて、
+     融資も増築も**押しても何も起こらない**（プレイヤー報告 8/14）      */
+  if (typeof yChoiceStale === 'function') yChoiceStale();
   /* **機嫌が尽きると、彼女はもう止めない。**
      好きにすればいい、という状態＝関門が消えるのは、楽になったのではなく相談相手を失ったということ */
   if (typeof yWifeGone === 'function' && yWifeGone()) return false;

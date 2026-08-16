@@ -916,6 +916,30 @@ const UNLOCK_TIER_Y = {
    同じ点を返し続けて、壊れていることに気づけなかった。
    採点は G.equip を数回なめるだけで、カタログ1画面ぶんでも数万回の演算にしかならない */
 function yUnlockScores() { return yMyScore(); }
+/* ============ 鎖の解放は「一度開いたら、開いたまま」============
+   （プレイヤー報告 2026-08-14）
+   「上位のイスで揃えようと思って、浴場の下位のイスを消したら、上位が買えなくなった」
+
+   もとは**いま持っているか**だけを見ていたので、下位を売った瞬間に上位が閉じた。
+   買い替えは自然な遊び方で、しかも**先に下位を撤去してから上位を買う**のは
+   置き場所の都合でむしろ普通＝そこで詰む。
+
+   これからは、次のどれかを満たせば開いたままにする。
+     ・ひとつ前の品を、いま持っている（従来どおり）
+     ・**一度でも開いたことがある**（`G.ch2.chainOK` に記録＝セーブに残る）
+     ・その品自身、または**鎖のもっと先の品**を持っている
+       （古いセーブの救済。上位を持てている＝下位は必ず通っている）        */
+function yChainOpen(chainIds, i) {
+  const c = G.ch2; if (!c) return false;
+  const id = chainIds[i];
+  const memo = (c.chainOK = c.chainOK || {});
+  if (memo[id]) return true;
+  const have = x => (G.equip || []).some(e => e.id === x);
+  const ok = have(chainIds[i - 1])                        // ひとつ前を持っている
+          || chainIds.slice(i).some(have);                // 自分か、もっと上位を持っている
+  if (ok) memo[id] = true;                                // 開いた事実を残す
+  return ok;
+}
 /* その設備の解放条件。ゲートの無い品は null（＝最初から買える） */
 function yUnlockInfo(id, def) {
   if (!def) return null;
@@ -927,7 +951,7 @@ function yUnlockInfo(id, def) {
     const i = chainIds.indexOf(id);
     if (i <= 0) return null;                       // 鎖の先頭は最初から買える
     const prev = EQ[chainIds[i - 1]] || {};
-    const ok = (G.equip || []).some(e => e.id === chainIds[i - 1]);
+    const ok = yChainOpen(chainIds, i);
     return { ok, label: '【' + prev.name + '】の次', chainPrev: chainIds[i - 1],
              lockText: '【' + prev.name + '】を設置すると仕入れられる' };
   }
