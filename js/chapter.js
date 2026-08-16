@@ -228,6 +228,10 @@ function applyChapter(n) {
   const cw = document.getElementById('canvasWrap');
   if (cw) cw.classList.toggle('crop-top', !!CONF.cropTopWall);
   if (cw) cw.classList.toggle('crop-bottom', !!CONF.cropBottomWall);
+  /* 長い画面の右上の【✕】は、章が欲しがったときだけ足す（CONF.modalCloseX）。
+     ⚠ **ここで足すこと。** 頭の chapRestoreDOM() が index.html のままの姿へ戻すので、
+       起動時に一度足しただけでは、章を切り替えた瞬間に消える              */
+  if (typeof addModalCloseX === 'function') addModalCloseX();
 }
 
 /* いま遊んでいる章のセーブ先。章ごとに別のキー＝互いに上書きしない */

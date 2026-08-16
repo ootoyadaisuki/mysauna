@@ -404,6 +404,31 @@ function yYosenMetric(q) {
   if (q.theme === 'service') return 10 * ((typeof repDayScores === 'function' && repDayScores().omote) || 0);
   return 0;
 }
+/* ============ 「で、何をすれば勝てるのか」============
+   （プレイヤー報告 2026-08-14）
+   「【混雑対応】【個性】は、何をどうしたらポイントが上がって勝てるのかが
+     分からなかった。予選が変わった時に『◯◯を置こう！』みたいなヒントが
+     一緒に出てくるとやる気が出そう」
+
+   **採点式そのものを日本語に直す。**ここに書く手はすべて `yYosenMetric` の
+   中身と一対一で対応している（式を変えたら、この文も一緒に変えること）。
+     ・🧼清潔  = 85 −汚れ×4 +バイト×4 −深夜営業×8
+     ・🌊混雑  = 会計できた人 ÷（会計＋待ちきれず帰った＋入れず帰った）
+     ・✨個性  = 評判×0.5 +グッズの種類×9 +熱波師12 +上等なサウナ×8
+     ・🌙接客  = 評判の「おもてなし」×10（満足度と、愛想のいいバイト）        */
+const YOSEN_HINT_Y = {
+  clean: '🧹 <b>汚れを1つ残すと−4点。</b>掃除に回せるバイトを増やし（1人+4点）、'
+       + '深夜営業は−8点なので、この七日だけは畳むのも手',
+  crowd: '🚪 <b>帰らせた人がそのまま減点。</b>「入れず帰った」は1階の靴箱、'
+       + '「待ちきれず帰った」は券売機と番台の人手で減る。'
+       + '<span class="opt-sub">日報の“帰した人数”がそのまま点数だと思っていい</span>',
+  kosei: '✨ <b>グッズを1種類出すごとに+9点。</b>いちばん速い。'
+       + 'ほかに熱波師を雇うと+12点、上等なサウナ1台ごとに+8点',
+  service: '🙇 <b>愛想のいいバイトと、安いアメニティ。</b>'
+       + '評判の「おもてなし」がそのまま10倍になる。'
+       + '<span class="opt-sub">運営メニューでアメニティを安くするのがいちばん速い</span>',
+};
+function yYosenHint(q) { return (q && YOSEN_HINT_Y[q.theme]) || ''; }
 /* 相手の基準値。部門のあるテーマは相手のいまの部門点。無いテーマは店の看板の固定値 */
 function yYosenBase(q) {
   const r = ((G.ch2 && G.ch2.rivals) || []).find(x => x.id === q.rival);
@@ -582,6 +607,9 @@ function yBattleDaily() {
     const def0 = (typeof RIVALS_Y !== 'undefined' ? RIVALS_Y : []).find(x => x.id === q0.rival);
     let t0 = '🗞 ' + when0 + 'から<b>第' + q0.no + '予選【' + q0.icon + q0.name + '】</b>。'
            + '相手は' + (def0 ? def0.name : 'ライバル') + '。七日間の期間平均で採点される';
+    /* **前ぶれのうちに手を教える。**始まってから言われても、七日の平均には間に合わない */
+    const h0 = yYosenHint(q0);
+    if (h0) t0 += '<br>　' + h0;
     if (q0.no === 1) t0 += '<br>　鉄治「' + when0 + 'から七日だ。掃除くらい、今からやっとけ」';
     b.news.push(t0);
   }
@@ -591,8 +619,10 @@ function yBattleDaily() {
     if (!b.week) {
       b.week = { no: q.no, sum: 0, n: 0 };
       const def = (typeof RIVALS_Y !== 'undefined' ? RIVALS_Y : []).find(x => x.id === q.rival);
+      const h = yYosenHint(q);
       b.news.push('🏁 第' + q.no + '予選【' + q.icon + q.name + '】が始まった。相手は'
-                + (def ? def.name : 'ライバル') + '。' + yYosenTo(q) + '日目まで');
+                + (def ? def.name : 'ライバル') + '。' + yYosenTo(q) + '日目まで'
+                + (h ? '<br>　' + h : ''));
     }
     b.week.sum += yYosenMetric(q); b.week.n++;
   }
@@ -767,6 +797,32 @@ function yDataPane(tab) {
      + 'ここから最大 <b>' + bs.remain + '点</b>まで積める</div>';
   h += '<div class="opt-sub">' + std.map(r => r.rank + '位 '
      + (r.mine ? '<b>' + r.name + '</b>' : r.name) + ' ' + r.total).join('　') + '</div>';
+
+  /* ── いま走っている予選／次に来る予選と、その手（プレイヤー報告 8/14）──
+     日報の一行は流れてしまうので、**あとから引ける場所**にも同じ手を置く。
+     「何をどうしたら点が上がるのか分からなかった」への答えは、
+     日報で1回言って終わりにせず、七日のあいだいつでも見えるようにする   */
+  const nowQ = yYosenNow();
+  const nextQ = nowQ ? null : YOSEN_Y.find(x => G.day < yYosenFrom(x)
+                                             && !(G.ch2.battle.qual || []).some(z => z.no === x.no));
+  const q = nowQ || nextQ;
+  if (q && yJoining()) {
+    const rv = RIVALS_Y.find(x => x.id === q.rival);
+    const when = nowQ
+      ? '開催中　あと' + Math.max(0, yYosenTo(q) - G.day + 1) + '日'
+      : 'あと' + (yYosenFrom(q) - G.day) + '日で開幕';
+    h += '<div class="opt-sec">' + q.icon + ' 第' + q.no + '予選【' + q.name + '】'
+       + '<span class="opt-sub">　' + when + '</span></div>';
+    h += '<div class="opt-sub">相手は<b>' + (rv ? rv.name : 'ライバル') + '</b>'
+       + '（' + yYosenFrom(q) + '〜' + yYosenTo(q) + '日目の<b>七日間の平均</b>で採点）</div>';
+    h += '<div class="rep-row" style="display:block;text-align:left">' + yYosenHint(q) + '</div>';
+    if (nowQ) {
+      const w = G.ch2.battle.week;
+      h += '<div class="opt-sub">いまの点 <b>' + Math.round(yYosenMetric(q)) + '</b>'
+         + (w && w.n ? '／ここまでの平均 <b>' + Math.round(w.sum / w.n) + '</b>' : '')
+         + '　相手 ' + Math.round(yYosenBase(q)) + '</div>';
+    }
+  }
 
   /* **SAUNA GATE 37との差はここに出さない**（作者指定 8/2）。
      表を見れば差は分かるし、外観画面の下帯にも出ている */

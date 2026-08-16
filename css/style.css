@@ -920,3 +920,22 @@ body {
 }
 #gaikanList.ads #sendenPane .shop-price { margin-left:0; font-size:11px; }
 /* 【外観】【増築】のタブも一列の横スクロール（#shopTabsG は上でまとめて指定ずみ） */
+
+/* ===== 長い画面の右上に出す【✕】（プレイヤー報告 2026-08-14）=====
+   【とじる】は中身のいちばん下にあるので、データや運営のように縦に長い画面では
+   閉じるためだけに下までスクロールすることになる。同じボタンの分身を右上に置く。
+   ・`sticky` ＝スクロールしても画面の上のふちに貼りついたままになる
+     （はみ出す時にスクロールするのは .overlay のほうなので、そこに貼りつく）
+   ・`float` で本文の右上に逃がす＝見出しの位置は1pxも動かない
+   ・押せる大きさは44px（指で確実に届く大きさ・iOSの目安） */
+.modal-x {
+  position: sticky; top: 0; float: right; z-index: 5;
+  width: 34px; height: 34px; margin: -8px -8px 0 6px; padding: 0;
+  font-family: inherit; font-size: 17px; line-height: 1; color: #e6d5b8;
+  background: #4a3b2c; border: 2px solid #7a6448; border-radius: 8px;
+  box-shadow: 0 3px 0 #241a10; cursor: pointer;
+}
+.modal-x:active { transform: translateY(2px); box-shadow: 0 1px 0 #241a10; }
+/* 元の【とじる】が隠れている画面（＝閉じさせない画面。朝の強制イベントなど）では
+   右上の【✕】も出さない。JS 側も同じ条件で空振りさせてある（addModalCloseX） */
+.modal:has(> .big-btn.hidden) .modal-x { display: none; }

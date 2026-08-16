@@ -10362,6 +10362,40 @@ function clearBuriedDirt() {
   });
   return gone;
 }
+/* ============ 長い画面の右上に【✕】を足す ============
+   （プレイヤー報告 2026-08-14）
+   「データを見終わって閉じる時に、いちばん下までスクロールしないと
+     『とじる』が出てこないのが、些細だけど少し気になる。右上に❌が欲しい」
+
+   【とじる】は中身の**いちばん下**に置いてあるので、データや運営のように
+   縦に長い画面では、読み終わったあと閉じるためだけに指を何度も動かすことになる。
+
+   ここで足すのは**同じボタンの分身**＝押すと元の【とじる】を押す。
+   だから閉じ方（一時停止の解除・上のバーの引き直し）は一箇所のままで、
+   新しい閉じ方は増えない。
+
+   ⚠ **【とじる】を持っている画面にだけ足す。** 妻の確認や物語のように
+     「必ず選ばせる」画面には、そもそも【とじる】が無い＝逃げ道を作らない  */
+function addModalCloseX() {
+  if (!CONF.modalCloseX) return;
+  document.querySelectorAll('.overlay .modal').forEach(m => {
+    if (m.querySelector('.modal-x')) return;
+    /* この画面の【とじる】。複数あるときは**いちばん外側の1つ**（中の小箱の
+       【とじる】ではなく、画面そのものを閉じるボタン）を選ぶ */
+    const close = [...m.children].find(el => el.tagName === 'BUTTON' && /とじる/.test(el.textContent));
+    if (!close) return;
+    const x = document.createElement('button');
+    x.className = 'modal-x'; x.type = 'button';
+    x.textContent = '✕';
+    x.setAttribute('aria-label', 'とじる');
+    /* ⚠ **元の【とじる】が隠れている間は、こちらも効かせない。**
+       朝の画面（定休日の強制イベント）は、行き先が決まるまで【とじる】を隠して
+       閉じさせない作りになっている。分身がそこを素通りさせては台無しになる。
+       見た目のほうは CSS（`.modal:has(> .big-btn.hidden) .modal-x`）で消す */
+    x.onclick = () => { if (!close.classList.contains('hidden')) close.click(); };
+    m.insertBefore(x, m.firstChild);
+  });
+}
 function endPlacing() {
   if (G.placing && G.placing.onCancel && !G.placing.placedN) G.placing.onCancel();
   clearBuriedDirt();            // 置いた／動かした物の下に汚れが入っていたら、その場で消す
