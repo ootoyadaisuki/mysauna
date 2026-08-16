@@ -1588,6 +1588,7 @@ function yEquipArt(c2, it, def, x, y, w, h, rt, broken) {
   if (yCapsuleArt(c2, it, def, x, y, w, h, rt, broken)) return true;
   if (yFrontArt(c2, it, def, x, y, w, h, rt, broken)) return true;
   if (yShokudoArt(c2, it, def, x, y, w, h, rt, broken)) return true;
+  if (yLoungeArt(c2, it, def, x, y, w, h, rt, broken)) return true;
   if (yRoofArt(c2, it, def, x, y, w, h, rt, broken)) return true;
   if (yWash5Art(c2, it, def, x, y, w, h, rt, broken)) return true;
   if (yOtoSaunaArt(c2, it, def, x, y, w, h, rt, broken)) return true;
@@ -2043,6 +2044,312 @@ function yFrontArt(c2, it, def, x, y, w, h, rt, broken) {
     R(7, 6, w - 14, 6, dim('#7a6878'));                    // 背もたれの頭側
     R(2, 8, 4, 12, dim('#2a222a')); R(w - 6, 8, 4, 12, dim('#2a222a')); // 肘掛け
     R(w / 2 - 4, h - 10, 8, 3, dim('#ffd98a'));            // 操作パネル
+  };
+
+  const f = F[it.id];
+  if (!f) return false;
+  f();
+  return true;
+}
+
+/* ============================================================
+   4F休憩ラウンジの品もの（プレイヤー報告 2026-08-14）
+   ------------------------------------------------------------
+   「4階のアイテムのデザインが、いまほとんど同じ。バラエティが増えたら楽しいな。
+     ビーズクッションは丸っぽくしたり、充電ステーションは🔌とか」
+
+   実測したら、**4階に置ける19品のうち17品が灰色の名前札**だった。
+   食堂・屋上と同じ考えで埋める：**見下ろした絵。上の面が主役、厚みは下辺の帯。**
+   ここは「くつろぐ階」なので、他の階より**布と木**を多く、金属を少なくする。
+   同じ「座る物」でも、輪郭（丸い・角ばった・低い・高い）で見分けが付くようにした。
+   ============================================================ */
+function yLoungeArt(c2, it, def, x, y, w, h, rt, broken) {
+  const F = {};
+  const dim = c => (broken ? '#8a8078' : c);
+  const R = (px, py, pw, ph, c) => { c2.fillStyle = c; c2.fillRect(x + px, y + py, pw, ph); };
+  const C = (cx, cy, r, c) => { c2.fillStyle = c; c2.beginPath(); c2.arc(x + cx, y + cy, r, 0, 7); c2.fill(); };
+  const shade = () => { c2.fillStyle = 'rgba(0,0,0,.24)'; c2.fillRect(x + 3, y + 4, w - 3, h - 3); };
+  /* 丸い物の影は、四角く敷くと「灰色の板」に見える。足元に楕円で落とす */
+  const softShade = (cx, cy, rx) => {
+    c2.fillStyle = 'rgba(0,0,0,.24)';
+    c2.beginPath(); c2.ellipse(x + cx + 2, y + cy, rx, rx * 0.42, 0, 0, Math.PI * 2); c2.fill();
+  };
+  const seam = (px, py, pw, n, gap) => {                    // 布の縫い目
+    for (let i = 1; i <= n; i++) R(px, py + i * gap, pw, 1, 'rgba(0,0,0,.10)');
+  };
+
+  /* ── 長椅子（2×1）＝木のベンチ。板が3枚、脚が2本 ── */
+  F.y_x_bench = () => {
+    shade();
+    R(1, 3, w - 2, h - 7, dim('#a8703f'));
+    for (let i = 1; i < 3; i++) R(1, 3 + i * ((h - 7) / 3), w - 2, 1, 'rgba(0,0,0,.22)');
+    R(2, h - 4, 4, 3, dim('#6b432a')); R(w - 6, h - 4, 4, 3, dim('#6b432a'));
+  };
+
+  /* ── ロングソファ（3×1）＝背もたれのある布。座面が3つに割れている ── */
+  F.y_x_sofa = () => {
+    shade();
+    R(1, 1, w - 2, 6, dim('#4a5a6b'));                      // 背もたれ（奥）
+    R(1, 6, w - 2, h - 9, dim('#5e738a'));                  // 座面
+    for (let i = 1; i < 3; i++) R(1 + i * ((w - 2) / 3), 6, 1, h - 9, 'rgba(0,0,0,.22)');
+    R(0, 6, 3, h - 9, dim('#3f4d5c')); R(w - 3, 6, 3, h - 9, dim('#3f4d5c'));   // 肘掛け
+    R(1, h - 3, w - 2, 2, dim('#33404d'));
+  };
+
+  /* ── マッサージチェア（1×1）＝黒革。肩まで包む形と、脇の操作盤 ── */
+  F.y_x_massage = () => {
+    shade();
+    R(2, 1, w - 4, h - 3, dim('#2e2a28'));                  // 本体
+    R(4, 2, w - 8, 7, dim('#454040'));                      // 背（肩のところ）
+    R(4, 10, w - 8, h - 15, dim('#3a3634'));                // 座面
+    R(3, 4, 3, 9, dim('#1f1c1b')); R(w - 6, 4, 3, 9, dim('#1f1c1b'));           // 肩を挟む羽
+    if (!broken) {                                          // 稼働ランプ（ゆっくり点滅）
+      const on = Math.sin((rt || 0) * 3) > 0;
+      R(w - 7, h - 8, 4, 3, on ? '#6bd08a' : '#2c5a3a');
+    }
+  };
+
+  /* ── ごろ寝マット（2×1）＝床に敷いた薄い布。枕が2つ ── */
+  F.y_x_goro = () => {
+    c2.fillStyle = 'rgba(0,0,0,.16)'; c2.fillRect(x + 2, y + 3, w - 2, h - 2);
+    R(1, 2, w - 2, h - 5, dim('#7a8f6b'));                  // マット（低いので影も薄い）
+    R(1, 2, w - 2, 2, dim('#8fa37e'));
+    seam(3, 4, w - 6, 2, 6);
+    C(7, h - 8, 3, dim('#e4e9dc')); C(w - 7, h - 8, 3, dim('#e4e9dc'));         // 枕2つ
+  };
+
+  /* ── ビーズクッション（1×1）＝**まん丸**（作者指定）。角が一つも無い ── */
+  F.y_x_beads = () => {
+    softShade(w / 2, h - 4, w * 0.40);
+    const cx = w / 2, cy = h / 2 - 1, r = Math.min(w, h) * 0.42;
+    c2.fillStyle = dim('#c96a7a');
+    c2.beginPath(); c2.ellipse(x + cx, y + cy, r, r * 0.92, 0, 0, Math.PI * 2); c2.fill();
+    c2.fillStyle = dim('#e08a98');                          // 上の面の照り
+    c2.beginPath(); c2.ellipse(x + cx, y + cy - r * 0.22, r * 0.72, r * 0.5, 0, 0, Math.PI * 2); c2.fill();
+    c2.fillStyle = 'rgba(0,0,0,.14)';                       // 沈んだ真ん中（人が座る窪み）
+    c2.beginPath(); c2.ellipse(x + cx, y + cy + r * 0.18, r * 0.42, r * 0.24, 0, 0, Math.PI * 2); c2.fill();
+  };
+
+  /* ── 仮眠リクライナー（1×2）＝倒した椅子。頭・背・脚の三段に折れている ──
+     一色の長方形だと「ただの板」に見えたので、**折れ目で三段に割って**
+     頭側が起きていることが分かるようにした */
+  F.y_x_nap = () => {
+    shade();
+    R(1, 1, w - 2, h - 3, dim('#33423e'));                  // フレーム
+    R(2, 2, w - 4, 9, dim('#7d9a94'));                      // ①起こした背もたれ（いちばん明るい）
+    R(3, 3, w - 6, 4, dim('#a9c1bc'));                      // 枕
+    R(2, 12, w - 4, h - 22, dim('#5c7871'));                // ②座面
+    R(2, h - 10, w - 4, 7, dim('#4a625c'));                 // ③伸ばした脚置き（少し暗い＝寝かせてある）
+    R(2, 11, w - 4, 1, 'rgba(0,0,0,.35)');                  // 折れ目
+    R(2, h - 11, w - 4, 1, 'rgba(0,0,0,.35)');
+    R(0, 12, 2, h - 22, dim('#3e524d')); R(w - 2, 12, 2, h - 22, dim('#3e524d'));  // 肘掛け
+  };
+
+  /* ── 室内ハンモック（2×1）＝両端の柱と、たわんだ布 ── */
+  F.y_x_hammock = () => {
+    c2.fillStyle = 'rgba(0,0,0,.18)'; c2.fillRect(x + 4, y + h - 6, w - 6, 4);
+    R(1, 2, 3, h - 5, dim('#8a5a3a')); R(w - 4, 2, 3, h - 5, dim('#8a5a3a'));   // 柱
+    const sag = broken ? 2 : 5 + Math.sin((rt || 0) * 1.4) * 1.2;               // ゆっくり揺れる
+    c2.fillStyle = dim('#d8c48a');
+    c2.beginPath();
+    c2.moveTo(x + 4, y + h / 2 - 4);
+    c2.quadraticCurveTo(x + w / 2, y + h / 2 + sag + 4, x + w - 4, y + h / 2 - 4);
+    c2.quadraticCurveTo(x + w / 2, y + h / 2 + sag - 2, x + 4, y + h / 2 - 4);
+    c2.fill();
+    c2.strokeStyle = 'rgba(0,0,0,.20)'; c2.lineWidth = 1;                       // 網目
+    for (let i = 1; i < 4; i++) {
+      const px = x + 4 + i * ((w - 8) / 4);
+      c2.beginPath(); c2.moveTo(px, y + h / 2 - 3); c2.lineTo(px, y + h / 2 + sag); c2.stroke();
+    }
+  };
+
+  /* ── 畳の小上がり（3×2）＝一段高い畳。縁（へり）と畳目 ── */
+  F.y_x_tatami = () => {
+    shade();
+    R(0, 0, w, h - 3, dim('#3a4a34'));                      // 縁
+    R(2, 2, w - 4, h - 7, dim('#a8a86b'));                  // 畳
+    for (let i = 1; i < 3; i++) R(2 + i * ((w - 4) / 3), 2, 1, h - 7, 'rgba(60,70,40,.45)');
+    c2.strokeStyle = 'rgba(90,100,60,.30)'; c2.lineWidth = 1;                   // 畳目
+    for (let ly = 4; ly < h - 6; ly += 3) {
+      c2.beginPath(); c2.moveTo(x + 3, y + ly); c2.lineTo(x + w - 3, y + ly); c2.stroke();
+    }
+    R(0, h - 3, w, 3, dim('#2a3626'));                      // 段差
+  };
+
+  /* ── マンガ棚（2×2）＝背表紙がずらり。色をばらけさせる ── */
+  F.y_x_manga = () => {
+    shade();
+    R(1, 1, w - 2, h - 3, dim('#6b432a'));                  // 棚
+    const cols = ['#c9564a', '#e0a03c', '#4a8fc9', '#5fae6b', '#b06bc9', '#d8c48a'];
+    for (let r0 = 0; r0 < 3; r0++) {
+      const sy = 3 + r0 * ((h - 6) / 3);
+      R(2, sy + (h - 6) / 3 - 2, w - 4, 2, dim('#4a2f1c'));  // 棚板
+      for (let i = 0; i * 4 < w - 8; i++) {
+        R(3 + i * 4, sy, 3, (h - 6) / 3 - 3,
+          broken ? '#8a8078' : cols[(i + r0 * 2) % cols.length]);
+      }
+    }
+  };
+
+  /* ── サウナ雑誌の棚（2×1）＝低いラック。表紙を前に向けて並べる ── */
+  F.y_x_zasshi = () => {
+    shade();
+    R(1, 3, w - 2, h - 6, dim('#8a5a3a'));
+    const cols = ['#e0a03c', '#4a8fc9', '#c9564a'];
+    for (let i = 0; i < 3; i++) {
+      R(3 + i * ((w - 6) / 3), 4, (w - 6) / 3 - 2, h - 9,
+        broken ? '#8a8078' : cols[i]);                       // 表紙
+      R(3 + i * ((w - 6) / 3), 4, (w - 6) / 3 - 2, 2, 'rgba(255,255,255,.22)');
+    }
+    R(1, h - 4, w - 2, 2, dim('#5a3a24'));
+  };
+
+  /* ── ワークスペース（2×1）＝机と椅子2脚。天板にノートPC ── */
+  F.y_x_work = () => {
+    shade();
+    R(1, 2, w - 2, h - 6, dim('#a8865a'));                   // 天板
+    R(1, h - 5, w - 2, 3, dim('#6b533c'));
+    R(4, 4, 9, 6, dim('#3a4048'));                           // ノートPC（開いた画面）
+    if (!broken) R(5, 5, 7, 4, '#7fb0d8');
+    C(w - 8, 7, 3, dim('#4a5a6b')); C(w - 8, h - 8, 3, dim('#4a5a6b'));         // 椅子2脚
+  };
+
+  /* ── 静かな読書灯コーナー（2×1）＝スタンドの明かりが床に落ちる ── */
+  F.y_x_yomi = () => {
+    shade();
+    R(1, 4, w - 2, h - 8, dim('#5a4a3a'));                   // 低い台
+    R(3, 2, 6, 4, dim('#3a3430'));                           // 傘
+    R(5, 6, 2, 6, dim('#4a443e'));                           // 支柱
+    if (!broken) {                                           // 落ちた光（三角）
+      c2.fillStyle = 'rgba(255,224,150,.26)';
+      c2.beginPath();
+      c2.moveTo(x + 6, y + 6); c2.lineTo(x + 14, y + h - 3); c2.lineTo(x, y + h - 3);
+      c2.closePath(); c2.fill();
+      R(3, 2, 6, 2, '#ffd98a');
+    }
+    R(w - 10, 6, 8, h - 11, dim('#c9b48a'));                 // 開いた本
+    R(w - 6, 6, 1, h - 11, 'rgba(0,0,0,.22)');
+  };
+
+  /* ── 静かなテレビ・字幕（2×1）＝画面の下に字幕の帯 ── */
+  F.y_x_tv = () => {
+    shade();
+    R(1, 1, w - 2, h - 5, dim('#2a2e33'));                   // 枠
+    R(3, 3, w - 6, h - 10, broken ? '#4a4640' : '#3f6f8f');  // 画面
+    if (!broken) {
+      const t = rt || 0;                                     // 画面の中がゆっくり動く
+      c2.fillStyle = 'rgba(255,255,255,.14)';
+      c2.fillRect(x + 4, y + 5 + Math.round(Math.abs(Math.sin(t)) * 3), w - 8, 3);
+      R(4, h - 12, w - 8, 3, 'rgba(20,20,20,.55)');          // 字幕の帯
+      R(6, h - 11, w - 14, 1, 'rgba(255,255,255,.75)');
+    }
+    R(w / 2 - 4, h - 4, 8, 3, dim('#4a4640'));               // 脚
+  };
+
+  /* ── 充電ステーション（1×1）＝**コンセントの顔**（作者指定「🔌とか」）──
+     白い箱＋小さな穴2つでは、遠目に「ただの白い札」だった。
+     **濃い本体に、明るい差込口の面を大きく取る**＝1マスでもコンセントだと分かる。
+     置いたスマホと、垂れたケーブルで「充電するところ」を足す              */
+  F.y_x_charge = () => {
+    shade();
+    R(1, 1, w - 2, h - 3, dim('#2f3440'));                    // 濃い本体（周りの布と当たらない色）
+    R(2, 2, w - 4, h - 9, dim('#eef1f4'));                    // 明るい差込口の面
+    const cx = w / 2, cy = (h - 7) / 2 + 1;
+    R(cx - 5, cy - 5, 3, 9, dim('#20242c'));                  // 差込口の穴（大きく・縦2本）
+    R(cx + 2, cy - 5, 3, 9, dim('#20242c'));
+    R(cx - 5, cy + 5, 10, 1, 'rgba(0,0,0,.18)');
+    if (!broken) {
+      R(cx + 6, cy - 6, 4, 8, '#3a3f4a');                     // 挿さったプラグ
+      c2.strokeStyle = '#3a3f4a'; c2.lineWidth = 2;           // 垂れたケーブル
+      c2.beginPath();
+      c2.moveTo(x + cx + 8, y + cy - 2);
+      c2.quadraticCurveTo(x + w - 2, y + h - 8, x + w - 5, y + h - 4);
+      c2.stroke();
+      const a = (0.5 + 0.35 * Math.sin((rt || 0) * 2.2)).toFixed(2);   // 充電中の緑（呼吸する）
+      c2.fillStyle = `rgba(107,208,138,${a})`;
+      c2.fillRect(x + 3, y + h - 6, w - 6, 3);
+    } else {
+      R(3, h - 6, w - 6, 3, '#6a5f55');
+    }
+  };
+
+  /* ── よもぎ蒸しの個室（2×2）＝暖簾を下げた小屋。足元から蒸気 ──
+     中を暗くしすぎて「茶色い箱」になっていたので、**暖簾を大きく・よもぎ色を主役に**。
+     囲われた個室だと分かるように、柱と屋根の見切りを立てる                */
+  F.y_x_yomogi = () => {
+    shade();
+    R(0, 0, w, h - 2, dim('#7a6047'));                        // 小屋の外枠
+    R(1, 1, w - 2, 4, dim('#5a4632'));                        // 屋根の見切り
+    R(2, 5, w - 4, h - 9, dim('#2e2a22'));                    // 中（暗い＝人が入る奥行き）
+    R(2, 5, w - 4, Math.max(8, h * 0.45), dim('#6b8f52'));    // よもぎ色の暖簾（大きく）
+    for (let i = 1; i < 4; i++)                               // 暖簾の切れ目
+      R(2 + i * ((w - 4) / 4), 5, 1, Math.max(8, h * 0.45), 'rgba(0,0,0,.30)');
+    R(2, 5, w - 4, 2, dim('#8fb06e'));                        // 暖簾の上端に光
+    R(0, 5, 2, h - 7, dim('#5a4632')); R(w - 2, 5, 2, h - 7, dim('#5a4632'));   // 柱
+    if (!broken) {
+      const t = rt || 0;                                      // 裾から漏れる蒸気
+      for (let i = 0; i < 3; i++) {
+        const rise = (t * 6 + i * 4) % 11;
+        c2.fillStyle = `rgba(210,228,200,${(0.36 * (1 - rise / 11)).toFixed(2)})`;
+        c2.fillRect(x + 5 + i * ((w - 10) / 3), y + h - 7 - rise, 3, 4);
+      }
+    }
+    R(0, h - 2, w, 2, dim('#3e3226'));
+  };
+
+  /* ── アロマディフューザー（1×1）＝丸い木の器から、細い湯気が立つ ── */
+  F.y_x_aroma = () => {
+    softShade(w / 2, h - 5, w * 0.34);
+    const cx = w / 2, cy = h * 0.62, r = Math.min(w, h) * 0.34;   // 器を大きく（小さすぎて点に見えた）
+    c2.fillStyle = dim('#a8865a');
+    c2.beginPath(); c2.ellipse(x + cx, y + cy, r, r * 0.78, 0, 0, Math.PI * 2); c2.fill();
+    c2.fillStyle = dim('#c9a86a');
+    c2.beginPath(); c2.ellipse(x + cx, y + cy - r * 0.28, r * 0.68, r * 0.44, 0, 0, Math.PI * 2); c2.fill();
+    if (!broken) {
+      const t = rt || 0;                                      // 立ちのぼる細い湯気
+      for (let i = 0; i < 3; i++) {
+        const rise = (t * 7 + i * 4) % 12;
+        c2.fillStyle = `rgba(226,236,244,${(0.34 * (1 - rise / 12)).toFixed(2)})`;
+        c2.fillRect(x + cx - 1 + Math.round(Math.sin(t * 2.4 + i) * 2), y + cy - r - rise, 2, 3);
+      }
+    }
+  };
+
+  /* ── 大きな観葉植物（1×1）＝鉢から葉が四方へ ──
+     **「大きな」観葉植物なので、マスいっぱいに広げる。**
+     葉の長さを固定の数値で書いていたので、マスに対して小さすぎた＝
+     w/h から出すようにして、どの大きさで置かれても葉が茂って見えるようにした  */
+  F.y_x_plant = () => {
+    softShade(w / 2, h - 4, w * 0.34);
+    const cx = w / 2, cy = h * 0.42;
+    const L = Math.min(w, h) * 0.40, LW = L * 0.62, LH = L * 0.28;
+    if (!broken) {
+      c2.fillStyle = '#355c32';                               // 外側の葉（濃い・7枚）
+      for (let i = 0; i < 7; i++) {
+        const a = -Math.PI / 2 + (i - 3) * 0.46;
+        c2.beginPath();
+        c2.ellipse(x + cx + Math.cos(a) * L * 0.55, y + cy + Math.sin(a) * L * 0.5,
+                   LW, LH, a, 0, Math.PI * 2);
+        c2.fill();
+      }
+      c2.fillStyle = '#5e9450';                               // 内側の葉（明るい・4枚）
+      for (let i = 0; i < 4; i++) {
+        const a = -Math.PI / 2 + (i - 1.5) * 0.54;
+        c2.beginPath();
+        c2.ellipse(x + cx + Math.cos(a) * L * 0.34, y + cy - 2 + Math.sin(a) * L * 0.34,
+                   LW * 0.8, LH * 0.85, a, 0, Math.PI * 2);
+        c2.fill();
+      }
+      c2.fillStyle = '#7ab066';                               // 芯の新芽
+      c2.beginPath(); c2.ellipse(x + cx, y + cy - L * 0.42, LW * 0.4, LH * 1.1, 0, 0, Math.PI * 2); c2.fill();
+    } else {
+      c2.fillStyle = '#8a8078';
+      c2.beginPath(); c2.ellipse(x + cx, y + cy, L * 0.9, L * 0.5, 0, 0, Math.PI * 2); c2.fill();
+    }
+    const pw = Math.max(10, w * 0.42), ph = Math.max(6, h * 0.24);   // 鉢（素焼き）
+    R(cx - pw / 2, h - ph - 2, pw, ph, dim('#a8603f'));
+    R(cx - pw / 2, h - ph - 2, pw, 2, dim('#c97a52'));
+    R(cx - pw / 2 - 1, h - ph - 3, pw + 2, 2, dim('#b86a46'));       // 鉢の縁
   };
 
   const f = F[it.id];
